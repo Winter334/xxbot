@@ -1,0 +1,79 @@
+config_version = "1.0.0"
+
+[scalar]
+config_version = "1.0.0"
+base_hp = 100
+base_attack = 10
+base_defense = 8
+base_speed = 100
+crit_rate_cap = "0.75"
+dodge_rate_cap = "0.60"
+control_rate_cap = "0.65"
+damage_reduction_cap = "0.80"
+penetration_cap = "0.85"
+lifesteal_cap = "0.30"
+extra_action_cap_per_round = 1
+counterattack_cap_per_round = 2
+
+[realm_curve]
+config_version = "1.0.0"
+
+[[realm_curve.entries]]
+realm_id = "mortal"
+name = "凡人基准系数"
+order = 1
+coefficient = 1
+
+[[realm_curve.entries]]
+realm_id = "qi_refining"
+name = "炼气基准系数"
+order = 2
+coefficient = 10
+
+[[realm_curve.entries]]
+realm_id = "foundation"
+name = "筑基基准系数"
+order = 3
+coefficient = 60
+
+[[realm_curve.entries]]
+realm_id = "core"
+name = "结丹基准系数"
+order = 4
+coefficient = 420
+
+[[realm_curve.entries]]
+realm_id = "nascent_soul"
+name = "元婴基准系数"
+order = 5
+coefficient = 3360
+
+[[realm_curve.entries]]
+realm_id = "deity_transformation"
+name = "化神基准系数"
+order = 6
+coefficient = 30240
+
+[[realm_curve.entries]]
+realm_id = "void_refinement"
+name = "炼虚基准系数"
+order = 7
+coefficient = 362880
+
+[[realm_curve.entries]]
+realm_id = "body_integration"
+name = "合体基准系数"
+order = 8
+coefficient = 2903040
+
+[[realm_curve.entries]]
+realm_id = "great_vehicle"
+name = "大乘基准系数"
+order = 9
+coefficient = 26127360
+
+[[realm_curve.entries]]
+realm_id = "tribulation"
+name = "渡劫基准系数"
+order = 10
+coefficient = 261273600

@@ -1,0 +1,95 @@
+config_version = "1.0.0"
+
+[[stages]]
+stage_id = "early"
+name = "初期"
+order = 1
+multiplier = "1.0"
+
+[[stages]]
+stage_id = "middle"
+name = "中期"
+order = 2
+multiplier = "1.45"
+
+[[stages]]
+stage_id = "late"
+name = "后期"
+order = 3
+multiplier = "2.1"
+
+[[stages]]
+stage_id = "perfect"
+name = "圆满"
+order = 4
+multiplier = "3.0"
+
+[[realms]]
+realm_id = "mortal"
+name = "凡人"
+order = 1
+world_segment = "mortal_segment"
+stage_ids = ["early", "middle", "late", "perfect"]
+
+[[realms]]
+realm_id = "qi_refining"
+name = "炼气"
+order = 2
+world_segment = "human_segment"
+stage_ids = ["early", "middle", "late", "perfect"]
+
+[[realms]]
+realm_id = "foundation"
+name = "筑基"
+order = 3
+world_segment = "human_segment"
+stage_ids = ["early", "middle", "late", "perfect"]
+
+[[realms]]
+realm_id = "core"
+name = "结丹"
+order = 4
+world_segment = "human_segment"
+stage_ids = ["early", "middle", "late", "perfect"]
+
+[[realms]]
+realm_id = "nascent_soul"
+name = "元婴"
+order = 5
+world_segment = "human_segment"
+stage_ids = ["early", "middle", "late", "perfect"]
+
+[[realms]]
+realm_id = "deity_transformation"
+name = "化神"
+order = 6
+world_segment = "human_segment"
+stage_ids = ["early", "middle", "late", "perfect"]
+
+[[realms]]
+realm_id = "void_refinement"
+name = "炼虚"
+order = 7
+world_segment = "spirit_segment"
+stage_ids = ["early", "middle", "late", "perfect"]
+
+[[realms]]
+realm_id = "body_integration"
+name = "合体"
+order = 8
+world_segment = "spirit_segment"
+stage_ids = ["early", "middle", "late", "perfect"]
+
+[[realms]]
+realm_id = "great_vehicle"
+name = "大乘"
+order = 9
+world_segment = "spirit_segment"
+stage_ids = ["early", "middle", "late", "perfect"]
+
+[[realms]]
+realm_id = "tribulation"
+name = "渡劫"
+order = 10
+world_segment = "spirit_segment"
+stage_ids = ["early", "middle", "late", "perfect"]

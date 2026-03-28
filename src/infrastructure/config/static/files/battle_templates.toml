@@ -1,0 +1,385 @@
+config_version = "1.0.0"
+
+[[templates]]
+template_id = "wenxin_sword"
+path_id = "wenxin_sword"
+axis_id = "sword"
+name = "问心剑道"
+order = 1
+default_target_strategy = "lowest_hp_percent"
+resource_policy = "burst"
+template_tags = ["sword", "single_target", "execute", "first_strike"]
+
+[[templates.actions]]
+action_id = "wenxin_qi_blade"
+name = "起剑问心"
+order = 1
+action_type = "basic_attack"
+target_strategy = "highest_attack"
+priority = 40
+weight_permille = 360
+cooldown_rounds = 0
+resource_cost = 0
+damage_scale_permille = 1180
+shield_scale_permille = 0
+heal_scale_permille = 0
+control_chance_permille = 0
+max_triggers = 1
+labels = ["single_target", "opening", "sword_intent"]
+
+[[templates.actions]]
+action_id = "wenxin_core_pierce"
+name = "破心一剑"
+order = 2
+action_type = "burst_attack"
+target_strategy = "highest_attack"
+priority = 90
+weight_permille = 340
+cooldown_rounds = 1
+resource_cost = 18
+damage_scale_permille = 1850
+shield_scale_permille = 0
+heal_scale_permille = 0
+control_chance_permille = 0
+max_triggers = 1
+labels = ["single_target", "burst", "first_strike"]
+resource_above_permille = 350
+
+[[templates.actions]]
+action_id = "wenxin_final_cut"
+name = "断念绝锋"
+order = 3
+action_type = "finisher"
+target_strategy = "lowest_hp_percent"
+priority = 130
+weight_permille = 300
+cooldown_rounds = 2
+resource_cost = 24
+damage_scale_permille = 2550
+shield_scale_permille = 0
+heal_scale_permille = 0
+control_chance_permille = 0
+max_triggers = 1
+labels = ["single_target", "execute", "burst"]
+target_hp_below_permille = 450
+resource_above_permille = 500
+
+[[templates]]
+template_id = "zhanqing_sword"
+path_id = "zhanqing_sword"
+axis_id = "sword"
+name = "斩情剑道"
+order = 2
+default_target_strategy = "current_target"
+resource_policy = "steady"
+template_tags = ["sword", "combo", "pursuit", "sustained"]
+
+[[templates.actions]]
+action_id = "zhanqing_light_cut"
+name = "断情连斩"
+order = 1
+action_type = "basic_attack"
+target_strategy = "current_target"
+priority = 35
+weight_permille = 340
+cooldown_rounds = 0
+resource_cost = 0
+damage_scale_permille = 1120
+shield_scale_permille = 0
+heal_scale_permille = 0
+control_chance_permille = 0
+max_triggers = 1
+labels = ["single_target", "combo", "tempo"]
+
+[[templates.actions]]
+action_id = "zhanqing_chain_drive"
+name = "无情追命"
+order = 2
+action_type = "combo_attack"
+target_strategy = "current_target"
+priority = 70
+weight_permille = 410
+cooldown_rounds = 1
+resource_cost = 14
+damage_scale_permille = 1480
+shield_scale_permille = 0
+heal_scale_permille = 0
+control_chance_permille = 0
+max_triggers = 3
+labels = ["single_target", "combo", "pursuit"]
+resource_above_permille = 240
+
+[[templates.actions]]
+action_id = "zhanqing_finish_drive"
+name = "余刃追魂"
+order = 3
+action_type = "finisher"
+target_strategy = "lowest_hp_percent"
+priority = 110
+weight_permille = 250
+cooldown_rounds = 1
+resource_cost = 18
+damage_scale_permille = 1720
+shield_scale_permille = 0
+heal_scale_permille = 0
+control_chance_permille = 0
+max_triggers = 2
+labels = ["single_target", "execute", "pursuit"]
+target_hp_below_permille = 600
+resource_above_permille = 300
+
+[[templates]]
+template_id = "manhuang_body"
+path_id = "manhuang_body"
+axis_id = "body"
+name = "蛮荒战体"
+order = 3
+default_target_strategy = "highest_attack"
+resource_policy = "steady"
+template_tags = ["body", "counter", "guard_convert", "frontline"]
+
+[[templates.actions]]
+action_id = "manhuang_guard_up"
+name = "荒甲镇身"
+order = 1
+action_type = "shield_skill"
+target_strategy = "self"
+priority = 125
+weight_permille = 320
+cooldown_rounds = 2
+resource_cost = 12
+damage_scale_permille = 0
+shield_scale_permille = 1500
+heal_scale_permille = 0
+control_chance_permille = 0
+max_triggers = 1
+labels = ["self_cast", "shield", "survival"]
+self_hp_below_permille = 820
+
+[[templates.actions]]
+action_id = "manhuang_crush"
+name = "崩山重拳"
+order = 2
+action_type = "burst_attack"
+target_strategy = "highest_attack"
+priority = 75
+weight_permille = 360
+cooldown_rounds = 1
+resource_cost = 16
+damage_scale_permille = 1680
+shield_scale_permille = 0
+heal_scale_permille = 0
+control_chance_permille = 0
+max_triggers = 1
+labels = ["single_target", "burst", "guard_convert"]
+resource_above_permille = 260
+
+[[templates.actions]]
+action_id = "manhuang_rebound"
+name = "蛮荒反震"
+order = 3
+action_type = "counter_attack"
+target_strategy = "current_target"
+priority = 105
+weight_permille = 320
+cooldown_rounds = 0
+resource_cost = 8
+damage_scale_permille = 1320
+shield_scale_permille = 0
+heal_scale_permille = 0
+control_chance_permille = 0
+max_triggers = 2
+labels = ["single_target", "counter", "retaliation"]
+self_hp_below_permille = 900
+
+[[templates]]
+template_id = "changsheng_body"
+path_id = "changsheng_body"
+axis_id = "body"
+name = "长生道体"
+order = 4
+default_target_strategy = "ally_lowest_hp_percent"
+resource_policy = "conserve"
+template_tags = ["body", "shield", "heal", "sustain"]
+
+[[templates.actions]]
+action_id = "changsheng_ward"
+name = "长生灵幕"
+order = 1
+action_type = "shield_skill"
+target_strategy = "self"
+priority = 120
+weight_permille = 360
+cooldown_rounds = 2
+resource_cost = 12
+damage_scale_permille = 0
+shield_scale_permille = 1650
+heal_scale_permille = 0
+control_chance_permille = 0
+max_triggers = 1
+labels = ["self_cast", "shield", "stability"]
+self_hp_below_permille = 850
+
+[[templates.actions]]
+action_id = "changsheng_recover"
+name = "回春道息"
+order = 2
+action_type = "heal_skill"
+target_strategy = "ally_lowest_hp_percent"
+priority = 140
+weight_permille = 340
+cooldown_rounds = 2
+resource_cost = 16
+damage_scale_permille = 0
+shield_scale_permille = 0
+heal_scale_permille = 1480
+control_chance_permille = 0
+max_triggers = 1
+labels = ["heal", "support", "stability"]
+self_hp_below_permille = 700
+
+[[templates.actions]]
+action_id = "changsheng_palm"
+name = "长生镇岳"
+order = 3
+action_type = "basic_attack"
+target_strategy = "highest_attack"
+priority = 30
+weight_permille = 300
+cooldown_rounds = 0
+resource_cost = 0
+damage_scale_permille = 1220
+shield_scale_permille = 0
+heal_scale_permille = 0
+control_chance_permille = 0
+max_triggers = 1
+labels = ["single_target", "sustain", "frontline"]
+
+[[templates]]
+template_id = "qingyun_spell"
+path_id = "qingyun_spell"
+axis_id = "spell"
+name = "青云术脉"
+order = 5
+default_target_strategy = "all_enemies"
+resource_policy = "burst"
+template_tags = ["spell", "aoe", "burst", "clear_wave"]
+
+[[templates.actions]]
+action_id = "qingyun_arcane_blast"
+name = "青云灵爆"
+order = 1
+action_type = "burst_attack"
+target_strategy = "lowest_hp_percent"
+priority = 70
+weight_permille = 300
+cooldown_rounds = 1
+resource_cost = 16
+damage_scale_permille = 1780
+shield_scale_permille = 0
+heal_scale_permille = 0
+control_chance_permille = 0
+max_triggers = 1
+labels = ["single_target", "burst", "spell_focus"]
+resource_above_permille = 280
+
+[[templates.actions]]
+action_id = "qingyun_thunder_field"
+name = "云霄引雷"
+order = 2
+action_type = "area_spell"
+target_strategy = "all_enemies"
+priority = 115
+weight_permille = 420
+cooldown_rounds = 2
+resource_cost = 24
+damage_scale_permille = 1580
+shield_scale_permille = 0
+heal_scale_permille = 0
+control_chance_permille = 0
+max_triggers = 1
+labels = ["aoe", "burst", "clear_wave"]
+resource_above_permille = 400
+enemy_count_at_least = 2
+
+[[templates.actions]]
+action_id = "qingyun_spirit_surge"
+name = "聚灵再起"
+order = 3
+action_type = "basic_attack"
+target_strategy = "current_target"
+priority = 25
+weight_permille = 280
+cooldown_rounds = 0
+resource_cost = 0
+damage_scale_permille = 1080
+shield_scale_permille = 0
+heal_scale_permille = 0
+control_chance_permille = 0
+max_triggers = 1
+labels = ["single_target", "tempo", "resource_cycle"]
+
+[[templates]]
+template_id = "wangchuan_spell"
+path_id = "wangchuan_spell"
+axis_id = "spell"
+name = "忘川术脉"
+order = 6
+default_target_strategy = "highest_attack"
+resource_policy = "steady"
+template_tags = ["spell", "control", "debuff", "attrition"]
+
+[[templates.actions]]
+action_id = "wangchuan_soul_bind"
+name = "摄魂锁魄"
+order = 1
+action_type = "control_spell"
+target_strategy = "highest_attack"
+priority = 135
+weight_permille = 320
+cooldown_rounds = 2
+resource_cost = 18
+damage_scale_permille = 920
+shield_scale_permille = 0
+heal_scale_permille = 0
+control_chance_permille = 520
+max_triggers = 1
+labels = ["single_target", "control", "interrupt"]
+resource_above_permille = 320
+
+[[templates.actions]]
+action_id = "wangchuan_erosion"
+name = "黄泉蚀脉"
+order = 2
+action_type = "debuff_spell"
+target_strategy = "highest_guard"
+priority = 95
+weight_permille = 360
+cooldown_rounds = 1
+resource_cost = 16
+damage_scale_permille = 1260
+shield_scale_permille = 0
+heal_scale_permille = 0
+control_chance_permille = 180
+max_triggers = 1
+labels = ["single_target", "debuff", "anti_guard"]
+resource_above_permille = 260
+
+[[templates.actions]]
+action_id = "wangchuan_river_domain"
+name = "奈河镇魄"
+order = 3
+action_type = "area_spell"
+target_strategy = "all_enemies"
+priority = 110
+weight_permille = 320
+cooldown_rounds = 2
+resource_cost = 22
+damage_scale_permille = 980
+shield_scale_permille = 0
+heal_scale_permille = 0
+control_chance_permille = 260
+max_triggers = 1
+labels = ["aoe", "control", "attrition"]
+resource_above_permille = 380
+enemy_count_at_least = 2

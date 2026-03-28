@@ -1,0 +1,81 @@
+config_version = "1.0.0"
+
+[[entries]]
+realm_id = "mortal"
+name = "凡人标准日"
+order = 1
+standard_days = "0.5"
+daily_cultivation = 100
+total_cultivation = 50
+
+[[entries]]
+realm_id = "qi_refining"
+name = "炼气标准日"
+order = 2
+standard_days = "1.0"
+daily_cultivation = 300
+total_cultivation = 300
+
+[[entries]]
+realm_id = "foundation"
+name = "筑基标准日"
+order = 3
+standard_days = "1.5"
+daily_cultivation = 1000
+total_cultivation = 1500
+
+[[entries]]
+realm_id = "core"
+name = "结丹标准日"
+order = 4
+standard_days = "2.0"
+daily_cultivation = 3000
+total_cultivation = 6000
+
+[[entries]]
+realm_id = "nascent_soul"
+name = "元婴标准日"
+order = 5
+standard_days = "2.5"
+daily_cultivation = 10000
+total_cultivation = 25000
+
+[[entries]]
+realm_id = "deity_transformation"
+name = "化神标准日"
+order = 6
+standard_days = "3.2"
+daily_cultivation = 30000
+total_cultivation = 96000
+
+[[entries]]
+realm_id = "void_refinement"
+name = "炼虚标准日"
+order = 7
+standard_days = "4.0"
+daily_cultivation = 100000
+total_cultivation = 400000
+
+[[entries]]
+realm_id = "body_integration"
+name = "合体标准日"
+order = 8
+standard_days = "4.5"
+daily_cultivation = 300000
+total_cultivation = 1350000
+
+[[entries]]
+realm_id = "great_vehicle"
+name = "大乘标准日"
+order = 9
+standard_days = "5.0"
+daily_cultivation = 1000000
+total_cultivation = 5000000
+
+[[entries]]
+realm_id = "tribulation"
+name = "渡劫标准日"
+order = 10
+standard_days = "3.0"
+daily_cultivation = 3000000
+total_cultivation = 9000000

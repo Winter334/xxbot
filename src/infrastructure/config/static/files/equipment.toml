@@ -1,0 +1,1147 @@
+config_version = "1.0.0"
+
+[[slots]]
+slot_id = "weapon"
+name = "武器"
+order = 1
+core_role = "决定主要输出底盘。"
+
+[[slots]]
+slot_id = "armor"
+name = "护甲"
+order = 2
+core_role = "决定主要生存底盘。"
+
+[[slots]]
+slot_id = "accessory"
+name = "饰品"
+order = 3
+core_role = "决定节奏与精细属性。"
+
+[[slots]]
+slot_id = "artifact"
+name = "法宝"
+order = 4
+core_role = "承载特殊机制与流派强化。"
+
+[[equipment_ranks]]
+rank_id = "mortal"
+name = "一阶"
+order = 1
+mapped_realm_id = "mortal"
+base_attribute_multiplier = "1.00"
+affix_base_value_multiplier = "1.00"
+dismantle_reward_multiplier = "1.00"
+
+[[equipment_ranks]]
+rank_id = "qi_refining"
+name = "二阶"
+order = 2
+mapped_realm_id = "qi_refining"
+base_attribute_multiplier = "1.58"
+affix_base_value_multiplier = "1.58"
+dismantle_reward_multiplier = "1.32"
+
+[[equipment_ranks]]
+rank_id = "foundation"
+name = "三阶"
+order = 3
+mapped_realm_id = "foundation"
+base_attribute_multiplier = "2.27"
+affix_base_value_multiplier = "2.27"
+dismantle_reward_multiplier = "1.63"
+
+[[equipment_ranks]]
+rank_id = "core"
+name = "四阶"
+order = 4
+mapped_realm_id = "core"
+base_attribute_multiplier = "3.35"
+affix_base_value_multiplier = "3.35"
+dismantle_reward_multiplier = "2.06"
+
+[[equipment_ranks]]
+rank_id = "nascent_soul"
+name = "五阶"
+order = 5
+mapped_realm_id = "nascent_soul"
+base_attribute_multiplier = "5.07"
+affix_base_value_multiplier = "5.07"
+dismantle_reward_multiplier = "2.65"
+
+[[equipment_ranks]]
+rank_id = "deity_transformation"
+name = "六阶"
+order = 6
+mapped_realm_id = "deity_transformation"
+base_attribute_multiplier = "7.87"
+affix_base_value_multiplier = "7.87"
+dismantle_reward_multiplier = "3.45"
+
+[[equipment_ranks]]
+rank_id = "void_refinement"
+name = "七阶"
+order = 7
+mapped_realm_id = "void_refinement"
+base_attribute_multiplier = "12.94"
+affix_base_value_multiplier = "12.94"
+dismantle_reward_multiplier = "4.65"
+
+[[equipment_ranks]]
+rank_id = "body_integration"
+name = "八阶"
+order = 8
+mapped_realm_id = "body_integration"
+base_attribute_multiplier = "19.61"
+affix_base_value_multiplier = "19.61"
+dismantle_reward_multiplier = "5.96"
+
+[[equipment_ranks]]
+rank_id = "great_vehicle"
+name = "九阶"
+order = 9
+mapped_realm_id = "great_vehicle"
+base_attribute_multiplier = "30.44"
+affix_base_value_multiplier = "30.44"
+dismantle_reward_multiplier = "7.76"
+
+[[equipment_ranks]]
+rank_id = "tribulation"
+name = "十阶"
+order = 10
+mapped_realm_id = "tribulation"
+base_attribute_multiplier = "48.24"
+affix_base_value_multiplier = "48.24"
+dismantle_reward_multiplier = "10.23"
+
+[[qualities]]
+quality_id = "common"
+name = "普通"
+order = 1
+max_affix_tier_id = "yellow"
+base_affix_count = 1
+attribute_multiplier = "1.00"
+max_enhancement_level = 6
+
+[[qualities]]
+quality_id = "rare"
+name = "稀有"
+order = 2
+max_affix_tier_id = "mystic"
+base_affix_count = 2
+attribute_multiplier = "1.18"
+max_enhancement_level = 8
+
+[[qualities]]
+quality_id = "epic"
+name = "史诗"
+order = 3
+max_affix_tier_id = "earth"
+base_affix_count = 3
+attribute_multiplier = "1.38"
+max_enhancement_level = 10
+
+[[qualities]]
+quality_id = "legendary"
+name = "传说"
+order = 4
+max_affix_tier_id = "heaven"
+base_affix_count = 4
+attribute_multiplier = "1.60"
+max_enhancement_level = 12
+
+[[base_templates]]
+template_id = "iron_sword"
+name = "玄铁剑"
+order = 1
+slot_id = "weapon"
+generation_weight = 100
+preferred_affix_ids = ["attack_power", "penetration"]
+attributes = [
+  { stat_id = "attack_power", value = 82 },
+  { stat_id = "speed", value = 6 },
+]
+summary = "偏向稳定攻力与先手节奏的基础兵刃。"
+
+[[base_templates]]
+template_id = "spirit_blade"
+name = "灵纹刃"
+order = 2
+slot_id = "weapon"
+generation_weight = 80
+preferred_affix_ids = ["attack_power", "pve_damage"]
+attributes = [
+  { stat_id = "attack_power", value = 74 },
+  { stat_id = "crit_rate_permille", value = 35 },
+]
+summary = "偏向爆发追求的高品质武器底材。"
+
+[[base_templates]]
+template_id = "iron_armor"
+name = "玄甲"
+order = 3
+slot_id = "armor"
+generation_weight = 100
+preferred_affix_ids = ["health_pool", "guard_power"]
+attributes = [
+  { stat_id = "max_hp", value = 420 },
+  { stat_id = "guard_power", value = 58 },
+]
+summary = "以气血与护体承载为主的护甲底材。"
+
+[[base_templates]]
+template_id = "cloud_robe"
+name = "云纹袍"
+order = 4
+slot_id = "armor"
+generation_weight = 78
+preferred_affix_ids = ["damage_reduction", "pvp_control_resist"]
+attributes = [
+  { stat_id = "max_hp", value = 360 },
+  { stat_id = "damage_reduction_permille", value = 24 },
+]
+summary = "偏向减伤与抗干扰的护甲底材。"
+
+[[base_templates]]
+template_id = "jade_ring"
+name = "灵玉戒"
+order = 5
+slot_id = "accessory"
+generation_weight = 100
+preferred_affix_ids = ["crit_rate", "speed_bonus"]
+attributes = [
+  { stat_id = "crit_rate_permille", value = 45 },
+  { stat_id = "speed", value = 12 },
+]
+summary = "偏向暴击与速度节奏的饰品底材。"
+
+[[base_templates]]
+template_id = "star_pendant"
+name = "星辉佩"
+order = 6
+slot_id = "accessory"
+generation_weight = 82
+preferred_affix_ids = ["penetration", "speed_bonus"]
+attributes = [
+  { stat_id = "damage_bonus_permille", value = 26 },
+  { stat_id = "speed", value = 10 },
+]
+summary = "偏向压制与机动修正的饰品底材。"
+
+[enhancement]
+
+[[enhancement.levels]]
+target_level = 1
+success_rate = "0.95"
+base_stat_bonus_ratio = "0.04"
+affix_bonus_ratio = "0.02"
+bonus_affix_unlock_count = 0
+costs = [
+  { resource_id = "spirit_stone", quantity = 300 },
+  { resource_id = "enhancement_stone", quantity = 1 },
+]
+
+[[enhancement.levels]]
+target_level = 2
+success_rate = "0.90"
+base_stat_bonus_ratio = "0.04"
+affix_bonus_ratio = "0.02"
+bonus_affix_unlock_count = 0
+costs = [
+  { resource_id = "spirit_stone", quantity = 500 },
+  { resource_id = "enhancement_stone", quantity = 2 },
+]
+
+[[enhancement.levels]]
+target_level = 3
+success_rate = "0.85"
+base_stat_bonus_ratio = "0.05"
+affix_bonus_ratio = "0.02"
+bonus_affix_unlock_count = 0
+costs = [
+  { resource_id = "spirit_stone", quantity = 800 },
+  { resource_id = "enhancement_stone", quantity = 3 },
+]
+
+[[enhancement.levels]]
+target_level = 4
+success_rate = "0.80"
+base_stat_bonus_ratio = "0.05"
+affix_bonus_ratio = "0.03"
+bonus_affix_unlock_count = 1
+costs = [
+  { resource_id = "spirit_stone", quantity = 1200 },
+  { resource_id = "enhancement_stone", quantity = 4 },
+]
+
+[[enhancement.levels]]
+target_level = 5
+success_rate = "0.74"
+base_stat_bonus_ratio = "0.05"
+affix_bonus_ratio = "0.03"
+bonus_affix_unlock_count = 0
+costs = [
+  { resource_id = "spirit_stone", quantity = 1700 },
+  { resource_id = "enhancement_stone", quantity = 5 },
+]
+
+[[enhancement.levels]]
+target_level = 6
+success_rate = "0.68"
+base_stat_bonus_ratio = "0.06"
+affix_bonus_ratio = "0.03"
+bonus_affix_unlock_count = 0
+costs = [
+  { resource_id = "spirit_stone", quantity = 2300 },
+  { resource_id = "enhancement_stone", quantity = 6 },
+]
+
+[[enhancement.levels]]
+target_level = 7
+success_rate = "0.62"
+base_stat_bonus_ratio = "0.06"
+affix_bonus_ratio = "0.03"
+bonus_affix_unlock_count = 0
+costs = [
+  { resource_id = "spirit_stone", quantity = 3000 },
+  { resource_id = "enhancement_stone", quantity = 7 },
+]
+
+[[enhancement.levels]]
+target_level = 8
+success_rate = "0.56"
+base_stat_bonus_ratio = "0.06"
+affix_bonus_ratio = "0.04"
+bonus_affix_unlock_count = 1
+costs = [
+  { resource_id = "spirit_stone", quantity = 3800 },
+  { resource_id = "enhancement_stone", quantity = 8 },
+]
+
+[[enhancement.levels]]
+target_level = 9
+success_rate = "0.50"
+base_stat_bonus_ratio = "0.07"
+affix_bonus_ratio = "0.04"
+bonus_affix_unlock_count = 0
+costs = [
+  { resource_id = "spirit_stone", quantity = 4700 },
+  { resource_id = "enhancement_stone", quantity = 9 },
+]
+
+[[enhancement.levels]]
+target_level = 10
+success_rate = "0.44"
+base_stat_bonus_ratio = "0.07"
+affix_bonus_ratio = "0.04"
+bonus_affix_unlock_count = 0
+costs = [
+  { resource_id = "spirit_stone", quantity = 5700 },
+  { resource_id = "enhancement_stone", quantity = 10 },
+]
+
+[[enhancement.levels]]
+target_level = 11
+success_rate = "0.38"
+base_stat_bonus_ratio = "0.08"
+affix_bonus_ratio = "0.05"
+bonus_affix_unlock_count = 0
+costs = [
+  { resource_id = "spirit_stone", quantity = 6800 },
+  { resource_id = "enhancement_stone", quantity = 12 },
+]
+
+[[enhancement.levels]]
+target_level = 12
+success_rate = "0.32"
+base_stat_bonus_ratio = "0.08"
+affix_bonus_ratio = "0.05"
+bonus_affix_unlock_count = 0
+costs = [
+  { resource_id = "spirit_stone", quantity = 8000 },
+  { resource_id = "enhancement_stone", quantity = 14 },
+]
+
+[[affix_tiers]]
+tier_id = "yellow"
+name = "黄品"
+order = 1
+min_multiplier = "1.00"
+max_multiplier = "1.10"
+
+[[affix_tiers]]
+tier_id = "mystic"
+name = "玄品"
+order = 2
+min_multiplier = "1.12"
+max_multiplier = "1.26"
+
+[[affix_tiers]]
+tier_id = "earth"
+name = "地品"
+order = 3
+min_multiplier = "1.28"
+max_multiplier = "1.46"
+
+[[affix_tiers]]
+tier_id = "heaven"
+name = "天品"
+order = 4
+min_multiplier = "1.50"
+max_multiplier = "1.80"
+
+[[special_effects]]
+effect_id = "sunder_on_hit"
+name = "破甲印"
+order = 1
+effect_type = "sunder_on_hit"
+trigger_event = "damage_resolved"
+public_score_key = "se_sunder_on_hit"
+hidden_pvp_score_key = "pvp_se_sunder_on_hit"
+payload = { trigger_rate_permille = 300, suppression_permille = 250, duration_rounds = 2, max_stacks = 1, cooldown_rounds = 1, max_triggers_per_round = 1 }
+summary = "造成伤害后有概率对当前受击目标施加短时属性压制。"
+
+[[special_effects]]
+effect_id = "dot_on_hit"
+name = "蚀骨印"
+order = 2
+effect_type = "dot_on_hit"
+trigger_event = "damage_resolved"
+public_score_key = "se_dot_on_hit"
+hidden_pvp_score_key = "pvp_se_dot_on_hit"
+payload = { trigger_rate_permille = 250, dot_ratio_permille = 250, duration_rounds = 2, max_stacks = 3, cooldown_rounds = 1, max_triggers_per_round = 1 }
+summary = "造成伤害后有概率对当前受击目标施加持续伤害。"
+
+[[special_effects]]
+effect_id = "battle_start_barrier"
+name = "开局铁壁"
+order = 3
+effect_type = "battle_start_barrier"
+trigger_event = "battle_start"
+public_score_key = "se_battle_start_barrier"
+hidden_pvp_score_key = "pvp_se_battle_start_barrier"
+payload = { guard_ratio_permille = 600, trigger_rate_permille = 1000, cooldown_rounds = 0, max_stacks = 1, max_triggers_per_battle = 1 }
+summary = "战斗开始时仅首轮入场生效，为自身附加护盾。"
+
+[[special_effects]]
+effect_id = "barrier_on_damage_taken"
+name = "受击凝甲"
+order = 4
+effect_type = "barrier_on_damage_taken"
+trigger_event = "damage_taken"
+public_score_key = "se_barrier_on_damage_taken"
+hidden_pvp_score_key = "pvp_se_barrier_on_damage_taken"
+payload = { trigger_rate_permille = 350, damage_ratio_permille = 200, cooldown_rounds = 1, max_stacks = 1, max_triggers_per_round = 1 }
+summary = "受到伤害后有概率按受击值转化为护盾。"
+
+[[special_effects]]
+effect_id = "low_hp_regen"
+name = "危境回春"
+order = 5
+effect_type = "low_hp_regen"
+trigger_event = "turn_start"
+public_score_key = "se_low_hp_regen"
+hidden_pvp_score_key = "pvp_se_low_hp_regen"
+payload = { trigger_rate_permille = 1000, hp_threshold_permille = 500, attack_ratio_permille = 180, cooldown_rounds = 2, max_stacks = 1, max_triggers_per_round = 1 }
+summary = "回合开始时若自身气血偏低，则回复一定气血。"
+
+[[special_effects]]
+effect_id = "heal_after_attack"
+name = "行后调息"
+order = 6
+effect_type = "heal_after_attack"
+trigger_event = "after_action"
+public_score_key = "se_heal_after_attack"
+hidden_pvp_score_key = "pvp_se_heal_after_attack"
+payload = { trigger_rate_permille = 1000, attack_ratio_permille = 120, cooldown_rounds = 1, max_stacks = 1, requires_damage_resolved = true, max_triggers_per_round = 1 }
+summary = "完成一次造成伤害的动作后回复自身气血。"
+
+[[special_effects]]
+effect_id = "round_end_barrier_if_empty"
+name = "续战护脉"
+order = 7
+effect_type = "round_end_barrier_if_empty"
+trigger_event = "round_end"
+public_score_key = "se_round_end_barrier_if_empty"
+hidden_pvp_score_key = "pvp_se_round_end_barrier_if_empty"
+payload = { trigger_rate_permille = 1000, guard_ratio_permille = 180, cooldown_rounds = 1, max_stacks = 1, require_empty_shield = true, max_triggers_per_round = 1 }
+summary = "回合结束时若自身当前没有护盾，则补上一层护盾。"
+
+[[special_effects]]
+effect_id = "counter_sunder"
+name = "反压蚀势"
+order = 8
+effect_type = "counter_sunder"
+trigger_event = "damage_taken"
+public_score_key = "se_counter_sunder"
+hidden_pvp_score_key = "pvp_se_counter_sunder"
+payload = { trigger_rate_permille = 250, suppression_permille = 200, duration_rounds = 2, max_stacks = 1, cooldown_rounds = 2, max_triggers_per_round = 1 }
+summary = "受到伤害后有概率对伤害来源施加属性压制。"
+
+[[special_effects]]
+effect_id = "damage_to_barrier"
+name = "伤转灵障"
+order = 9
+effect_type = "damage_to_barrier"
+trigger_event = "damage_resolved"
+public_score_key = "se_damage_to_barrier"
+hidden_pvp_score_key = "pvp_se_damage_to_barrier"
+payload = { trigger_rate_permille = 1000, damage_ratio_permille = 150, cooldown_rounds = 1, max_stacks = 1, max_triggers_per_round = 1 }
+summary = "造成伤害后把部分伤害值转化为自身护盾。"
+
+[[special_effects]]
+effect_id = "counter_dot"
+name = "反噬灼息"
+order = 10
+effect_type = "counter_dot"
+trigger_event = "damage_taken"
+public_score_key = "se_counter_dot"
+hidden_pvp_score_key = "pvp_se_counter_dot"
+payload = { trigger_rate_permille = 200, dot_ratio_permille = 200, duration_rounds = 2, max_stacks = 3, cooldown_rounds = 2, max_triggers_per_round = 1 }
+summary = "受到伤害后有概率对伤害来源施加持续伤害。"
+
+[[affixes]]
+affix_id = "attack_power"
+name = "攻力加成"
+order = 1
+stat_id = "attack_power"
+category = "base_stat"
+slot_ids = ["weapon"]
+tier_ids = ["yellow", "mystic", "earth", "heaven"]
+selection_weight = 120
+base_value = 24
+is_pve_specialized = false
+is_pvp_specialized = false
+summary = "提升稳定输出底盘。"
+
+[[affixes]]
+affix_id = "penetration"
+name = "穿透加成"
+order = 2
+stat_id = "damage_bonus_permille"
+category = "combat_bonus"
+slot_ids = ["weapon", "accessory"]
+tier_ids = ["mystic", "earth", "heaven"]
+selection_weight = 72
+base_value = 18
+is_pve_specialized = false
+is_pvp_specialized = false
+summary = "提升对高护体目标的压制能力。"
+
+[[affixes]]
+affix_id = "health_pool"
+name = "气血加成"
+order = 3
+stat_id = "max_hp"
+category = "base_stat"
+slot_ids = ["armor"]
+tier_ids = ["yellow", "mystic", "earth", "heaven"]
+selection_weight = 120
+base_value = 180
+is_pve_specialized = false
+is_pvp_specialized = false
+summary = "提升主要生存承载。"
+
+[[affixes]]
+affix_id = "guard_power"
+name = "护体加成"
+order = 4
+stat_id = "guard_power"
+category = "base_stat"
+slot_ids = ["armor"]
+tier_ids = ["yellow", "mystic", "earth", "heaven"]
+selection_weight = 105
+base_value = 22
+is_pve_specialized = false
+is_pvp_specialized = false
+summary = "提升护体与正面承伤能力。"
+
+[[affixes]]
+affix_id = "damage_reduction"
+name = "减伤加成"
+order = 5
+stat_id = "damage_reduction_permille"
+category = "combat_bonus"
+slot_ids = ["armor", "artifact"]
+tier_ids = ["mystic", "earth", "heaven"]
+selection_weight = 74
+base_value = 20
+is_pve_specialized = false
+is_pvp_specialized = false
+summary = "提升高压环境下的稳定性。"
+
+[[affixes]]
+affix_id = "crit_rate"
+name = "暴击加成"
+order = 6
+stat_id = "crit_rate_permille"
+category = "combat_bonus"
+slot_ids = ["accessory"]
+tier_ids = ["yellow", "mystic", "earth", "heaven"]
+selection_weight = 100
+base_value = 28
+is_pve_specialized = false
+is_pvp_specialized = false
+summary = "提升爆发输出能力。"
+
+[[affixes]]
+affix_id = "speed_bonus"
+name = "速度加成"
+order = 7
+stat_id = "speed"
+category = "combat_bonus"
+slot_ids = ["accessory", "artifact"]
+tier_ids = ["yellow", "mystic", "earth", "heaven"]
+selection_weight = 92
+base_value = 12
+is_pve_specialized = false
+is_pvp_specialized = false
+summary = "提升先手与行动节奏。"
+
+[[affixes]]
+affix_id = "shield_power"
+name = "护盾加成"
+order = 8
+stat_id = "shield_power_permille"
+category = "triggered_effect"
+slot_ids = ["artifact"]
+tier_ids = ["mystic", "earth", "heaven"]
+selection_weight = 82
+base_value = 28
+is_pve_specialized = false
+is_pvp_specialized = false
+summary = "强化护盾与续航类法宝表现。"
+
+[[affixes]]
+affix_id = "pve_damage"
+name = "PVE 专精增伤"
+order = 9
+stat_id = "damage_bonus_permille"
+category = "special_pattern"
+slot_ids = ["weapon", "artifact"]
+tier_ids = ["earth", "heaven"]
+selection_weight = 40
+base_value = 40
+is_pve_specialized = true
+is_pvp_specialized = false
+summary = "少量保留的 PVE 场景专精词条。"
+
+[[affixes]]
+affix_id = "pvp_control_resist"
+name = "PVP 专精抗控"
+order = 10
+stat_id = "control_resist_permille"
+category = "special_pattern"
+slot_ids = ["armor", "artifact"]
+tier_ids = ["earth", "heaven"]
+selection_weight = 40
+base_value = 42
+is_pve_specialized = false
+is_pvp_specialized = true
+summary = "少量保留的 PVP 场景专精词条。"
+
+[[affixes]]
+affix_id = "weapon_sunder_on_hit"
+name = "破甲印"
+order = 11
+category = "special_pattern"
+slot_ids = ["weapon"]
+tier_ids = ["earth", "heaven"]
+selection_weight = 45
+base_value = 0
+affix_kind = "special_effect"
+special_effect_id = "sunder_on_hit"
+is_pve_specialized = false
+is_pvp_specialized = false
+summary = "武器专属特殊词条，造成伤害后有概率压制当前目标。"
+
+[[affixes]]
+affix_id = "weapon_dot_on_hit"
+name = "蚀骨印"
+order = 12
+category = "special_pattern"
+slot_ids = ["weapon"]
+tier_ids = ["earth", "heaven"]
+selection_weight = 40
+base_value = 0
+affix_kind = "special_effect"
+special_effect_id = "dot_on_hit"
+is_pve_specialized = false
+is_pvp_specialized = false
+summary = "武器专属特殊词条，造成伤害后有概率附加持续伤害。"
+
+[[affixes]]
+affix_id = "armor_battle_start_barrier"
+name = "开局铁壁"
+order = 13
+category = "special_pattern"
+slot_ids = ["armor"]
+tier_ids = ["earth", "heaven"]
+selection_weight = 44
+base_value = 0
+affix_kind = "special_effect"
+special_effect_id = "battle_start_barrier"
+is_pve_specialized = false
+is_pvp_specialized = false
+summary = "护甲专属特殊词条，战斗开始时立即获得护盾。"
+
+[[affixes]]
+affix_id = "armor_barrier_on_damage_taken"
+name = "受击凝甲"
+order = 14
+category = "special_pattern"
+slot_ids = ["armor"]
+tier_ids = ["earth", "heaven"]
+selection_weight = 40
+base_value = 0
+affix_kind = "special_effect"
+special_effect_id = "barrier_on_damage_taken"
+is_pve_specialized = false
+is_pvp_specialized = false
+summary = "护甲专属特殊词条，受到伤害后有概率凝成护盾。"
+
+[[affixes]]
+affix_id = "armor_low_hp_regen"
+name = "危境回春"
+order = 15
+category = "special_pattern"
+slot_ids = ["armor"]
+tier_ids = ["earth", "heaven"]
+selection_weight = 36
+base_value = 0
+affix_kind = "special_effect"
+special_effect_id = "low_hp_regen"
+is_pve_specialized = false
+is_pvp_specialized = false
+summary = "护甲专属特殊词条，自身低血量时在回合开始回复气血。"
+
+[[affixes]]
+affix_id = "accessory_heal_after_attack"
+name = "行后调息"
+order = 16
+category = "special_pattern"
+slot_ids = ["accessory"]
+tier_ids = ["earth", "heaven"]
+selection_weight = 44
+base_value = 0
+affix_kind = "special_effect"
+special_effect_id = "heal_after_attack"
+is_pve_specialized = false
+is_pvp_specialized = false
+summary = "饰品专属特殊词条，完成造成伤害的动作后回复气血。"
+
+[[affixes]]
+affix_id = "accessory_round_end_barrier_if_empty"
+name = "续战护脉"
+order = 17
+category = "special_pattern"
+slot_ids = ["accessory"]
+tier_ids = ["earth", "heaven"]
+selection_weight = 40
+base_value = 0
+affix_kind = "special_effect"
+special_effect_id = "round_end_barrier_if_empty"
+is_pve_specialized = false
+is_pvp_specialized = false
+summary = "饰品专属特殊词条，回合结束时在空盾状态补充护盾。"
+
+[[affixes]]
+affix_id = "artifact_counter_sunder"
+name = "反压蚀势"
+order = 18
+category = "special_pattern"
+slot_ids = ["artifact"]
+tier_ids = ["earth", "heaven"]
+selection_weight = 42
+base_value = 0
+affix_kind = "special_effect"
+special_effect_id = "counter_sunder"
+is_pve_specialized = false
+is_pvp_specialized = false
+summary = "法宝专属特殊词条，受到伤害后可反制施加压制。"
+
+[[affixes]]
+affix_id = "artifact_damage_to_barrier"
+name = "伤转灵障"
+order = 19
+category = "special_pattern"
+slot_ids = ["artifact"]
+tier_ids = ["earth", "heaven"]
+selection_weight = 44
+base_value = 0
+affix_kind = "special_effect"
+special_effect_id = "damage_to_barrier"
+is_pve_specialized = false
+is_pvp_specialized = false
+summary = "法宝专属特殊词条，造成伤害后转化为自身护盾。"
+
+[[affixes]]
+affix_id = "artifact_counter_dot"
+name = "反噬灼息"
+order = 20
+category = "special_pattern"
+slot_ids = ["artifact"]
+tier_ids = ["earth", "heaven"]
+selection_weight = 36
+base_value = 0
+affix_kind = "special_effect"
+special_effect_id = "counter_dot"
+is_pve_specialized = false
+is_pvp_specialized = false
+summary = "法宝专属特殊词条，受到伤害后有概率反施持续伤害。"
+
+[affix_generation]
+duplicate_affix_allowed = false
+minimum_specialized_quality_id = "epic"
+preferred_affix_weight_multiplier = "1.80"
+artifact_preferred_affix_weight_multiplier = "2.10"
+specialized_affix_weight_multiplier = "0.35"
+
+[[affix_generation.tier_weights]]
+tier_id = "yellow"
+weight = 500
+
+[[affix_generation.tier_weights]]
+tier_id = "mystic"
+weight = 280
+
+[[affix_generation.tier_weights]]
+tier_id = "earth"
+weight = 150
+
+[[affix_generation.tier_weights]]
+tier_id = "heaven"
+weight = 70
+
+[special_affix_generation]
+minimum_quality_id = "epic"
+equipment_max_count = 1
+artifact_max_count = 2
+duplicate_effect_per_item_allowed = false
+wash_can_add_special_affix = false
+reforge_reroll_special_affixes = true
+
+[[special_affix_generation.pools]]
+pool_id = "weapon_launch_special_effects"
+name = "武器首发特殊词条池"
+order = 1
+slot_ids = ["weapon"]
+quality_ids = ["epic", "legendary"]
+rank_ids = [
+  "mortal",
+  "qi_refining",
+  "foundation",
+  "core",
+  "nascent_soul",
+  "deity_transformation",
+  "void_refinement",
+  "body_integration",
+  "great_vehicle",
+  "tribulation",
+]
+affix_ids = ["weapon_sunder_on_hit", "weapon_dot_on_hit"]
+summary = "武器首发仅开放破甲印与蚀骨印。"
+
+[[special_affix_generation.pools]]
+pool_id = "armor_launch_special_effects"
+name = "护甲首发特殊词条池"
+order = 2
+slot_ids = ["armor"]
+quality_ids = ["epic", "legendary"]
+rank_ids = [
+  "mortal",
+  "qi_refining",
+  "foundation",
+  "core",
+  "nascent_soul",
+  "deity_transformation",
+  "void_refinement",
+  "body_integration",
+  "great_vehicle",
+  "tribulation",
+]
+affix_ids = ["armor_battle_start_barrier", "armor_barrier_on_damage_taken", "armor_low_hp_regen"]
+summary = "护甲首发仅开放三条生存向特殊词条。"
+
+[[special_affix_generation.pools]]
+pool_id = "accessory_launch_special_effects"
+name = "饰品首发特殊词条池"
+order = 3
+slot_ids = ["accessory"]
+quality_ids = ["epic", "legendary"]
+rank_ids = [
+  "mortal",
+  "qi_refining",
+  "foundation",
+  "core",
+  "nascent_soul",
+  "deity_transformation",
+  "void_refinement",
+  "body_integration",
+  "great_vehicle",
+  "tribulation",
+]
+affix_ids = ["accessory_heal_after_attack", "accessory_round_end_barrier_if_empty"]
+summary = "饰品首发仅开放两条回复与护盾向特殊词条。"
+
+[[special_affix_generation.pools]]
+pool_id = "artifact_launch_special_effects"
+name = "法宝首发特殊词条池"
+order = 4
+slot_ids = ["artifact"]
+quality_ids = ["epic", "legendary"]
+rank_ids = [
+  "mortal",
+  "qi_refining",
+  "foundation",
+  "core",
+  "nascent_soul",
+  "deity_transformation",
+  "void_refinement",
+  "body_integration",
+  "great_vehicle",
+  "tribulation",
+]
+affix_ids = ["artifact_counter_sunder", "artifact_damage_to_barrier", "artifact_counter_dot"]
+summary = "法宝首发仅开放三条反制与护盾向特殊词条。"
+
+[wash]
+max_locked_affix_count = 2
+base_costs = [
+  { resource_id = "spirit_stone", quantity = 1500 },
+  { resource_id = "wash_jade", quantity = 1 },
+]
+lock_extra_costs = [
+  { resource_id = "spirit_stone", quantity = 800 },
+  { resource_id = "seal_talisman", quantity = 1 },
+]
+
+[reforge]
+allow_template_change = true
+preserve_enhancement_level = true
+preserve_nurture_level = true
+costs = [
+  { resource_id = "spirit_stone", quantity = 4000 },
+  { resource_id = "reforge_crystal", quantity = 1 },
+]
+
+[[artifact_templates]]
+template_id = "skyfire_mirror"
+name = "曜火镜"
+order = 1
+generation_weight = 88
+resonance_name = "炽曜"
+preferred_affix_ids = ["pve_damage", "shield_power"]
+attributes = [
+  { stat_id = "attack_power", value = 76 },
+  { stat_id = "max_hp", value = 120 },
+  { stat_id = "damage_bonus_permille", value = 24 },
+]
+summary = "偏向进攻共鸣与结算增伤的法宝模板。"
+
+[[artifact_templates]]
+template_id = "jade_guard_bottle"
+name = "镇岳瓶"
+order = 2
+generation_weight = 92
+resonance_name = "玄守"
+preferred_affix_ids = ["damage_reduction", "shield_power", "pvp_control_resist"]
+attributes = [
+  { stat_id = "max_hp", value = 220 },
+  { stat_id = "guard_power", value = 28 },
+  { stat_id = "shield_power_permille", value = 30 },
+]
+summary = "偏向护盾与稳态承伤的法宝模板。"
+
+[[artifact_templates]]
+template_id = "thunder_shadow_token"
+name = "逐雷令"
+order = 3
+generation_weight = 80
+resonance_name = "雷契"
+preferred_affix_ids = ["speed_bonus", "pve_damage"]
+attributes = [
+  { stat_id = "speed", value = 18 },
+  { stat_id = "attack_power", value = 58 },
+  { stat_id = "control_resist_permille", value = 20 },
+]
+summary = "偏向先手压制与流派节奏强化的法宝模板。"
+
+[artifact_nurture]
+
+[[artifact_nurture.levels]]
+target_level = 1
+base_stat_bonus_ratio = "0.05"
+affix_bonus_ratio = "0.03"
+costs = [
+  { resource_id = "spirit_stone", quantity = 800 },
+  { resource_id = "artifact_essence", quantity = 2 },
+]
+
+[[artifact_nurture.levels]]
+target_level = 2
+base_stat_bonus_ratio = "0.05"
+affix_bonus_ratio = "0.03"
+costs = [
+  { resource_id = "spirit_stone", quantity = 1200 },
+  { resource_id = "artifact_essence", quantity = 3 },
+]
+
+[[artifact_nurture.levels]]
+target_level = 3
+base_stat_bonus_ratio = "0.06"
+affix_bonus_ratio = "0.04"
+costs = [
+  { resource_id = "spirit_stone", quantity = 1700 },
+  { resource_id = "artifact_essence", quantity = 4 },
+]
+
+[[artifact_nurture.levels]]
+target_level = 4
+base_stat_bonus_ratio = "0.06"
+affix_bonus_ratio = "0.04"
+costs = [
+  { resource_id = "spirit_stone", quantity = 2300 },
+  { resource_id = "artifact_essence", quantity = 5 },
+]
+
+[[artifact_nurture.levels]]
+target_level = 5
+base_stat_bonus_ratio = "0.07"
+affix_bonus_ratio = "0.05"
+costs = [
+  { resource_id = "spirit_stone", quantity = 3000 },
+  { resource_id = "artifact_essence", quantity = 6 },
+]
+
+[[artifact_nurture.levels]]
+target_level = 6
+base_stat_bonus_ratio = "0.07"
+affix_bonus_ratio = "0.05"
+costs = [
+  { resource_id = "spirit_stone", quantity = 3800 },
+  { resource_id = "artifact_essence", quantity = 8 },
+]
+
+[dismantle]
+
+[[dismantle.rules]]
+quality_id = "common"
+base_returns = [
+  { resource_id = "spirit_sand", quantity = 4 },
+]
+enhancement_returns_per_level = [
+  { resource_id = "enhancement_shard", quantity = 1 },
+]
+affix_returns_per_count = [
+  { resource_id = "wash_dust", quantity = 1 },
+]
+artifact_bonus_returns = [
+  { resource_id = "artifact_essence", quantity = 2 },
+]
+artifact_nurture_returns_per_level = [
+  { resource_id = "artifact_essence", quantity = 1 },
+]
+
+[[dismantle.rules]]
+quality_id = "rare"
+base_returns = [
+  { resource_id = "spirit_sand", quantity = 8 },
+]
+enhancement_returns_per_level = [
+  { resource_id = "enhancement_shard", quantity = 2 },
+]
+affix_returns_per_count = [
+  { resource_id = "wash_dust", quantity = 2 },
+]
+artifact_bonus_returns = [
+  { resource_id = "artifact_essence", quantity = 4 },
+]
+artifact_nurture_returns_per_level = [
+  { resource_id = "artifact_essence", quantity = 2 },
+]
+
+[[dismantle.rules]]
+quality_id = "epic"
+base_returns = [
+  { resource_id = "spirit_sand", quantity = 14 },
+  { resource_id = "reforge_shard", quantity = 1 },
+]
+enhancement_returns_per_level = [
+  { resource_id = "enhancement_shard", quantity = 3 },
+]
+affix_returns_per_count = [
+  { resource_id = "wash_dust", quantity = 3 },
+]
+artifact_bonus_returns = [
+  { resource_id = "artifact_essence", quantity = 7 },
+]
+artifact_nurture_returns_per_level = [
+  { resource_id = "artifact_essence", quantity = 3 },
+]
+
+[[dismantle.rules]]
+quality_id = "legendary"
+base_returns = [
+  { resource_id = "spirit_sand", quantity = 20 },
+  { resource_id = "reforge_shard", quantity = 2 },
+]
+enhancement_returns_per_level = [
+  { resource_id = "enhancement_shard", quantity = 4 },
+]
+affix_returns_per_count = [
+  { resource_id = "wash_dust", quantity = 4 },
+]
+artifact_bonus_returns = [
+  { resource_id = "artifact_essence", quantity = 10 },
+]
+artifact_nurture_returns_per_level = [
+  { resource_id = "artifact_essence", quantity = 4 },
+]
+
+[naming]
+high_tier_affix_tier_id = "earth"
+
+[[naming.templates]]
+template_id = "artifact_resonant"
+name = "法宝共鸣命名"
+order = 1
+slot_ids = ["artifact"]
+quality_ids = ["rare", "epic", "legendary"]
+minimum_high_tier_affix_count = 1
+artifact_only = true
+pattern = "{resonance_name}{template_name}"
+summary = "高价值法宝优先使用共鸣词模板命名。"
+
+[[naming.templates]]
+template_id = "legendary_masterwork"
+name = "高阶主词命名"
+order = 2
+slot_ids = ["weapon", "armor", "accessory", "artifact"]
+quality_ids = ["legendary"]
+minimum_high_tier_affix_count = 2
+artifact_only = false
+pattern = "{primary_affix_name}{template_name}"
+summary = "高价值传说装备优先凸显主词条。"
+
+[[naming.templates]]
+template_id = "epic_masterwork"
+name = "史诗主词命名"
+order = 3
+slot_ids = ["weapon", "armor", "accessory"]
+quality_ids = ["epic", "legendary"]
+minimum_high_tier_affix_count = 1
+artifact_only = false
+pattern = "{quality_name}{primary_affix_name}{template_name}"
+summary = "高价值普通装备以品质与主词组合命名。"
+
+[[naming.templates]]
+template_id = "default_quality_template"
+name = "基础品质命名"
+order = 4
+slot_ids = ["weapon", "armor", "accessory", "artifact"]
+quality_ids = ["common", "rare", "epic", "legendary"]
+minimum_high_tier_affix_count = 0
+artifact_only = false
+pattern = "{quality_name}{template_name}"
+summary = "常规装备与法宝使用品质加底材名作为基础名称。"

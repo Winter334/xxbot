@@ -1,0 +1,90 @@
+config_version = "1.0.0"
+
+[structure]
+floors_per_region = 20
+elite_interval = 5
+anchor_interval = 10
+
+[encounter]
+normal_enemy_count = 1
+elite_enemy_count = 2
+boss_enemy_count = 3
+favored_race_bonus = "0.30"
+favored_template_bonus = "0.20"
+
+[reward_scaling]
+stable_cultivation_per_region = 20
+stable_insight_per_region = 5
+stable_refining_essence_per_region = 2
+pending_equipment_per_region = 6
+pending_artifact_per_region = 3
+pending_dao_pattern_per_region = 2
+failure_pending_keep_ratio = "0.00"
+
+[[regions]]
+region_id = "wind"
+name = "风域"
+order = 1
+region_bias_id = "wind"
+theme_summary = "速度系敌人更多，主打先手压制。"
+
+[[regions]]
+region_id = "flame"
+name = "炎域"
+order = 2
+region_bias_id = "flame"
+theme_summary = "爆发与灼烧主题更强。"
+
+[[regions]]
+region_id = "frost"
+name = "寒域"
+order = 3
+region_bias_id = "frost"
+theme_summary = "减速与控制主题更强。"
+
+[[regions]]
+region_id = "shade"
+name = "煞域"
+order = 4
+region_bias_id = "shade"
+theme_summary = "吸血与持续伤害主题更强。"
+
+[[regions]]
+region_id = "thunder"
+name = "雷域"
+order = 5
+region_bias_id = "thunder"
+theme_summary = "先手压制与爆发更强。"
+
+[[node_rewards]]
+node_type = "normal"
+name = "普通层"
+order = 1
+stable_cultivation = 80
+stable_insight = 16
+stable_refining_essence = 8
+pending_equipment_score = 0
+pending_artifact_score = 0
+pending_dao_pattern_score = 0
+
+[[node_rewards]]
+node_type = "elite"
+name = "精英层"
+order = 2
+stable_cultivation = 140
+stable_insight = 30
+stable_refining_essence = 14
+pending_equipment_score = 30
+pending_artifact_score = 0
+pending_dao_pattern_score = 6
+
+[[node_rewards]]
+node_type = "anchor_boss"
+name = "锚点首领"
+order = 3
+stable_cultivation = 220
+stable_insight = 48
+stable_refining_essence = 24
+pending_equipment_score = 80
+pending_artifact_score = 18
+pending_dao_pattern_score = 16

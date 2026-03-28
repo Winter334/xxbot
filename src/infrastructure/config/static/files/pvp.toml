@@ -1,0 +1,123 @@
+config_version = "1.0.0"
+
+[daily_limit]
+effective_challenge_limit = 6
+repeat_target_limit = 3
+
+[protection]
+new_entry_protection_hours = 6
+defense_snapshot_lock_hours = 24
+
+[anti_abuse]
+cycle_timezone = "Asia/Shanghai"
+allowed_snapshot_reasons = [
+  "enter_ladder",
+  "challenge_start",
+  "expired_refresh",
+  "build_changed",
+  "defense_on_demand",
+]
+
+[[anti_abuse.defense_failure_caps]]
+name = "榜首保护"
+order = 1
+rank_start = 1
+rank_end = 3
+daily_failure_cap = 3
+
+[[anti_abuse.defense_failure_caps]]
+name = "前十保护"
+order = 2
+rank_start = 4
+rank_end = 10
+daily_failure_cap = 5
+
+[target_pool]
+rank_window_up = 5
+rank_window_down = 3
+max_realm_gap = 1
+public_power_tolerance_ratio = "0.25"
+hidden_score_tolerance_ratio = "0.18"
+fallback_min_candidate_count = 3
+fallback_public_power_tolerance_ratio = "0.35"
+fallback_hidden_score_tolerance_ratio = "0.25"
+rank_window_expand_step = 2
+expansion_order = [
+  "public_power_tolerance_ratio",
+  "hidden_score_tolerance_ratio",
+  "rank_window_expand_step",
+]
+
+[honor_coin]
+win_base = 18
+loss_base = 2
+win_floor = 12
+loss_floor = 2
+rank_gap_bonus_step = 3
+rank_gap_bonus_per_step = 2
+upset_bonus_threshold = 5
+upset_bonus = 6
+streak_bonus_trigger = 3
+streak_bonus = 4
+
+[[honor_coin.components]]
+name = "胜利基础"
+order = 1
+component_id = "base"
+delta = 18
+summary = "挑战胜利时的基础荣誉币。"
+
+[[honor_coin.components]]
+name = "名次差加成"
+order = 2
+component_id = "rank_gap_bonus"
+delta = 2
+summary = "挑战更高名次目标时每档附加的荣誉币。"
+
+[[honor_coin.components]]
+name = "爆冷加成"
+order = 3
+component_id = "upset_bonus"
+delta = 6
+summary = "跨越明显名次差成功时的额外荣誉币。"
+
+[[honor_coin.components]]
+name = "连胜加成"
+order = 4
+component_id = "streak_bonus"
+delta = 4
+summary = "连续获胜达到阈值后的额外荣誉币。"
+
+[[honor_coin.components]]
+name = "失败保底"
+order = 5
+component_id = "loss_floor"
+delta = 2
+summary = "挑战失败时保底获得的荣誉币。"
+
+[reward_preview]
+default_tier_id = "top50"
+
+[[reward_preview.reward_tiers]]
+name = "前三"
+order = 1
+reward_tier_id = "top3"
+rank_start = 1
+rank_end = 3
+summary = "前三奖励档位，展示高阶称号与头像框预览。"
+
+[[reward_preview.reward_tiers]]
+name = "前十"
+order = 2
+reward_tier_id = "top10"
+rank_start = 4
+rank_end = 10
+summary = "前十奖励档位，展示进阶称号与边框预览。"
+
+[[reward_preview.reward_tiers]]
+name = "前五十"
+order = 3
+reward_tier_id = "top50"
+rank_start = 11
+rank_end = 50
+summary = "前五十奖励档位，展示基础荣誉奖励预览。"

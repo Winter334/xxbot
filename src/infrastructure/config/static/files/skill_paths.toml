@@ -1,0 +1,76 @@
+config_version = "1.0.0"
+
+[[axes]]
+axis_id = "sword"
+name = "剑诀系"
+order = 1
+combat_identity = "偏先手、爆发、追击、斩杀。"
+focus_summary = "主打抢节奏与单体压制。"
+
+[[axes]]
+axis_id = "body"
+name = "炼体系"
+order = 2
+combat_identity = "偏承伤、反击、恢复、持久战。"
+focus_summary = "主打高承伤与稳态对抗。"
+
+[[axes]]
+axis_id = "spell"
+name = "术法系"
+order = 3
+combat_identity = "偏群攻、异常、控场、术法循环。"
+focus_summary = "主打群攻压制与异常联动。"
+
+[[paths]]
+path_id = "wenxin_sword"
+axis_id = "sword"
+template_id = "wenxin_sword"
+name = "问心剑道"
+order = 1
+combat_identity = "高速单体爆发、残血斩杀、先手压制。"
+preferred_scene = "PVP、首领战、突破门槛战。"
+
+[[paths]]
+path_id = "zhanqing_sword"
+axis_id = "sword"
+template_id = "zhanqing_sword"
+name = "斩情剑道"
+order = 2
+combat_identity = "高频连击、追击滚动、稳定持续输出。"
+preferred_scene = "PVE 刷图、无尽深刷。"
+
+[[paths]]
+path_id = "manhuang_body"
+axis_id = "body"
+template_id = "manhuang_body"
+name = "蛮荒战体"
+order = 3
+combat_identity = "高承伤、反震反击、防御转输出。"
+preferred_scene = "PVP 防守、高频敌人对抗。"
+
+[[paths]]
+path_id = "changsheng_body"
+axis_id = "body"
+template_id = "changsheng_body"
+name = "长生道体"
+order = 4
+combat_identity = "护盾恢复、稳定站桩、长战续航。"
+preferred_scene = "日常刷图、高压层段保守推进。"
+
+[[paths]]
+path_id = "qingyun_spell"
+axis_id = "spell"
+template_id = "qingyun_spell"
+name = "青云术脉"
+order = 5
+combat_identity = "群攻爆发、高消耗高收益、快速清场。"
+preferred_scene = "PVE 清图、层段推进。"
+
+[[paths]]
+path_id = "wangchuan_spell"
+axis_id = "spell"
+template_id = "wangchuan_spell"
+name = "忘川术脉"
+order = 6
+combat_identity = "异常状态、控制消耗、反坦压制。"
+preferred_scene = "PVP、中长战斗、高护体目标。"

@@ -1,0 +1,437 @@
+config_version = "1.1.0"
+
+[[trial_groups]]
+group_id = "entry_trials"
+name = "入道三关"
+order = 1
+theme_summary = "规则直观、数值清楚、教学型门槛。"
+reward_focus_summary = "灵石、基础强化材料、低阶洗炼材料。"
+
+[[trial_groups]]
+group_id = "mind_palace"
+name = "问心道宫"
+order = 2
+theme_summary = "强调构筑完整度与主修功法成型。"
+reward_focus_summary = "感悟积累、功法参悟辅材、中阶洗炼材料。"
+
+[[trial_groups]]
+group_id = "void_gate"
+name = "灵墟天关"
+order = 3
+theme_summary = "高压环境、终局门槛、压迫感明显。"
+reward_focus_summary = "高阶强化材料、高阶洗炼材料、中高阶法宝培养材料。"
+
+[[environment_rules]]
+rule_id = "guard_suppression"
+name = "护体压制"
+order = 1
+summary = "守关者的护体与稳定承伤能力会被进一步放大。"
+environment_tags = ["guard_suppression", "entry_trial"]
+enemy_stat_modifiers = [
+  { stat_field = "guard_power", multiplier_permille = 1120 },
+  { stat_field = "damage_reduction_permille", delta = 60 },
+]
+enemy_template_patches = [
+  { patch_id = "guard_suppression_pressure", patch_name = "护体压制", multipliers = [{ field = "damage_scale_permille", multiplier_permille = 1080 }] },
+]
+
+[[environment_rules]]
+rule_id = "first_strike_pressure"
+name = "先手压制"
+order = 2
+summary = "守关者更容易抢到节奏并形成开局压制。"
+environment_tags = ["first_strike_pressure", "entry_trial"]
+enemy_stat_modifiers = [
+  { stat_field = "speed", multiplier_permille = 1120 },
+  { stat_field = "hit_rate_permille", delta = 60 },
+]
+enemy_template_patches = [
+  { patch_id = "first_strike_priority", patch_name = "先手压制", numeric_bonuses = [{ field = "priority", delta = 40 }] },
+]
+
+[[environment_rules]]
+rule_id = "spell_pressure"
+name = "术法压制"
+order = 3
+summary = "守关者的爆发术法更容易形成正面碾压。"
+environment_tags = ["spell_pressure", "entry_trial"]
+enemy_stat_modifiers = [
+  { stat_field = "attack_power", multiplier_permille = 1150 },
+  { stat_field = "damage_bonus_permille", delta = 70 },
+]
+enemy_template_patches = [
+  { patch_id = "spell_pressure_scale", patch_name = "术法压制", multipliers = [{ field = "damage_scale_permille", multiplier_permille = 1100 }] },
+]
+
+[[environment_rules]]
+rule_id = "attrition_pressure"
+name = "持久战压力"
+order = 4
+summary = "守关者更擅长把战斗拖入长回合消耗。"
+environment_tags = ["attrition_pressure", "mind_palace"]
+enemy_stat_modifiers = [
+  { stat_field = "max_hp", multiplier_permille = 1180 },
+  { stat_field = "damage_reduction_permille", delta = 80 },
+]
+enemy_template_patches = [
+  { patch_id = "attrition_pressure_scale", patch_name = "持久战压力", multipliers = [{ field = "damage_scale_permille", multiplier_permille = 1060 }] },
+]
+
+[[environment_rules]]
+rule_id = "healing_suppression"
+name = "恢复抑制"
+order = 5
+summary = "守关者会持续施加恢复抑制与资源消耗压力。"
+environment_tags = ["healing_suppression", "mind_palace"]
+enemy_stat_modifiers = [
+  { stat_field = "attack_power", multiplier_permille = 1200 },
+  { stat_field = "control_bonus_permille", delta = 80 },
+]
+enemy_template_patches = [
+  { patch_id = "healing_suppression_scale", patch_name = "恢复抑制", multipliers = [{ field = "damage_scale_permille", multiplier_permille = 1100 }] },
+]
+
+[[environment_rules]]
+rule_id = "anomaly_chain"
+name = "异常联动"
+order = 6
+summary = "守关者更容易把控制与后续伤害连成一体。"
+environment_tags = ["anomaly_chain", "mind_palace"]
+enemy_stat_modifiers = [
+  { stat_field = "control_bonus_permille", delta = 120 },
+  { stat_field = "crit_rate_permille", delta = 40 },
+]
+enemy_template_patches = [
+  { patch_id = "anomaly_chain_scale", patch_name = "异常联动", multipliers = [{ field = "control_chance_permille", multiplier_permille = 1180 }] },
+]
+
+[[environment_rules]]
+rule_id = "burst_suppression"
+name = "高爆发压制"
+order = 7
+summary = "守关者会在短回合内给出更重的爆发压力。"
+environment_tags = ["burst_suppression", "void_gate"]
+enemy_stat_modifiers = [
+  { stat_field = "attack_power", multiplier_permille = 1230 },
+  { stat_field = "crit_damage_bonus_permille", delta = 180 },
+]
+enemy_template_patches = [
+  { patch_id = "burst_suppression_scale", patch_name = "高爆发压制", multipliers = [{ field = "damage_scale_permille", multiplier_permille = 1150 }] },
+]
+
+[[environment_rules]]
+rule_id = "endurance_pressure"
+name = "高压承伤"
+order = 8
+summary = "守关者在高压环境下会进一步放大承伤与反制能力。"
+environment_tags = ["endurance_pressure", "void_gate"]
+enemy_stat_modifiers = [
+  { stat_field = "max_hp", multiplier_permille = 1260 },
+  { stat_field = "guard_power", multiplier_permille = 1140 },
+]
+enemy_template_patches = [
+  { patch_id = "endurance_pressure_cap", patch_name = "高压承伤", trigger_cap_adjustments = [{ delta = 1 }] },
+]
+
+[[environment_rules]]
+rule_id = "final_oppression"
+name = "终局压迫"
+order = 9
+summary = "守关者同时具备高压输出、控场与节奏追击能力。"
+environment_tags = ["final_oppression", "void_gate"]
+enemy_stat_modifiers = [
+  { stat_field = "attack_power", multiplier_permille = 1280 },
+  { stat_field = "damage_bonus_permille", delta = 140 },
+  { stat_field = "speed", multiplier_permille = 1100 },
+]
+enemy_template_patches = [
+  { patch_id = "final_oppression_scale", patch_name = "终局压迫", multipliers = [{ field = "damage_scale_permille", multiplier_permille = 1200 }, { field = "control_chance_permille", multiplier_permille = 1120 }] },
+]
+
+[[repeat_reward_pools]]
+pool_id = "spirit_stone_pool"
+name = "灵石补口资源包"
+order = 1
+reward_direction = "spirit_stone"
+cycle_type = "daily"
+high_yield_limit = 6
+high_yield_ratio = "1.0"
+reduced_yield_ratio = "0.40"
+resource_whitelist = ["spirit_stone"]
+resources = [
+  { resource_kind = "currency", resource_id = "spirit_stone", quantity = 1200, bound = true },
+]
+
+[[repeat_reward_pools]]
+pool_id = "enhancement_material_pool"
+name = "强化材料补口资源包"
+order = 2
+reward_direction = "enhancement_material"
+cycle_type = "daily"
+high_yield_limit = 4
+high_yield_ratio = "1.0"
+reduced_yield_ratio = "0.50"
+resource_whitelist = ["enhancement_stone", "enhancement_shard"]
+resources = [
+  { resource_kind = "material", resource_id = "enhancement_stone", quantity = 2, bound = true },
+  { resource_kind = "material", resource_id = "enhancement_shard", quantity = 4, bound = true },
+]
+
+[[repeat_reward_pools]]
+pool_id = "reforge_material_pool"
+name = "洗炼材料补口资源包"
+order = 3
+reward_direction = "reforge_material"
+cycle_type = "daily"
+high_yield_limit = 4
+high_yield_ratio = "1.0"
+reduced_yield_ratio = "0.50"
+resource_whitelist = ["wash_dust", "spirit_sand"]
+resources = [
+  { resource_kind = "material", resource_id = "wash_dust", quantity = 3, bound = true },
+  { resource_kind = "material", resource_id = "spirit_sand", quantity = 6, bound = true },
+]
+
+[[repeat_reward_pools]]
+pool_id = "comprehension_material_pool"
+name = "参悟辅材补口资源包"
+order = 4
+reward_direction = "comprehension_material"
+cycle_type = "daily"
+high_yield_limit = 3
+high_yield_ratio = "1.0"
+reduced_yield_ratio = "0.55"
+resource_whitelist = ["spirit_pattern_stone", "soul_binding_jade"]
+resources = [
+  { resource_kind = "material", resource_id = "spirit_pattern_stone", quantity = 2, bound = true },
+  { resource_kind = "material", resource_id = "soul_binding_jade", quantity = 2, bound = true },
+]
+
+[[repeat_reward_pools]]
+pool_id = "artifact_material_pool"
+name = "法宝培养材料补口资源包"
+order = 5
+reward_direction = "artifact_material"
+cycle_type = "daily"
+high_yield_limit = 3
+high_yield_ratio = "1.0"
+reduced_yield_ratio = "0.55"
+resource_whitelist = ["artifact_essence"]
+resources = [
+  { resource_kind = "material", resource_id = "artifact_essence", quantity = 2, bound = true },
+]
+
+[[trials]]
+mapping_id = "mortal_to_qi_refining"
+name = "凡人破炼气"
+order = 1
+group_id = "entry_trials"
+from_realm_id = "mortal"
+to_realm_id = "qi_refining"
+boss_template_id = "guardian"
+boss_stage_id = "perfect"
+boss_scale_permille = 1000
+environment_rule = "固定一条护体压制环境规则。"
+environment_rule_id = "guard_suppression"
+repeat_reward_direction = "spirit_stone"
+repeat_reward_pool_id = "spirit_stone_pool"
+first_clear_grants_qualification = true
+first_clear_rewards = [
+  { reward_kind = "qualification" },
+]
+required_comprehension_value = 10
+required_items = [
+  { item_type = "material", item_id = "qi_condensation_grass", quantity = 2 },
+]
+
+[[trials]]
+mapping_id = "qi_refining_to_foundation"
+name = "炼气破筑基"
+order = 2
+group_id = "entry_trials"
+from_realm_id = "qi_refining"
+to_realm_id = "foundation"
+boss_template_id = "swift"
+boss_stage_id = "perfect"
+boss_scale_permille = 1080
+environment_rule = "固定一条先手节奏环境规则。"
+environment_rule_id = "first_strike_pressure"
+repeat_reward_direction = "enhancement_material"
+repeat_reward_pool_id = "enhancement_material_pool"
+first_clear_grants_qualification = true
+first_clear_rewards = [
+  { reward_kind = "qualification" },
+]
+required_comprehension_value = 30
+required_items = [
+  { item_type = "material", item_id = "foundation_pill", quantity = 1 },
+  { item_type = "material", item_id = "spirit_pattern_stone", quantity = 3 },
+]
+
+[[trials]]
+mapping_id = "foundation_to_core"
+name = "筑基破结丹"
+order = 3
+group_id = "entry_trials"
+from_realm_id = "foundation"
+to_realm_id = "core"
+boss_template_id = "caster"
+boss_stage_id = "perfect"
+boss_scale_permille = 1180
+environment_rule = "固定一条术法压制环境规则。"
+environment_rule_id = "spell_pressure"
+repeat_reward_direction = "reforge_material"
+repeat_reward_pool_id = "reforge_material_pool"
+first_clear_grants_qualification = true
+first_clear_rewards = [
+  { reward_kind = "qualification" },
+]
+required_comprehension_value = 80
+required_items = [
+  { item_type = "material", item_id = "core_congealing_pellet", quantity = 1 },
+  { item_type = "material", item_id = "fire_essence_sand", quantity = 5 },
+]
+
+[[trials]]
+mapping_id = "core_to_nascent_soul"
+name = "结丹破元婴"
+order = 4
+group_id = "mind_palace"
+from_realm_id = "core"
+to_realm_id = "nascent_soul"
+boss_template_id = "guardian"
+boss_stage_id = "perfect"
+boss_scale_permille = 1300
+environment_rule = "固定一条持久战压力环境规则。"
+environment_rule_id = "attrition_pressure"
+repeat_reward_direction = "comprehension_material"
+repeat_reward_pool_id = "comprehension_material_pool"
+first_clear_grants_qualification = true
+first_clear_rewards = [
+  { reward_kind = "qualification" },
+]
+required_comprehension_value = 160
+required_items = [
+  { item_type = "material", item_id = "nascent_soul_flower", quantity = 2 },
+  { item_type = "material", item_id = "soul_binding_jade", quantity = 4 },
+]
+
+[[trials]]
+mapping_id = "nascent_soul_to_deity_transformation"
+name = "元婴破化神"
+order = 5
+group_id = "mind_palace"
+from_realm_id = "nascent_soul"
+to_realm_id = "deity_transformation"
+boss_template_id = "restorer"
+boss_stage_id = "perfect"
+boss_scale_permille = 1450
+environment_rule = "固定一条恢复抑制环境规则。"
+environment_rule_id = "healing_suppression"
+repeat_reward_direction = "comprehension_material"
+repeat_reward_pool_id = "comprehension_material_pool"
+first_clear_grants_qualification = true
+first_clear_rewards = [
+  { reward_kind = "qualification" },
+]
+required_comprehension_value = 300
+required_items = [
+  { item_type = "material", item_id = "deity_heart_seed", quantity = 2 },
+  { item_type = "material", item_id = "thunder_pattern_branch", quantity = 6 },
+]
+
+[[trials]]
+mapping_id = "deity_transformation_to_void_refinement"
+name = "化神破炼虚"
+order = 6
+group_id = "mind_palace"
+from_realm_id = "deity_transformation"
+to_realm_id = "void_refinement"
+boss_template_id = "caster"
+boss_stage_id = "perfect"
+boss_scale_permille = 1620
+environment_rule = "固定一条异常联动环境规则。"
+environment_rule_id = "anomaly_chain"
+repeat_reward_direction = "reforge_material"
+repeat_reward_pool_id = "reforge_material_pool"
+first_clear_grants_qualification = true
+first_clear_rewards = [
+  { reward_kind = "qualification" },
+]
+required_comprehension_value = 500
+required_items = [
+  { item_type = "material", item_id = "void_break_crystal", quantity = 3 },
+  { item_type = "material", item_id = "star_soul_dust", quantity = 8 },
+]
+
+[[trials]]
+mapping_id = "void_refinement_to_body_integration"
+name = "炼虚破合体"
+order = 7
+group_id = "void_gate"
+from_realm_id = "void_refinement"
+to_realm_id = "body_integration"
+boss_template_id = "berserker"
+boss_stage_id = "perfect"
+boss_scale_permille = 1820
+environment_rule = "固定一条高爆发压制环境规则。"
+environment_rule_id = "burst_suppression"
+repeat_reward_direction = "enhancement_material"
+repeat_reward_pool_id = "enhancement_material_pool"
+first_clear_grants_qualification = true
+first_clear_rewards = [
+  { reward_kind = "qualification" },
+]
+required_comprehension_value = 800
+required_items = [
+  { item_type = "material", item_id = "body_integration_bone", quantity = 3 },
+  { item_type = "material", item_id = "myriad_gold_paste", quantity = 10 },
+]
+
+[[trials]]
+mapping_id = "body_integration_to_great_vehicle"
+name = "合体破大乘"
+order = 8
+group_id = "void_gate"
+from_realm_id = "body_integration"
+to_realm_id = "great_vehicle"
+boss_template_id = "guardian"
+boss_stage_id = "perfect"
+boss_scale_permille = 2050
+environment_rule = "固定一条高压承伤环境规则。"
+environment_rule_id = "endurance_pressure"
+repeat_reward_direction = "artifact_material"
+repeat_reward_pool_id = "artifact_material_pool"
+first_clear_grants_qualification = true
+first_clear_rewards = [
+  { reward_kind = "qualification" },
+]
+required_comprehension_value = 1200
+required_items = [
+  { item_type = "material", item_id = "great_vehicle_core", quantity = 4 },
+  { item_type = "material", item_id = "heaven_pattern_silk", quantity = 12 },
+]
+
+[[trials]]
+mapping_id = "great_vehicle_to_tribulation"
+name = "大乘破渡劫"
+order = 9
+group_id = "void_gate"
+from_realm_id = "great_vehicle"
+to_realm_id = "tribulation"
+boss_template_id = "restorer"
+boss_stage_id = "perfect"
+boss_scale_permille = 2320
+environment_rule = "固定一条终局压迫环境规则。"
+environment_rule_id = "final_oppression"
+repeat_reward_direction = "artifact_material"
+repeat_reward_pool_id = "artifact_material_pool"
+first_clear_grants_qualification = true
+first_clear_rewards = [
+  { reward_kind = "qualification" },
+]
+required_comprehension_value = 1800
+required_items = [
+  { item_type = "material", item_id = "tribulation_lightning_talisman", quantity = 5 },
+  { item_type = "material", item_id = "immortal_marrow_liquid", quantity = 15 },
+]

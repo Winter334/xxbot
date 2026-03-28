@@ -1,0 +1,405 @@
+config_version = "1.0.0"
+
+[[ranks]]
+rank_id = "mortal"
+name = "一阶"
+order = 1
+main_budget_min = 8
+main_budget_max = 13
+auxiliary_budget_min = 3
+auxiliary_budget_max = 5
+
+[[ranks]]
+rank_id = "qi_refining"
+name = "二阶"
+order = 2
+main_budget_min = 10
+main_budget_max = 16
+auxiliary_budget_min = 4
+auxiliary_budget_max = 7
+
+[[ranks]]
+rank_id = "foundation"
+name = "三阶"
+order = 3
+main_budget_min = 13
+main_budget_max = 20
+auxiliary_budget_min = 5
+auxiliary_budget_max = 9
+
+[[ranks]]
+rank_id = "core"
+name = "四阶"
+order = 4
+main_budget_min = 16
+main_budget_max = 24
+auxiliary_budget_min = 7
+auxiliary_budget_max = 11
+
+[[ranks]]
+rank_id = "nascent_soul"
+name = "五阶"
+order = 5
+main_budget_min = 20
+main_budget_max = 29
+auxiliary_budget_min = 9
+auxiliary_budget_max = 14
+
+[[ranks]]
+rank_id = "deity_transformation"
+name = "六阶"
+order = 6
+main_budget_min = 24
+main_budget_max = 34
+auxiliary_budget_min = 11
+auxiliary_budget_max = 17
+
+[[ranks]]
+rank_id = "void_refinement"
+name = "七阶"
+order = 7
+main_budget_min = 29
+main_budget_max = 40
+auxiliary_budget_min = 13
+auxiliary_budget_max = 20
+
+[[ranks]]
+rank_id = "body_integration"
+name = "八阶"
+order = 8
+main_budget_min = 34
+main_budget_max = 46
+auxiliary_budget_min = 15
+auxiliary_budget_max = 23
+
+[[ranks]]
+rank_id = "great_vehicle"
+name = "九阶"
+order = 9
+main_budget_min = 40
+main_budget_max = 53
+auxiliary_budget_min = 18
+auxiliary_budget_max = 27
+
+[[ranks]]
+rank_id = "tribulation"
+name = "十阶"
+order = 10
+main_budget_min = 47
+main_budget_max = 61
+auxiliary_budget_min = 21
+auxiliary_budget_max = 31
+
+[[qualities]]
+quality_id = "ordinary"
+name = "凡品"
+order = 1
+budget_bonus = 0
+
+[[qualities]]
+quality_id = "good"
+name = "良品"
+order = 2
+budget_bonus = 2
+
+[[qualities]]
+quality_id = "superior"
+name = "上品"
+order = 3
+budget_bonus = 5
+
+[[qualities]]
+quality_id = "rare"
+name = "珍品"
+order = 4
+budget_bonus = 9
+
+[[qualities]]
+quality_id = "perfect"
+name = "绝品"
+order = 5
+budget_bonus = 14
+
+[[auxiliary_slots]]
+slot_id = "guard"
+name = "护体"
+order = 1
+summary = "承载护盾、减伤与站桩续航类辅助功法。"
+
+[[auxiliary_slots]]
+slot_id = "movement"
+name = "身法"
+order = 2
+summary = "承载速度、闪避与节奏机动类辅助功法。"
+
+[[auxiliary_slots]]
+slot_id = "spirit"
+name = "神识"
+order = 3
+summary = "承载命中、暴击、控制与资源窗口类辅助功法。"
+
+[[attribute_pools]]
+pool_id = "main_offense_pool"
+name = "主修进攻池"
+order = 1
+stat_ids = ["attack_power", "crit_rate_permille", "crit_damage_bonus_permille", "speed", "max_hp"]
+summary = "主修偏进攻的基础属性池。"
+
+[[attribute_pools]]
+pool_id = "main_general_pool"
+name = "主修均衡池"
+order = 2
+stat_ids = ["attack_power", "max_hp", "guard_power", "speed", "damage_bonus_permille"]
+summary = "主修偏均衡的基础属性池。"
+
+[[attribute_pools]]
+pool_id = "main_defense_pool"
+name = "主修防御池"
+order = 3
+stat_ids = ["max_hp", "guard_power", "damage_reduction_permille", "counter_rate_permille", "speed"]
+summary = "主修偏生存与反击的基础属性池。"
+
+[[attribute_pools]]
+pool_id = "main_spell_pool"
+name = "主修术法池"
+order = 4
+stat_ids = ["attack_power", "speed", "control_hit_permille", "damage_bonus_permille", "max_hp"]
+summary = "主修偏术法循环与异常收益的基础属性池。"
+
+[[attribute_pools]]
+pool_id = "main_speed_pool"
+name = "主修速度池"
+order = 5
+stat_ids = ["speed", "attack_power", "crit_rate_permille", "control_hit_permille", "max_hp"]
+summary = "主修偏先手与节奏控制的基础属性池。"
+
+[[attribute_pools]]
+pool_id = "guard_pool"
+name = "护体属性池"
+order = 6
+stat_ids = ["max_hp", "guard_power", "damage_reduction_permille", "heal_power", "speed"]
+summary = "护体辅助功法的可分配属性集合。"
+
+[[attribute_pools]]
+pool_id = "movement_pool"
+name = "身法属性池"
+order = 7
+stat_ids = ["speed", "dodge_rate_permille", "crit_rate_permille", "damage_bonus_permille", "max_hp"]
+summary = "身法辅助功法的可分配属性集合。"
+
+[[attribute_pools]]
+pool_id = "spirit_pool"
+name = "神识属性池"
+order = 8
+stat_ids = ["control_hit_permille", "crit_rate_permille", "crit_damage_bonus_permille", "damage_bonus_permille", "speed"]
+summary = "神识辅助功法的可分配属性集合。"
+
+[[patches]]
+patch_id = "main_burst_damage_up"
+patch_kind = "template_scalar"
+target_key = "burst_damage"
+operation = "add_permille"
+value = 120
+name = "爆发增伤"
+order = 1
+summary = "提升主修爆发动作的伤害倍率。"
+
+[[patches]]
+patch_id = "main_execute_threshold"
+patch_kind = "template_threshold"
+target_key = "execute_threshold"
+operation = "raise_permille"
+value = 80
+name = "斩杀阈值"
+order = 2
+summary = "放宽主修斩杀技能的目标血量阈值。"
+
+[[patches]]
+patch_id = "main_combo_trigger_up"
+patch_kind = "template_trigger_cap"
+target_key = "combo_attack"
+operation = "add_count"
+value = 1
+name = "连击触发"
+order = 3
+summary = "增加主修连击动作的最大触发次数。"
+
+[[patches]]
+patch_id = "main_precision_bonus"
+patch_kind = "attribute_bonus"
+target_key = "crit_rate_permille"
+operation = "add_flat"
+value = 40
+name = "精准增幅"
+order = 4
+summary = "提升主修构筑的暴击基础收益。"
+
+[[patches]]
+patch_id = "main_guard_bonus"
+patch_kind = "attribute_bonus"
+target_key = "guard_power"
+operation = "add_flat"
+value = 60
+name = "护体增幅"
+order = 5
+summary = "提升主修构筑的护体基础收益。"
+
+[[patches]]
+patch_id = "main_sustain_bonus"
+patch_kind = "attribute_bonus"
+target_key = "heal_power"
+operation = "add_flat"
+value = 60
+name = "续航增幅"
+order = 6
+summary = "提升主修构筑的恢复基础收益。"
+
+[[patches]]
+patch_id = "main_spell_damage_up"
+patch_kind = "template_scalar"
+target_key = "spell_damage"
+operation = "add_permille"
+value = 110
+name = "术法增伤"
+order = 7
+summary = "提升主修术法动作的伤害倍率。"
+
+[[patches]]
+patch_id = "main_control_hit_bonus"
+patch_kind = "attribute_bonus"
+target_key = "control_hit_permille"
+operation = "add_flat"
+value = 55
+name = "控制命中"
+order = 8
+summary = "提升主修构筑的控制命中收益。"
+
+[[patches]]
+patch_id = "guard_shield_bonus"
+patch_kind = "attribute_bonus"
+target_key = "guard_power"
+operation = "add_flat"
+value = 45
+name = "护盾增幅"
+order = 9
+summary = "提升护体辅助功法的护体收益。"
+
+[[patches]]
+patch_id = "guard_damage_reduction"
+patch_kind = "attribute_bonus"
+target_key = "damage_reduction_permille"
+operation = "add_flat"
+value = 35
+name = "减伤增幅"
+order = 10
+summary = "提升护体辅助功法的减伤收益。"
+
+[[patches]]
+patch_id = "movement_speed_bonus"
+patch_kind = "attribute_bonus"
+target_key = "speed"
+operation = "add_flat"
+value = 18
+name = "速度增幅"
+order = 11
+summary = "提升身法辅助功法的速度收益。"
+
+[[patches]]
+patch_id = "movement_dodge_bonus"
+patch_kind = "attribute_bonus"
+target_key = "dodge_rate_permille"
+operation = "add_flat"
+value = 45
+name = "闪避增幅"
+order = 12
+summary = "提升身法辅助功法的闪避收益。"
+
+[[patches]]
+patch_id = "spirit_control_hit_bonus"
+patch_kind = "attribute_bonus"
+target_key = "control_hit_permille"
+operation = "add_flat"
+value = 40
+name = "神识命中"
+order = 13
+summary = "提升神识辅助功法的控制命中收益。"
+
+[[patches]]
+patch_id = "spirit_crit_bonus"
+patch_kind = "attribute_bonus"
+target_key = "crit_damage_bonus_permille"
+operation = "add_flat"
+value = 120
+name = "神识暴伤"
+order = 14
+summary = "提升神识辅助功法的暴击伤害收益。"
+
+[[patch_pools]]
+pool_id = "main_burst_patch_pool"
+name = "主修爆发补丁池"
+order = 1
+patch_ids = ["main_burst_damage_up", "main_execute_threshold"]
+summary = "适用于先手爆发型主修功法。"
+
+[[patch_pools]]
+pool_id = "main_precision_patch_pool"
+name = "主修精准补丁池"
+order = 2
+patch_ids = ["main_precision_bonus", "main_execute_threshold"]
+summary = "适用于暴击压制型主修功法。"
+
+[[patch_pools]]
+pool_id = "main_combo_patch_pool"
+name = "主修连击补丁池"
+order = 3
+patch_ids = ["main_combo_trigger_up", "main_precision_bonus"]
+summary = "适用于连击追击型主修功法。"
+
+[[patch_pools]]
+pool_id = "main_guard_patch_pool"
+name = "主修护体补丁池"
+order = 4
+patch_ids = ["main_guard_bonus", "main_sustain_bonus"]
+summary = "适用于承伤反击型主修功法。"
+
+[[patch_pools]]
+pool_id = "main_sustain_patch_pool"
+name = "主修续航补丁池"
+order = 5
+patch_ids = ["main_sustain_bonus", "main_guard_bonus"]
+summary = "适用于恢复续航型主修功法。"
+
+[[patch_pools]]
+pool_id = "main_spell_patch_pool"
+name = "主修术法补丁池"
+order = 6
+patch_ids = ["main_spell_damage_up", "main_control_hit_bonus"]
+summary = "适用于群攻术法型主修功法。"
+
+[[patch_pools]]
+pool_id = "main_control_patch_pool"
+name = "主修控制补丁池"
+order = 7
+patch_ids = ["main_control_hit_bonus", "main_spell_damage_up"]
+summary = "适用于异常控制型主修功法。"
+
+[[patch_pools]]
+pool_id = "guard_patch_pool"
+name = "护体补丁池"
+order = 8
+patch_ids = ["guard_shield_bonus", "guard_damage_reduction"]
+summary = "适用于护体辅助功法。"
+
+[[patch_pools]]
+pool_id = "movement_patch_pool"
+name = "身法补丁池"
+order = 9
+patch_ids = ["movement_speed_bonus", "movement_dodge_bonus"]
+summary = "适用于身法辅助功法。"
+
+[[patch_pools]]
+pool_id = "spirit_patch_pool"
+name = "神识补丁池"
+order = 10
+patch_ids = ["spirit_control_hit_bonus", "spirit_crit_bonus"]
+summary = "适用于神识辅助功法。"

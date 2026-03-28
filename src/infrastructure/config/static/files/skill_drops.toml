@@ -1,0 +1,78 @@
+config_version = "1.0.0"
+
+[default_probabilities]
+main_lineage_drop_rate = "0.35"
+auxiliary_lineage_drop_rate = "0.65"
+guard_slot_rate = "0.34"
+movement_slot_rate = "0.33"
+spirit_slot_rate = "0.33"
+duplicate_drop_allowed = true
+
+[[pools]]
+pool_id = "launch_main_pool"
+skill_type = "main"
+name = "首发主修掉落池"
+order = 1
+summary = "首发阶段主修功法谱系统一掉落池。"
+entries = [
+  { lineage_id = "seven_kill_sword", weight = 100 },
+  { lineage_id = "formless_heart_sword", weight = 95 },
+  { lineage_id = "cutting_emotion_manual", weight = 100 },
+  { lineage_id = "shadow_follow_sword_record", weight = 90 },
+  { lineage_id = "wild_tyrant_body", weight = 90 },
+  { lineage_id = "earth_shaking_bone_manual", weight = 85 },
+  { lineage_id = "longevity_origin_manual", weight = 90 },
+  { lineage_id = "jade_pulse_body_record", weight = 85 },
+  { lineage_id = "azure_cloud_ritual", weight = 95 },
+  { lineage_id = "purple_void_spell_book", weight = 90 },
+  { lineage_id = "burning_soul_record", weight = 95 },
+  { lineage_id = "nether_tide_scripture", weight = 90 },
+]
+
+[[pools]]
+pool_id = "launch_guard_pool"
+skill_type = "auxiliary"
+auxiliary_slot_id = "guard"
+name = "首发护体掉落池"
+order = 2
+summary = "首发阶段护体辅助功法统一掉落池。"
+entries = [
+  { lineage_id = "golden_bell_guard", weight = 100 },
+  { lineage_id = "blood_armor_guard", weight = 95 },
+  { lineage_id = "stone_skin_guard", weight = 95 },
+  { lineage_id = "evergreen_guard", weight = 95 },
+  { lineage_id = "mist_barrier_guard", weight = 90 },
+  { lineage_id = "underworld_guard", weight = 90 },
+]
+
+[[pools]]
+pool_id = "launch_movement_pool"
+skill_type = "auxiliary"
+auxiliary_slot_id = "movement"
+name = "首发身法掉落池"
+order = 3
+summary = "首发阶段身法辅助功法统一掉落池。"
+entries = [
+  { lineage_id = "wind_shadow_step", weight = 100 },
+  { lineage_id = "chasing_light_step", weight = 100 },
+  { lineage_id = "earth_travel_step", weight = 90 },
+  { lineage_id = "cloud_rest_step", weight = 90 },
+  { lineage_id = "sky_travel_step", weight = 95 },
+  { lineage_id = "ghost_trace_step", weight = 95 },
+]
+
+[[pools]]
+pool_id = "launch_spirit_pool"
+skill_type = "auxiliary"
+auxiliary_slot_id = "spirit"
+name = "首发神识掉落池"
+order = 4
+summary = "首发阶段神识辅助功法统一掉落池。"
+entries = [
+  { lineage_id = "sword_heart_lock", weight = 100 },
+  { lineage_id = "blade_intent_focus", weight = 95 },
+  { lineage_id = "war_mind_manual", weight = 90 },
+  { lineage_id = "spring_heart_focus", weight = 90 },
+  { lineage_id = "star_focus_book", weight = 95 },
+  { lineage_id = "nether_sense_manual", weight = 95 },
+]

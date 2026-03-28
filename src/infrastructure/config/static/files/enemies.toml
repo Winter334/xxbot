@@ -1,0 +1,281 @@
+config_version = "1.0.0"
+
+[[templates]]
+template_id = "berserker"
+name = "猛攻型"
+order = 1
+combat_profile = "高输出、低生存。"
+normal_active_skill_count = 1
+normal_passive_skill_count = 1
+elite_active_skill_count = 2
+elite_passive_skill_count = 1
+boss_active_skill_count = 2
+boss_passive_skill_count = 2
+
+[[templates]]
+template_id = "guardian"
+name = "坚守型"
+order = 2
+combat_profile = "高气血、高护体、低速度。"
+normal_active_skill_count = 1
+normal_passive_skill_count = 1
+elite_active_skill_count = 2
+elite_passive_skill_count = 1
+boss_active_skill_count = 2
+boss_passive_skill_count = 2
+
+[[templates]]
+template_id = "swift"
+name = "灵巧型"
+order = 3
+combat_profile = "高速度、偏闪避、低承伤。"
+normal_active_skill_count = 1
+normal_passive_skill_count = 1
+elite_active_skill_count = 2
+elite_passive_skill_count = 1
+boss_active_skill_count = 3
+boss_passive_skill_count = 2
+
+[[templates]]
+template_id = "caster"
+name = "术法型"
+order = 4
+combat_profile = "高真元、群攻或异常。"
+normal_active_skill_count = 1
+normal_passive_skill_count = 1
+elite_active_skill_count = 2
+elite_passive_skill_count = 1
+boss_active_skill_count = 3
+boss_passive_skill_count = 2
+
+[[templates]]
+template_id = "restorer"
+name = "恢复型"
+order = 5
+combat_profile = "低输出、偏回复或护盾。"
+normal_active_skill_count = 1
+normal_passive_skill_count = 1
+elite_active_skill_count = 2
+elite_passive_skill_count = 1
+boss_active_skill_count = 2
+boss_passive_skill_count = 2
+
+[[races]]
+race_id = "beast"
+name = "妖兽"
+order = 1
+favored_template_ids = ["berserker", "guardian"]
+combat_profile = "高气血、偏猛攻。"
+
+[[races]]
+race_id = "heretic"
+name = "邪修"
+order = 2
+favored_template_ids = ["caster", "swift"]
+combat_profile = "偏控制、偏吸取。"
+
+[[races]]
+race_id = "puppet"
+name = "傀儡"
+order = 3
+favored_template_ids = ["guardian"]
+combat_profile = "高护体、低机动。"
+
+[[races]]
+race_id = "spirit"
+name = "灵体"
+order = 4
+favored_template_ids = ["swift", "caster"]
+combat_profile = "高闪避、偏术法。"
+
+[[races]]
+race_id = "ancient_demon"
+name = "古魔"
+order = 5
+favored_template_ids = ["berserker", "restorer"]
+combat_profile = "高爆发、带异常。"
+
+[[region_biases]]
+region_bias_id = "wind"
+name = "风域"
+order = 1
+theme_summary = "速度系敌人更多，主打先手压制。"
+favored_race_ids = ["spirit", "heretic"]
+
+[[region_biases.template_weights]]
+template_id = "swift"
+name = "灵巧权重"
+order = 1
+weight = "0.40"
+
+[[region_biases.template_weights]]
+template_id = "caster"
+name = "术法权重"
+order = 2
+weight = "0.20"
+
+[[region_biases.template_weights]]
+template_id = "berserker"
+name = "猛攻权重"
+order = 3
+weight = "0.15"
+
+[[region_biases.template_weights]]
+template_id = "guardian"
+name = "坚守权重"
+order = 4
+weight = "0.15"
+
+[[region_biases.template_weights]]
+template_id = "restorer"
+name = "恢复权重"
+order = 5
+weight = "0.10"
+
+[[region_biases]]
+region_bias_id = "flame"
+name = "炎域"
+order = 2
+theme_summary = "爆发与灼烧主题更强。"
+favored_race_ids = ["beast", "ancient_demon"]
+
+[[region_biases.template_weights]]
+template_id = "berserker"
+name = "猛攻权重"
+order = 1
+weight = "0.35"
+
+[[region_biases.template_weights]]
+template_id = "caster"
+name = "术法权重"
+order = 2
+weight = "0.25"
+
+[[region_biases.template_weights]]
+template_id = "guardian"
+name = "坚守权重"
+order = 3
+weight = "0.15"
+
+[[region_biases.template_weights]]
+template_id = "swift"
+name = "灵巧权重"
+order = 4
+weight = "0.15"
+
+[[region_biases.template_weights]]
+template_id = "restorer"
+name = "恢复权重"
+order = 5
+weight = "0.10"
+
+[[region_biases]]
+region_bias_id = "frost"
+name = "寒域"
+order = 3
+theme_summary = "减速与控制主题更强。"
+favored_race_ids = ["puppet", "spirit"]
+
+[[region_biases.template_weights]]
+template_id = "guardian"
+name = "坚守权重"
+order = 1
+weight = "0.30"
+
+[[region_biases.template_weights]]
+template_id = "caster"
+name = "术法权重"
+order = 2
+weight = "0.25"
+
+[[region_biases.template_weights]]
+template_id = "swift"
+name = "灵巧权重"
+order = 3
+weight = "0.20"
+
+[[region_biases.template_weights]]
+template_id = "restorer"
+name = "恢复权重"
+order = 4
+weight = "0.15"
+
+[[region_biases.template_weights]]
+template_id = "berserker"
+name = "猛攻权重"
+order = 5
+weight = "0.10"
+
+[[region_biases]]
+region_bias_id = "shade"
+name = "煞域"
+order = 4
+theme_summary = "吸血与持续伤害主题更强。"
+favored_race_ids = ["heretic", "ancient_demon"]
+
+[[region_biases.template_weights]]
+template_id = "restorer"
+name = "恢复权重"
+order = 1
+weight = "0.30"
+
+[[region_biases.template_weights]]
+template_id = "caster"
+name = "术法权重"
+order = 2
+weight = "0.25"
+
+[[region_biases.template_weights]]
+template_id = "berserker"
+name = "猛攻权重"
+order = 3
+weight = "0.20"
+
+[[region_biases.template_weights]]
+template_id = "guardian"
+name = "坚守权重"
+order = 4
+weight = "0.15"
+
+[[region_biases.template_weights]]
+template_id = "swift"
+name = "灵巧权重"
+order = 5
+weight = "0.10"
+
+[[region_biases]]
+region_bias_id = "thunder"
+name = "雷域"
+order = 5
+theme_summary = "先手压制与爆发更强。"
+favored_race_ids = ["beast", "spirit"]
+
+[[region_biases.template_weights]]
+template_id = "swift"
+name = "灵巧权重"
+order = 1
+weight = "0.30"
+
+[[region_biases.template_weights]]
+template_id = "berserker"
+name = "猛攻权重"
+order = 2
+weight = "0.25"
+
+[[region_biases.template_weights]]
+template_id = "caster"
+name = "术法权重"
+order = 3
+weight = "0.20"
+
+[[region_biases.template_weights]]
+template_id = "guardian"
+name = "坚守权重"
+order = 4
+weight = "0.15"
+
+[[region_biases.template_weights]]
+template_id = "restorer"
+name = "恢复权重"
+order = 5
+weight = "0.10"

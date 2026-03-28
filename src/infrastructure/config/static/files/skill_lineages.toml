@@ -1,0 +1,319 @@
+config_version = "1.0.0"
+
+[[lineages]]
+lineage_id = "seven_kill_sword"
+path_id = "wenxin_sword"
+skill_type = "main"
+attribute_pool_id = "main_offense_pool"
+patch_pool_ids = ["main_burst_patch_pool"]
+name = "七杀剑诀"
+order = 1
+summary = "问心剑道主修功法，偏向先手爆发与斩杀。"
+
+[[lineages]]
+lineage_id = "formless_heart_sword"
+path_id = "wenxin_sword"
+skill_type = "main"
+attribute_pool_id = "main_general_pool"
+patch_pool_ids = ["main_precision_patch_pool"]
+name = "无相心剑篇"
+order = 2
+summary = "问心剑道主修功法，偏向稳定压制与收割。"
+
+[[lineages]]
+lineage_id = "cutting_emotion_manual"
+path_id = "zhanqing_sword"
+skill_type = "main"
+attribute_pool_id = "main_offense_pool"
+patch_pool_ids = ["main_combo_patch_pool"]
+name = "斩情诀"
+order = 3
+summary = "斩情剑道主修功法，偏向连击与持续输出。"
+
+[[lineages]]
+lineage_id = "shadow_follow_sword_record"
+path_id = "zhanqing_sword"
+skill_type = "main"
+attribute_pool_id = "main_speed_pool"
+patch_pool_ids = ["main_precision_patch_pool"]
+name = "逐影剑录"
+order = 4
+summary = "斩情剑道主修功法，偏向追击滚动与节奏压制。"
+
+[[lineages]]
+lineage_id = "wild_tyrant_body"
+path_id = "manhuang_body"
+skill_type = "main"
+attribute_pool_id = "main_defense_pool"
+patch_pool_ids = ["main_guard_patch_pool"]
+name = "荒罡霸体诀"
+order = 5
+summary = "蛮荒战体主修功法，偏向承伤与反震。"
+
+[[lineages]]
+lineage_id = "earth_shaking_bone_manual"
+path_id = "manhuang_body"
+skill_type = "main"
+attribute_pool_id = "main_general_pool"
+patch_pool_ids = ["main_guard_patch_pool"]
+name = "镇岳炼骨经"
+order = 6
+summary = "蛮荒战体主修功法，偏向稳态肉搏与反击。"
+
+[[lineages]]
+lineage_id = "longevity_origin_manual"
+path_id = "changsheng_body"
+skill_type = "main"
+attribute_pool_id = "main_defense_pool"
+patch_pool_ids = ["main_sustain_patch_pool"]
+name = "长生归元经"
+order = 7
+summary = "长生道体主修功法，偏向恢复与长战续航。"
+
+[[lineages]]
+lineage_id = "jade_pulse_body_record"
+path_id = "changsheng_body"
+skill_type = "main"
+attribute_pool_id = "main_general_pool"
+patch_pool_ids = ["main_sustain_patch_pool"]
+name = "玉脉护生录"
+order = 8
+summary = "长生道体主修功法，偏向护盾与气血厚度。"
+
+[[lineages]]
+lineage_id = "azure_cloud_ritual"
+path_id = "qingyun_spell"
+skill_type = "main"
+attribute_pool_id = "main_spell_pool"
+patch_pool_ids = ["main_spell_patch_pool"]
+name = "青云天章"
+order = 9
+summary = "青云术脉主修功法，偏向群攻与法术循环。"
+
+[[lineages]]
+lineage_id = "purple_void_spell_book"
+path_id = "qingyun_spell"
+skill_type = "main"
+attribute_pool_id = "main_speed_pool"
+patch_pool_ids = ["main_spell_patch_pool"]
+name = "紫虚御法篇"
+order = 10
+summary = "青云术脉主修功法，偏向清场爆发与资源调度。"
+
+[[lineages]]
+lineage_id = "burning_soul_record"
+path_id = "wangchuan_spell"
+skill_type = "main"
+attribute_pool_id = "main_spell_pool"
+patch_pool_ids = ["main_control_patch_pool"]
+name = "离火噬魂录"
+order = 11
+summary = "忘川术脉主修功法，偏向异常压制与持续消耗。"
+
+[[lineages]]
+lineage_id = "nether_tide_scripture"
+path_id = "wangchuan_spell"
+skill_type = "main"
+attribute_pool_id = "main_general_pool"
+patch_pool_ids = ["main_control_patch_pool"]
+name = "冥潮蚀心典"
+order = 12
+summary = "忘川术脉主修功法，偏向控制与反坦输出。"
+
+[[lineages]]
+lineage_id = "golden_bell_guard"
+path_id = "wenxin_sword"
+skill_type = "auxiliary"
+auxiliary_slot_id = "guard"
+attribute_pool_id = "guard_pool"
+patch_pool_ids = ["guard_patch_pool"]
+name = "金钟护元诀"
+order = 13
+summary = "问心剑道辅助护体功法，偏向护盾与减伤。"
+
+[[lineages]]
+lineage_id = "wind_shadow_step"
+path_id = "wenxin_sword"
+skill_type = "auxiliary"
+auxiliary_slot_id = "movement"
+attribute_pool_id = "movement_pool"
+patch_pool_ids = ["movement_patch_pool"]
+name = "风影步"
+order = 14
+summary = "问心剑道辅助身法功法，偏向速度与闪避。"
+
+[[lineages]]
+lineage_id = "sword_heart_lock"
+path_id = "wenxin_sword"
+skill_type = "auxiliary"
+auxiliary_slot_id = "spirit"
+attribute_pool_id = "spirit_pool"
+patch_pool_ids = ["spirit_patch_pool"]
+name = "锁念剑心诀"
+order = 15
+summary = "问心剑道辅助神识功法，偏向暴击与资源窗口。"
+
+[[lineages]]
+lineage_id = "blood_armor_guard"
+path_id = "zhanqing_sword"
+skill_type = "auxiliary"
+auxiliary_slot_id = "guard"
+attribute_pool_id = "guard_pool"
+patch_pool_ids = ["guard_patch_pool"]
+name = "血煞护体功"
+order = 16
+summary = "斩情剑道辅助护体功法，偏向站桩换血。"
+
+[[lineages]]
+lineage_id = "chasing_light_step"
+path_id = "zhanqing_sword"
+skill_type = "auxiliary"
+auxiliary_slot_id = "movement"
+attribute_pool_id = "movement_pool"
+patch_pool_ids = ["movement_patch_pool"]
+name = "逐光身法"
+order = 17
+summary = "斩情剑道辅助身法功法，偏向追击节奏。"
+
+[[lineages]]
+lineage_id = "blade_intent_focus"
+path_id = "zhanqing_sword"
+skill_type = "auxiliary"
+auxiliary_slot_id = "spirit"
+attribute_pool_id = "spirit_pool"
+patch_pool_ids = ["spirit_patch_pool"]
+name = "刃念凝神篇"
+order = 18
+summary = "斩情剑道辅助神识功法，偏向命中与暴击收益。"
+
+[[lineages]]
+lineage_id = "stone_skin_guard"
+path_id = "manhuang_body"
+skill_type = "auxiliary"
+auxiliary_slot_id = "guard"
+attribute_pool_id = "guard_pool"
+patch_pool_ids = ["guard_patch_pool"]
+name = "磐石护甲经"
+order = 19
+summary = "蛮荒战体辅助护体功法，偏向护体与气血。"
+
+[[lineages]]
+lineage_id = "earth_travel_step"
+path_id = "manhuang_body"
+skill_type = "auxiliary"
+auxiliary_slot_id = "movement"
+attribute_pool_id = "movement_pool"
+patch_pool_ids = ["movement_patch_pool"]
+name = "地行遁步"
+order = 20
+summary = "蛮荒战体辅助身法功法，偏向厚重机动。"
+
+[[lineages]]
+lineage_id = "war_mind_manual"
+path_id = "manhuang_body"
+skill_type = "auxiliary"
+auxiliary_slot_id = "spirit"
+attribute_pool_id = "spirit_pool"
+patch_pool_ids = ["spirit_patch_pool"]
+name = "战心镇魂篇"
+order = 21
+summary = "蛮荒战体辅助神识功法，偏向反击窗口与命中。"
+
+[[lineages]]
+lineage_id = "evergreen_guard"
+path_id = "changsheng_body"
+skill_type = "auxiliary"
+auxiliary_slot_id = "guard"
+attribute_pool_id = "guard_pool"
+patch_pool_ids = ["guard_patch_pool"]
+name = "常青护脉诀"
+order = 22
+summary = "长生道体辅助护体功法，偏向回复与减伤。"
+
+[[lineages]]
+lineage_id = "cloud_rest_step"
+path_id = "changsheng_body"
+skill_type = "auxiliary"
+auxiliary_slot_id = "movement"
+attribute_pool_id = "movement_pool"
+patch_pool_ids = ["movement_patch_pool"]
+name = "云息步"
+order = 23
+summary = "长生道体辅助身法功法，偏向稳态调息。"
+
+[[lineages]]
+lineage_id = "spring_heart_focus"
+path_id = "changsheng_body"
+skill_type = "auxiliary"
+auxiliary_slot_id = "spirit"
+attribute_pool_id = "spirit_pool"
+patch_pool_ids = ["spirit_patch_pool"]
+name = "回春凝神篇"
+order = 24
+summary = "长生道体辅助神识功法，偏向持续恢复与韧性。"
+
+[[lineages]]
+lineage_id = "mist_barrier_guard"
+path_id = "qingyun_spell"
+skill_type = "auxiliary"
+auxiliary_slot_id = "guard"
+attribute_pool_id = "guard_pool"
+patch_pool_ids = ["guard_patch_pool"]
+name = "雾隐护法录"
+order = 25
+summary = "青云术脉辅助护体功法，偏向薄盾与灵巧减伤。"
+
+[[lineages]]
+lineage_id = "sky_travel_step"
+path_id = "qingyun_spell"
+skill_type = "auxiliary"
+auxiliary_slot_id = "movement"
+attribute_pool_id = "movement_pool"
+patch_pool_ids = ["movement_patch_pool"]
+name = "御风游天步"
+order = 26
+summary = "青云术脉辅助身法功法，偏向高速施法。"
+
+[[lineages]]
+lineage_id = "star_focus_book"
+path_id = "qingyun_spell"
+skill_type = "auxiliary"
+auxiliary_slot_id = "spirit"
+attribute_pool_id = "spirit_pool"
+patch_pool_ids = ["spirit_patch_pool"]
+name = "星衍凝识录"
+order = 27
+summary = "青云术脉辅助神识功法，偏向爆发施法与暴击。"
+
+[[lineages]]
+lineage_id = "underworld_guard"
+path_id = "wangchuan_spell"
+skill_type = "auxiliary"
+auxiliary_slot_id = "guard"
+attribute_pool_id = "guard_pool"
+patch_pool_ids = ["guard_patch_pool"]
+name = "幽冥护魄诀"
+order = 28
+summary = "忘川术脉辅助护体功法，偏向抗控与护魂。"
+
+[[lineages]]
+lineage_id = "ghost_trace_step"
+path_id = "wangchuan_spell"
+skill_type = "auxiliary"
+auxiliary_slot_id = "movement"
+attribute_pool_id = "movement_pool"
+patch_pool_ids = ["movement_patch_pool"]
+name = "鬼踪步"
+order = 29
+summary = "忘川术脉辅助身法功法，偏向速度与压制节奏。"
+
+[[lineages]]
+lineage_id = "nether_sense_manual"
+path_id = "wangchuan_spell"
+skill_type = "auxiliary"
+auxiliary_slot_id = "spirit"
+attribute_pool_id = "spirit_pool"
+patch_pool_ids = ["spirit_patch_pool"]
+name = "冥识摄魂篇"
+order = 30
+summary = "忘川术脉辅助神识功法，偏向控制命中与异常收益。"

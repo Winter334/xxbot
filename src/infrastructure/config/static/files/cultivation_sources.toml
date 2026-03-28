@@ -1,0 +1,328 @@
+config_version = "1.0.0"
+
+[closed_door_yield]
+config_version = "1.0.0"
+insight_gain_ratio = "0.08"
+spirit_stone_gain_ratio = "0.05"
+max_days_per_claim = 3
+allow_breakthrough_resource_drop = false
+
+[[sources]]
+realm_id = "mortal"
+name = "凡人闭关修炼"
+order = 1
+ratio = "0.35"
+source_category = "closed_door"
+description = "提供低活跃保底成长底盘。"
+
+[[sources]]
+realm_id = "mortal"
+name = "凡人主动高效段"
+order = 2
+ratio = "0.45"
+source_category = "active_peak"
+description = "承担当日最高效率的主动修炼收益。"
+
+[[sources]]
+realm_id = "mortal"
+name = "凡人主动常规段"
+order = 3
+ratio = "0.15"
+source_category = "active_regular"
+description = "支撑继续刷取时的常规推进。"
+
+[[sources]]
+realm_id = "mortal"
+name = "凡人主动低效尾段"
+order = 4
+ratio = "0.05"
+source_category = "active_tail"
+description = "保留超额在线时的补充收益。"
+
+[[sources]]
+realm_id = "qi_refining"
+name = "炼气闭关修炼"
+order = 5
+ratio = "0.35"
+source_category = "closed_door"
+description = "提供低活跃保底成长底盘。"
+
+[[sources]]
+realm_id = "qi_refining"
+name = "炼气主动高效段"
+order = 6
+ratio = "0.45"
+source_category = "active_peak"
+description = "承担当日最高效率的主动修炼收益。"
+
+[[sources]]
+realm_id = "qi_refining"
+name = "炼气主动常规段"
+order = 7
+ratio = "0.15"
+source_category = "active_regular"
+description = "支撑继续刷取时的常规推进。"
+
+[[sources]]
+realm_id = "qi_refining"
+name = "炼气主动低效尾段"
+order = 8
+ratio = "0.05"
+source_category = "active_tail"
+description = "保留超额在线时的补充收益。"
+
+[[sources]]
+realm_id = "foundation"
+name = "筑基闭关修炼"
+order = 9
+ratio = "0.35"
+source_category = "closed_door"
+description = "提供低活跃保底成长底盘。"
+
+[[sources]]
+realm_id = "foundation"
+name = "筑基主动高效段"
+order = 10
+ratio = "0.45"
+source_category = "active_peak"
+description = "承担当日最高效率的主动修炼收益。"
+
+[[sources]]
+realm_id = "foundation"
+name = "筑基主动常规段"
+order = 11
+ratio = "0.15"
+source_category = "active_regular"
+description = "支撑继续刷取时的常规推进。"
+
+[[sources]]
+realm_id = "foundation"
+name = "筑基主动低效尾段"
+order = 12
+ratio = "0.05"
+source_category = "active_tail"
+description = "保留超额在线时的补充收益。"
+
+[[sources]]
+realm_id = "core"
+name = "结丹闭关修炼"
+order = 13
+ratio = "0.35"
+source_category = "closed_door"
+description = "提供低活跃保底成长底盘。"
+
+[[sources]]
+realm_id = "core"
+name = "结丹主动高效段"
+order = 14
+ratio = "0.45"
+source_category = "active_peak"
+description = "承担当日最高效率的主动修炼收益。"
+
+[[sources]]
+realm_id = "core"
+name = "结丹主动常规段"
+order = 15
+ratio = "0.15"
+source_category = "active_regular"
+description = "支撑继续刷取时的常规推进。"
+
+[[sources]]
+realm_id = "core"
+name = "结丹主动低效尾段"
+order = 16
+ratio = "0.05"
+source_category = "active_tail"
+description = "保留超额在线时的补充收益。"
+
+[[sources]]
+realm_id = "nascent_soul"
+name = "元婴闭关修炼"
+order = 17
+ratio = "0.35"
+source_category = "closed_door"
+description = "提供低活跃保底成长底盘。"
+
+[[sources]]
+realm_id = "nascent_soul"
+name = "元婴主动高效段"
+order = 18
+ratio = "0.45"
+source_category = "active_peak"
+description = "承担当日最高效率的主动修炼收益。"
+
+[[sources]]
+realm_id = "nascent_soul"
+name = "元婴主动常规段"
+order = 19
+ratio = "0.15"
+source_category = "active_regular"
+description = "支撑继续刷取时的常规推进。"
+
+[[sources]]
+realm_id = "nascent_soul"
+name = "元婴主动低效尾段"
+order = 20
+ratio = "0.05"
+source_category = "active_tail"
+description = "保留超额在线时的补充收益。"
+
+[[sources]]
+realm_id = "deity_transformation"
+name = "化神闭关修炼"
+order = 21
+ratio = "0.35"
+source_category = "closed_door"
+description = "提供低活跃保底成长底盘。"
+
+[[sources]]
+realm_id = "deity_transformation"
+name = "化神主动高效段"
+order = 22
+ratio = "0.45"
+source_category = "active_peak"
+description = "承担当日最高效率的主动修炼收益。"
+
+[[sources]]
+realm_id = "deity_transformation"
+name = "化神主动常规段"
+order = 23
+ratio = "0.15"
+source_category = "active_regular"
+description = "支撑继续刷取时的常规推进。"
+
+[[sources]]
+realm_id = "deity_transformation"
+name = "化神主动低效尾段"
+order = 24
+ratio = "0.05"
+source_category = "active_tail"
+description = "保留超额在线时的补充收益。"
+
+[[sources]]
+realm_id = "void_refinement"
+name = "炼虚闭关修炼"
+order = 25
+ratio = "0.35"
+source_category = "closed_door"
+description = "提供低活跃保底成长底盘。"
+
+[[sources]]
+realm_id = "void_refinement"
+name = "炼虚主动高效段"
+order = 26
+ratio = "0.45"
+source_category = "active_peak"
+description = "承担当日最高效率的主动修炼收益。"
+
+[[sources]]
+realm_id = "void_refinement"
+name = "炼虚主动常规段"
+order = 27
+ratio = "0.15"
+source_category = "active_regular"
+description = "支撑继续刷取时的常规推进。"
+
+[[sources]]
+realm_id = "void_refinement"
+name = "炼虚主动低效尾段"
+order = 28
+ratio = "0.05"
+source_category = "active_tail"
+description = "保留超额在线时的补充收益。"
+
+[[sources]]
+realm_id = "body_integration"
+name = "合体闭关修炼"
+order = 29
+ratio = "0.35"
+source_category = "closed_door"
+description = "提供低活跃保底成长底盘。"
+
+[[sources]]
+realm_id = "body_integration"
+name = "合体主动高效段"
+order = 30
+ratio = "0.45"
+source_category = "active_peak"
+description = "承担当日最高效率的主动修炼收益。"
+
+[[sources]]
+realm_id = "body_integration"
+name = "合体主动常规段"
+order = 31
+ratio = "0.15"
+source_category = "active_regular"
+description = "支撑继续刷取时的常规推进。"
+
+[[sources]]
+realm_id = "body_integration"
+name = "合体主动低效尾段"
+order = 32
+ratio = "0.05"
+source_category = "active_tail"
+description = "保留超额在线时的补充收益。"
+
+[[sources]]
+realm_id = "great_vehicle"
+name = "大乘闭关修炼"
+order = 33
+ratio = "0.35"
+source_category = "closed_door"
+description = "提供低活跃保底成长底盘。"
+
+[[sources]]
+realm_id = "great_vehicle"
+name = "大乘主动高效段"
+order = 34
+ratio = "0.45"
+source_category = "active_peak"
+description = "承担当日最高效率的主动修炼收益。"
+
+[[sources]]
+realm_id = "great_vehicle"
+name = "大乘主动常规段"
+order = 35
+ratio = "0.15"
+source_category = "active_regular"
+description = "支撑继续刷取时的常规推进。"
+
+[[sources]]
+realm_id = "great_vehicle"
+name = "大乘主动低效尾段"
+order = 36
+ratio = "0.05"
+source_category = "active_tail"
+description = "保留超额在线时的补充收益。"
+
+[[sources]]
+realm_id = "tribulation"
+name = "渡劫闭关修炼"
+order = 37
+ratio = "0.35"
+source_category = "closed_door"
+description = "提供低活跃保底成长底盘。"
+
+[[sources]]
+realm_id = "tribulation"
+name = "渡劫主动高效段"
+order = 38
+ratio = "0.45"
+source_category = "active_peak"
+description = "承担当日最高效率的主动修炼收益。"
+
+[[sources]]
+realm_id = "tribulation"
+name = "渡劫主动常规段"
+order = 39
+ratio = "0.15"
+source_category = "active_regular"
+description = "支撑继续刷取时的常规推进。"
+
+[[sources]]
+realm_id = "tribulation"
+name = "渡劫主动低效尾段"
+order = 40
+ratio = "0.05"
+source_category = "active_tail"
+description = "保留超额在线时的补充收益。"
