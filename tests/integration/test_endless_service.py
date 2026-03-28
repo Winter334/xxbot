@@ -54,15 +54,21 @@ def _upgrade_database(database_url: str, monkeypatch: pytest.MonkeyPatch) -> Non
 class _DeterministicNamingProvider:
     provider_name = "deterministic_test_provider"
 
-    def __init__(self, *, failures: set[int] | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        failures: set[int] | None = None,
+        fail_candidate_indices: set[int] | None = None,
+    ) -> None:
         self.failures = failures or set()
+        self.fail_candidate_indices = fail_candidate_indices or set()
         self.requests: list[ItemNamingBatchRequest] = []
 
     def generate_names(self, *, request: ItemNamingBatchRequest) -> tuple[ItemNamingBatchResult, ...]:
         self.requests.append(request)
         results: list[ItemNamingBatchResult] = []
-        for candidate in request.candidates:
-            if candidate.instance_id in self.failures:
+        for index, candidate in enumerate(request.candidates):
+            if candidate.instance_id in self.failures or index in self.fail_candidate_indices:
                 results.append(
                     ItemNamingBatchResult(
                         target_type=candidate.target_type,
@@ -181,6 +187,23 @@ def _set_run_floor(
     run_state.highest_floor_reached = max(run_state.highest_floor_reached, floor)
     run_state.current_node_type = node_type
     state_repository.save_endless_run_state(run_state)
+
+
+
+def _entry_resolved_name(entry: dict[str, object]) -> str:
+    """提取掉落条目的当前展示名称。"""
+    return str(entry.get("skill_name") or entry.get("display_name") or "")
+
+
+
+def _collect_entry_names(entries, item_ids: set[int]) -> dict[int, str]:
+    """按实例主键汇总掉落条目的展示名称。"""
+    names: dict[int, str] = {}
+    for entry in entries:
+        item_id = int(entry.get("item_id") or 0)
+        if item_id in item_ids:
+            names[item_id] = _entry_resolved_name(entry)
+    return names
 
 
 
@@ -1081,12 +1104,12 @@ def test_endless_settlement_skips_batch_when_provider_missing_and_keeps_fallback
 
 
 
-def test_endless_settlement_processes_single_batch_and_partial_failures_keep_fallbacks(
+def test_endless_settlement_auto_processes_batch_and_persists_refreshed_names(
     tmp_path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """有 AI 提供方时应按单批次处理，多实例部分失败不影响其他实例。"""
-    database_url = _build_sqlite_url(tmp_path / "endless_naming_batch.db")
+    """有 AI 提供方时，终结结算应自动完成批次处理并持久化刷新后的名称。"""
+    database_url = _build_sqlite_url(tmp_path / "endless_naming_auto_process.db")
     _upgrade_database(database_url, monkeypatch)
     session_factory = create_session_factory(database_url)
     static_config = load_static_config()
@@ -1100,7 +1123,7 @@ def test_endless_settlement_processes_single_batch_and_partial_failures_keep_fal
             endless_service,
             character_repository,
             state_repository,
-            _,
+            battle_record_repository,
             naming_batch_service,
             equipment_service,
             skill_repository,
@@ -1130,67 +1153,152 @@ def test_endless_settlement_processes_single_batch_and_partial_failures_keep_fal
         )
 
         advance = endless_service.advance_next_floor(character_id=created.character_id)
-        assert advance.reward_granted is True
         settlement = endless_service.settle_retreat(character_id=created.character_id, now=settle_time)
+        panel = endless_service.get_settlement_result(character_id=created.character_id)
+        persisted = state_repository.get_endless_run_state(created.character_id)
+        drops = battle_record_repository.list_drop_records(created.character_id)
         batch = naming_batch_service._state_repository.get_item_naming_batch_by_source(
             character_id=created.character_id,
             source_type="endless_settlement",
             source_ref="endless:retreat:floor_10",
         )
+
+        assert advance.reward_granted is True
         assert batch is not None
-        assert batch.status == "pending"
-
-        refreshed_before = endless_service.get_settlement_result(character_id=created.character_id)
-        batch_candidate_ids = [int(payload["instance_id"]) for payload in batch.request_payload_json]
-        assert len(batch_candidate_ids) >= 2
-        failure_ids = {batch_candidate_ids[0]}
-        provider.failures = failure_ids
-        processed = naming_batch_service.process_batch(batch_id=batch.id)
-
+        assert batch.status == "completed"
+        assert batch.result_payload_json["provider_name"] == provider.provider_name
+        assert len(batch.result_payload_json["failed"]) == 0
         assert len(provider.requests) == 1
         assert provider.requests[0].source_ref == "endless:retreat:floor_10"
-        assert len(provider.requests[0].candidates) == len(batch_candidate_ids)
-        assert processed.status == "completed"
-        assert processed.result_payload_json["provider_name"] == provider.provider_name
-        assert len(processed.result_payload_json["failed"]) == 1
-        assert len(processed.result_payload_json["renamed"]) >= 1
+        candidate_ids = {candidate.instance_id for candidate in provider.requests[0].candidates}
+        assert candidate_ids
+        assert len(batch.result_payload_json["renamed"]) == len(candidate_ids)
+        assert settlement == panel
+        assert persisted is not None
+        assert len(drops) == 1
 
-        refreshed_after = endless_service.get_settlement_result(character_id=created.character_id)
-        renamed_entries = [
-            entry
-            for entry in refreshed_after.final_drop_list
-            if int(entry.get("item_id") or 0) in batch_candidate_ids
-        ]
-        assert renamed_entries
-        for entry in renamed_entries:
+        settlement_names = _collect_entry_names(settlement.final_drop_list, candidate_ids)
+        panel_names = _collect_entry_names(panel.final_drop_list, candidate_ids)
+        drop_names = _collect_entry_names(drops[0].items_json, candidate_ids)
+        snapshot_names = _collect_entry_names(
+            persisted.run_snapshot_json["settlement_result"]["final_drop_list"],
+            candidate_ids,
+        )
+        assert settlement_names
+        assert settlement_names == panel_names == drop_names == snapshot_names
+        assert all(name.startswith("AI·") for name in settlement_names.values())
+
+        for entry in settlement.final_drop_list:
             item_id = int(entry.get("item_id") or 0)
-            entry_type = entry.get("entry_type")
-            if item_id in failure_ids:
-                original_entry = next(
-                    candidate
-                    for candidate in refreshed_before.final_drop_list
-                    if int(candidate.get("item_id") or 0) == item_id
-                )
-                if entry_type == "skill_drop":
-                    assert entry["skill_name"] == original_entry["skill_name"]
-                    skill_item = skill_repository.get_skill_item(item_id)
-                    assert skill_item is not None
-                    assert skill_item.naming_source == "lineage_static"
-                else:
-                    assert entry["display_name"] == original_entry["display_name"]
+            if item_id not in candidate_ids:
+                continue
+            if entry.get("entry_type") == "skill_drop":
+                skill_item = skill_repository.get_skill_item(item_id)
+                assert skill_item is not None
+                assert skill_item.skill_name == settlement_names[item_id]
+                assert skill_item.naming_source == "ai_batch"
+                assert skill_item.naming_metadata_json["batch_id"] == str(batch.id)
             else:
-                if entry_type == "skill_drop":
-                    assert str(entry["skill_name"]).startswith("AI·")
-                    skill_item = skill_repository.get_skill_item(item_id)
-                    assert skill_item is not None
-                    assert skill_item.naming_source == "ai_batch"
-                    assert skill_item.naming_metadata_json["batch_id"] == str(batch.id)
-                else:
-                    assert str(entry["display_name"]).startswith("AI·")
-                    equipment_item = equipment_service.get_equipment_detail(
-                        character_id=created.character_id,
-                        equipment_item_id=item_id,
-                    )
-                    assert equipment_item.display_name == entry["display_name"]
-                    assert equipment_item.naming is not None
-                    assert equipment_item.naming.naming_source == "ai_batch"
+                equipment_item = equipment_service.get_equipment_detail(
+                    character_id=created.character_id,
+                    equipment_item_id=item_id,
+                )
+                assert equipment_item.display_name == settlement_names[item_id]
+                assert equipment_item.naming is not None
+                assert equipment_item.naming.naming_source == "ai_batch"
+                assert equipment_item.naming.naming_metadata["batch_id"] == str(batch.id)
+
+
+
+def test_endless_settlement_auto_processing_partial_failures_keep_fallbacks(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """自动批处理出现部分失败时，成功项回填 AI 名称，失败项保留回退名。"""
+    database_url = _build_sqlite_url(tmp_path / "endless_naming_partial_failure.db")
+    _upgrade_database(database_url, monkeypatch)
+    session_factory = create_session_factory(database_url)
+    static_config = load_static_config()
+    provider = _DeterministicNamingProvider(fail_candidate_indices={0})
+    start_time = datetime(2026, 3, 26, 21, 20, 0)
+    settle_time = datetime(2026, 3, 26, 21, 30, 0)
+
+    with session_scope(session_factory) as session:
+        (
+            growth_service,
+            endless_service,
+            character_repository,
+            state_repository,
+            battle_record_repository,
+            naming_batch_service,
+            _,
+            _,
+        ) = _build_services(session, static_config, naming_provider=provider)
+        created = growth_service.create_character(
+            discord_user_id="32013",
+            player_display_name="寒汀",
+            character_name="离樽",
+        )
+        _set_character_progress(
+            character_repository=character_repository,
+            character_id=created.character_id,
+            realm_id="great_vehicle",
+            stage_id="perfect",
+        )
+        endless_service.start_run(
+            character_id=created.character_id,
+            selected_start_floor=1,
+            seed=123,
+            now=start_time,
+        )
+        _set_run_floor(
+            state_repository=state_repository,
+            character_id=created.character_id,
+            floor=10,
+            node_type="anchor_boss",
+        )
+
+        advance = endless_service.advance_next_floor(character_id=created.character_id)
+        settlement = endless_service.settle_retreat(character_id=created.character_id, now=settle_time)
+        panel = endless_service.get_settlement_result(character_id=created.character_id)
+        persisted = state_repository.get_endless_run_state(created.character_id)
+        drops = battle_record_repository.list_drop_records(created.character_id)
+        batch = naming_batch_service._state_repository.get_item_naming_batch_by_source(
+            character_id=created.character_id,
+            source_type="endless_settlement",
+            source_ref="endless:retreat:floor_10",
+        )
+
+        assert advance.reward_granted is True
+        assert batch is not None
+        assert batch.status == "completed"
+        assert batch.result_payload_json["provider_name"] == provider.provider_name
+        assert len(provider.requests) == 1
+        assert provider.requests[0].source_ref == "endless:retreat:floor_10"
+        assert len(provider.requests[0].candidates) >= 2
+        candidate_fallbacks = {
+            candidate.instance_id: candidate.fallback_name for candidate in provider.requests[0].candidates
+        }
+        failed_item_id = provider.requests[0].candidates[0].instance_id
+        assert len(batch.result_payload_json["failed"]) == 1
+        assert batch.result_payload_json["failed"][0]["instance_id"] == failed_item_id
+        assert len(batch.result_payload_json["renamed"]) == len(candidate_fallbacks) - 1
+        assert persisted is not None
+        assert len(drops) == 1
+
+        candidate_ids = set(candidate_fallbacks)
+        settlement_names = _collect_entry_names(settlement.final_drop_list, candidate_ids)
+        panel_names = _collect_entry_names(panel.final_drop_list, candidate_ids)
+        drop_names = _collect_entry_names(drops[0].items_json, candidate_ids)
+        snapshot_names = _collect_entry_names(
+            persisted.run_snapshot_json["settlement_result"]["final_drop_list"],
+            candidate_ids,
+        )
+        assert settlement_names
+        assert settlement_names == panel_names == drop_names == snapshot_names
+
+        for item_id, fallback_name in candidate_fallbacks.items():
+            if item_id == failed_item_id:
+                assert settlement_names[item_id] == fallback_name
+            else:
+                assert settlement_names[item_id] == f"AI·{fallback_name}"

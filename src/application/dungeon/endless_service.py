@@ -810,6 +810,7 @@ class EndlessDungeonService:
             source_ref=source_ref,
             final_drop_list=result.final_drop_list,
         )
+        result = self._refresh_settlement_result(character_id=character_id, result=result)
         self._battle_record_repository.add_drop_record(
             DropRecord(
                 character_id=character_id,
@@ -857,11 +858,14 @@ class EndlessDungeonService:
         if self._naming_batch_service is None:
             return
         try:
-            self._naming_batch_service.create_endless_settlement_batch(
+            batch = self._naming_batch_service.create_endless_settlement_batch(
                 character_id=character_id,
                 source_ref=source_ref,
                 final_drop_list=final_drop_list,
             )
+            if batch is None:
+                return
+            self._naming_batch_service.process_batch(batch_id=batch.id)
         except Exception:  # noqa: BLE001
             return
 
