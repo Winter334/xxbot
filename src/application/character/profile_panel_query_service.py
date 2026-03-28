@@ -87,9 +87,10 @@ class ProfilePanelQueryService:
         }
         self._slot_name_by_id = {
             "main": "主修",
-            "guard": "护体",
-            "movement": "身法",
-            "spirit": "灵技",
+            **{
+                slot.slot_id: slot.name
+                for slot in self._static_config.skill_generation.ordered_auxiliary_slots
+            },
         }
 
     def get_skill_snapshot(self, *, character_id: int) -> SkillPanelSnapshot:
@@ -144,15 +145,14 @@ class ProfilePanelQueryService:
         )
 
     def _build_skill_slot_snapshot(self, *, slot_id: str, skill_item) -> SkillPanelSkillSlotSnapshot:
-        path_name = self._path_by_id.get(skill_item.path_id)
         return SkillPanelSkillSlotSnapshot(
             slot_id=slot_id,
-            slot_name=self._slot_name_by_id.get(slot_id, slot_id),
+            slot_name=self._format_slot_name(slot_id),
             item_id=skill_item.item_id,
             lineage_id=skill_item.lineage_id,
             skill_name=skill_item.skill_name,
             path_id=skill_item.path_id,
-            path_name=skill_item.path_id if path_name is None else path_name.name,
+            path_name=self._format_path_name(skill_item.path_id),
             rank_id=skill_item.rank_id,
             rank_name=skill_item.rank_name,
             quality_id=skill_item.quality_id,
@@ -162,6 +162,20 @@ class ProfilePanelQueryService:
             resolved_patch_ids=skill_item.resolved_patch_ids,
             equipped_slot_id=skill_item.equipped_slot_id,
         )
+    def _format_slot_name(self, slot_id: str) -> str:
+        normalized_slot_id = slot_id.strip()
+        if not normalized_slot_id:
+            return "未知槽位"
+        return self._slot_name_by_id.get(normalized_slot_id, "未知槽位")
+
+    def _format_path_name(self, path_id: str) -> str:
+        normalized_path_id = path_id.strip()
+        if not normalized_path_id:
+            return "未知流派"
+        path = self._path_by_id.get(normalized_path_id)
+        if path is None:
+            return "未知流派"
+        return path.name
 
     def _resolve_skill_slot_id(self, *, skill_item) -> str:
         if skill_item.skill_type == "main":

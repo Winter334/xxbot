@@ -235,7 +235,7 @@ class EquipmentPanelPresenter:
         embed.add_field(
             name="当前装配",
             value=(
-                f"境界阶段：{skill.realm_id}·{_STAGE_NAME_BY_ID.get(skill.stage_id, skill.stage_id)}\n"
+                f"境界阶段：{_format_realm_stage(realm_id=skill.realm_id, stage_id=skill.stage_id)}\n"
                 f"主修体系：{skill.main_axis_name}\n"
                 f"主修功法：{skill.main_skill.skill_name}｜{skill.main_skill.rank_name}｜{skill.main_skill.quality_name}\n"
                 f"所属流派：{skill.main_skill.path_name}"
@@ -248,18 +248,13 @@ class EquipmentPanelPresenter:
                 f"主修体系摘要：{skill.axis_focus_summary}\n"
                 f"战斗定位：{skill.combat_identity}\n"
                 f"战斗流派：{skill.behavior_template_name}\n"
-                f"资源倾向：{_RESOURCE_POLICY_NAME_BY_ID.get(skill.resource_policy, skill.resource_policy)}\n"
+                f"资源倾向：{_format_resource_policy_name(skill.resource_policy)}\n"
                 f"偏好场景：{cls._format_preferred_scene(skill.preferred_scene)}"
             ),
             inline=False,
         )
         embed.add_field(name="主修详情", value=cls._format_skill_slot_detail(skill.main_skill), inline=False)
         embed.add_field(name="辅助装配", value=cls._build_auxiliary_skill_block(skill), inline=False)
-        extra_lines = [
-            f"配置版本：{skill.config_version or '未记录'}",
-            f"标签：{'｜'.join(skill.template_tags) if skill.template_tags else '无'}",
-        ]
-        embed.add_field(name="补充信息", value="\n".join(extra_lines), inline=False)
         if action_note is not None and action_note.lines:
             embed.add_field(name=action_note.title, value="\n".join(action_note.lines), inline=False)
         return embed
@@ -319,7 +314,6 @@ class EquipmentPanelPresenter:
             f"功法：{skill_slot.skill_name}",
             f"流派：{skill_slot.path_name}",
             f"阶级：{skill_slot.rank_name}｜品质：{skill_slot.quality_name}",
-            f"预算：{skill_slot.total_budget}",
         ]
         if skill_slot.resolved_patch_ids:
             lines.append("流派加成：" + "｜".join(_format_patch_name(patch_id) for patch_id in skill_slot.resolved_patch_ids[:3]))
@@ -331,7 +325,7 @@ class EquipmentPanelPresenter:
         for skill_slot in skill_snapshot.auxiliary_skills:
             line = (
                 f"{skill_slot.slot_name}：{skill_slot.skill_name}｜{skill_slot.path_name}｜"
-                f"{skill_slot.rank_name}｜{skill_slot.quality_name}｜预算 {skill_slot.total_budget}"
+                f"{skill_slot.rank_name}｜{skill_slot.quality_name}"
             )
             if skill_slot.resolved_patch_ids:
                 line += "｜流派加成 " + "｜".join(_format_patch_name(patch_id) for patch_id in skill_slot.resolved_patch_ids[:2])
@@ -511,14 +505,54 @@ def _format_skill_path_label(*, path_id: str | None) -> str:
     for path in get_static_config().skill_paths.paths:
         if path.path_id == normalized_path_id:
             return str(path.name)
-    return normalized_path_id
+    return "未知流派"
 
 
 def _format_patch_name(patch_id: str) -> str:
     normalized_patch_id = patch_id.strip()
     if not normalized_patch_id:
         return "未命名流派修正"
-    return normalized_patch_id.replace("_", "·")
+    patch = get_static_config().skill_generation.get_patch(normalized_patch_id)
+    if patch is not None:
+        return str(patch.name)
+    if _looks_like_internal_identifier(normalized_patch_id):
+        return "未命名流派修正"
+    return normalized_patch_id
+
+
+def _format_realm_stage(*, realm_id: str, stage_id: str) -> str:
+    return f"{_format_realm_name(realm_id)}·{_format_stage_name(stage_id)}"
+
+
+def _format_realm_name(realm_id: str) -> str:
+    normalized_realm_id = realm_id.strip()
+    if not normalized_realm_id:
+        return "未知境界"
+    for realm in get_static_config().realm_progression.realms:
+        if realm.realm_id == normalized_realm_id:
+            return str(realm.name)
+    return "未知境界"
+
+
+def _format_stage_name(stage_id: str) -> str:
+    normalized_stage_id = stage_id.strip()
+    if not normalized_stage_id:
+        return "未知阶段"
+    for stage in get_static_config().realm_progression.stages:
+        if stage.stage_id == normalized_stage_id:
+            return str(stage.name)
+    return "未知阶段"
+
+
+def _format_resource_policy_name(resource_policy: str) -> str:
+    normalized_resource_policy = resource_policy.strip()
+    if not normalized_resource_policy:
+        return "未定资源倾向"
+    return _RESOURCE_POLICY_NAME_BY_ID.get(normalized_resource_policy, "未知资源倾向")
+
+
+def _looks_like_internal_identifier(value: str) -> bool:
+    return all(character.islower() or character.isdigit() or character == "_" for character in value)
 
 
 class EquipmentSlotSelect(discord.ui.Select):
@@ -1841,7 +1875,6 @@ class EquipmentPanelController:
             previous_item_line,
             f"所属流派：{equipped_skill.path_name}",
             f"战斗流派：{snapshot.skill_snapshot.behavior_template_name}",
-            f"配置版本：{result.config_version or '未记录'}",
         )
 
     @staticmethod
@@ -1856,7 +1889,6 @@ class EquipmentPanelController:
             f"主修功法：{skill.main_skill.skill_name}｜{skill.main_skill.rank_name}｜{skill.main_skill.quality_name}",
             f"主修体系：{skill.main_axis_name}",
             f"战斗流派：{skill.behavior_template_name}",
-            f"配置版本：{result.config_version or '未记录'}",
         )
 
     @staticmethod

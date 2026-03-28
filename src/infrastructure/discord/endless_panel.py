@@ -66,6 +66,11 @@ _PENDING_REWARD_NAME_BY_KEY = dict(_ENDLESS_REWARD_NAME_BY_KEY)
 _ENDLESS_EQUIPMENT_ENTRY_TYPE = "equipment_drop"
 _ENDLESS_ARTIFACT_ENTRY_TYPE = "artifact_drop"
 _ENDLESS_SKILL_ENTRY_TYPE = "skill_drop"
+_AUXILIARY_SLOT_NAME_BY_ID = {
+    "guard": "护体",
+    "movement": "身法",
+    "spirit": "神识",
+}
 
 
 class EndlessDisplayMode(StrEnum):
@@ -573,7 +578,7 @@ class EndlessPanelPresenter:
         if quality_name:
             parts.append(quality_name)
         if skill_type == "auxiliary" and auxiliary_slot_id:
-            parts.append(f"辅位 {auxiliary_slot_id}")
+            parts.append(f"辅位 {_AUXILIARY_SLOT_NAME_BY_ID.get(auxiliary_slot_id, '未知辅位')}")
         return "功法实例：" + "｜".join(parts)
 
     @staticmethod

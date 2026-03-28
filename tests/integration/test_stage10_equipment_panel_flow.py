@@ -61,6 +61,7 @@ from infrastructure.db.repositories import (
 )
 from infrastructure.db.session import create_session_factory, session_scope
 from infrastructure.discord.character_panel import PanelMessagePayload
+from infrastructure.discord.endless_panel import EndlessPanelPresenter
 from infrastructure.discord.equipment_panel import (
     EquipmentPanelController,
     EquipmentPanelDisplayMode,
@@ -321,6 +322,10 @@ def _build_test_snapshot(*, include_artifact: bool, weapon_equipped: bool, skill
             "movement": ("wind_shadow_step", "风影步"),
             "spirit": ("sword_heart_lock", "锁念剑心诀"),
             "preferred_scene": "问道争锋、首领攻坚、破境试锋。",
+            "main_patches": ("main_burst_damage_up",),
+            "guard_patches": ("guard_damage_reduction",),
+            "movement_patches": ("movement_speed_bonus",),
+            "spirit_patches": ("spirit_crit_bonus",),
         },
         "zhanqing_sword": {
             "main_skill_name": "斩情诀",
@@ -330,6 +335,10 @@ def _build_test_snapshot(*, include_artifact: bool, weapon_equipped: bool, skill
             "movement": ("chasing_light_step", "逐光身法"),
             "spirit": ("blade_intent_focus", "刃念凝神篇"),
             "preferred_scene": "渊境征伐、群邪扫荡。",
+            "main_patches": ("main_combo_trigger_up",),
+            "guard_patches": ("guard_damage_reduction",),
+            "movement_patches": ("movement_speed_bonus",),
+            "spirit_patches": ("spirit_crit_bonus",),
         },
     }
     lineage_payload = lineage_payload_by_path_id[skill_main_path_id]
@@ -363,7 +372,7 @@ def _build_test_snapshot(*, include_artifact: bool, weapon_equipped: bool, skill
             quality_name="凡品",
             skill_type="main",
             total_budget=8 if skill_main_path_id == "wenxin_sword" else 10,
-            resolved_patch_ids=("主脉爆发增益",),
+            resolved_patch_ids=lineage_payload["main_patches"],
         ),
         auxiliary_skills=(
             SkillPanelSkillSlotSnapshot(
@@ -380,7 +389,7 @@ def _build_test_snapshot(*, include_artifact: bool, weapon_equipped: bool, skill
                 quality_name="凡品",
                 skill_type="auxiliary",
                 total_budget=3,
-                resolved_patch_ids=("护体减伤增益",),
+                resolved_patch_ids=lineage_payload["guard_patches"],
             ),
             SkillPanelSkillSlotSnapshot(
                 slot_id="movement",
@@ -396,11 +405,11 @@ def _build_test_snapshot(*, include_artifact: bool, weapon_equipped: bool, skill
                 quality_name="凡品",
                 skill_type="auxiliary",
                 total_budget=3,
-                resolved_patch_ids=("身法迅捷增益",),
+                resolved_patch_ids=lineage_payload["movement_patches"],
             ),
             SkillPanelSkillSlotSnapshot(
                 slot_id="spirit",
-                slot_name="灵技",
+                slot_name="神识",
                 item_id=3004,
                 lineage_id=lineage_payload["spirit"][0],
                 skill_name=lineage_payload["spirit"][1],
@@ -412,7 +421,7 @@ def _build_test_snapshot(*, include_artifact: bool, weapon_equipped: bool, skill
                 quality_name="凡品",
                 skill_type="auxiliary",
                 total_budget=3,
-                resolved_patch_ids=("灵技暴击增益",),
+                resolved_patch_ids=lineage_payload["spirit_patches"],
             ),
         ),
         config_version="1.0.0",
@@ -431,7 +440,7 @@ def _build_test_snapshot(*, include_artifact: bool, weapon_equipped: bool, skill
                 quality_name="凡品",
                 skill_type="main",
                 total_budget=8 if skill_main_path_id == "wenxin_sword" else 10,
-                resolved_patch_ids=("主脉爆发增益",),
+                resolved_patch_ids=lineage_payload["main_patches"],
                 equipped_slot_id="main",
             ),
             SkillPanelSkillSlotSnapshot(
@@ -448,7 +457,7 @@ def _build_test_snapshot(*, include_artifact: bool, weapon_equipped: bool, skill
                 quality_name="良品",
                 skill_type="main",
                 total_budget=9,
-                resolved_patch_ids=("主脉爆发增益",),
+                resolved_patch_ids=lineage_payload["main_patches"],
                 equipped_slot_id=None,
             ),
             SkillPanelSkillSlotSnapshot(
@@ -465,7 +474,7 @@ def _build_test_snapshot(*, include_artifact: bool, weapon_equipped: bool, skill
                 quality_name="凡品",
                 skill_type="auxiliary",
                 total_budget=3,
-                resolved_patch_ids=("护体减伤增益",),
+                resolved_patch_ids=lineage_payload["guard_patches"],
                 equipped_slot_id="guard",
             ),
             SkillPanelSkillSlotSnapshot(
@@ -482,7 +491,7 @@ def _build_test_snapshot(*, include_artifact: bool, weapon_equipped: bool, skill
                 quality_name="良品",
                 skill_type="auxiliary",
                 total_budget=4,
-                resolved_patch_ids=("护体减伤增益",),
+                resolved_patch_ids=lineage_payload["guard_patches"],
                 equipped_slot_id=None,
             ),
         ),
@@ -977,3 +986,117 @@ async def test_equip_skill_instance_edits_private_panel_with_action_note() -> No
     assert "此前该槽位已有已装配功法" in result_field.value
     assert "所属流派：斩情剑道" in result_field.value
     assert "战斗流派：斩情剑道" in result_field.value
+    assert "配置版本" not in result_field.value
+
+
+def test_skill_detail_embed_hides_internal_fields_and_uses_localized_names() -> None:
+    """功法详情页不应暴露内部字段，并应展示中文化文案。"""
+    snapshot = _build_test_snapshot(include_artifact=True, weapon_equipped=True)
+
+    embed = EquipmentPanelPresenter.build_embed(
+        snapshot=snapshot,
+        display_mode=EquipmentPanelDisplayMode.SKILL_DETAIL,
+        selected_slot_id=None,
+        selected_candidate_item_id=None,
+        action_note=None,
+    )
+
+    field_names = {field.name for field in embed.fields}
+    assert "补充信息" not in field_names
+    current_field = next(field for field in embed.fields if field.name == "当前装配")
+    detail_field = next(field for field in embed.fields if field.name == "主修详情")
+    auxiliary_field = next(field for field in embed.fields if field.name == "辅助装配")
+    full_text = "\n".join(field.value for field in embed.fields)
+
+    assert "凡人·中期" in current_field.value
+    assert "mortal" not in current_field.value
+    assert "预算" not in detail_field.value
+    assert "预算" not in auxiliary_field.value
+    assert "配置版本" not in full_text
+    assert "标签" not in full_text
+    assert "main_burst_damage_up" not in full_text
+    assert "guard_damage_reduction" not in full_text
+    assert "movement_speed_bonus" not in full_text
+    assert "spirit_crit_bonus" not in full_text
+    assert "流派加成：爆发增伤" in detail_field.value
+    assert "流派加成 护盾增幅" not in auxiliary_field.value
+    assert "流派加成 减伤增幅" in auxiliary_field.value
+    assert "流派加成 速度增幅" in auxiliary_field.value
+    assert "流派加成 神识暴伤" in auxiliary_field.value
+    assert "神识：锁念剑心诀｜问心剑道｜一阶｜凡品｜流派加成 神识暴伤" in auxiliary_field.value
+
+
+def test_endless_skill_lines_localize_auxiliary_slot_names() -> None:
+    """最近掉落与无尽摘要中的功法辅位应展示中文名。"""
+    entry = {
+        "skill_name": "锁念剑心诀",
+        "rank_name": "一阶",
+        "quality_name": "凡品",
+        "skill_type": "auxiliary",
+        "auxiliary_slot_id": "spirit",
+    }
+
+    query_line = EquipmentPanelQueryService._build_endless_skill_line(entry=entry)
+    private_line = EndlessPanelPresenter._format_skill_drop_entry(entry=entry, public_mode=False)
+
+    assert query_line == "功法实例：锁念剑心诀｜一阶｜凡品｜辅位 神识"
+    assert private_line == "功法实例：锁念剑心诀｜一阶｜凡品｜辅位 神识"
+
+
+def test_profile_panel_query_service_masks_unknown_internal_identifiers() -> None:
+    """功法槽位快照兜底不应回显内部 path/slot 标识。"""
+    service = object.__new__(ProfilePanelQueryService)
+    service._slot_name_by_id = {"main": "主修", "guard": "护体"}
+    service._path_by_id = {}
+
+    snapshot = service._build_skill_slot_snapshot(
+        slot_id="unknown_slot",
+        skill_item=SimpleNamespace(
+            item_id=9001,
+            lineage_id="mystery_lineage",
+            skill_name="无名功法",
+            path_id="unknown_path",
+            rank_id="mortal",
+            rank_name="一阶",
+            quality_id="ordinary",
+            quality_name="凡品",
+            skill_type="auxiliary",
+            total_budget=3,
+            resolved_patch_ids=(),
+            equipped_slot_id=None,
+        ),
+    )
+
+    assert snapshot.slot_name == "未知槽位"
+    assert snapshot.path_name == "未知流派"
+
+
+@pytest.mark.asyncio
+async def test_switch_skill_main_path_edits_private_panel_without_internal_fields() -> None:
+    """主修流派切换回执不应再包含配置版本等内部字段。"""
+    snapshot = _build_test_snapshot(include_artifact=True, weapon_equipped=True, skill_main_path_id="zhanqing_sword")
+    controller = _build_controller_for_view(snapshot)
+    controller._switch_skill_main_path = lambda **kwargs: SimpleNamespace(
+        previous_main_path_id="wenxin_sword",
+        config_version="1.0.0",
+    )
+    controller._load_snapshot = lambda **kwargs: snapshot
+    controller.responder.edit_message = AsyncMock()
+    interaction = _build_interaction()
+
+    await controller.switch_skill_main_path(
+        interaction,
+        character_id=77,
+        owner_user_id=50001,
+        main_path_id="zhanqing_sword",
+    )
+
+    controller.responder.edit_message.assert_awaited_once()
+    _, kwargs = controller.responder.edit_message.await_args
+    payload = kwargs["payload"]
+    assert isinstance(payload, PanelMessagePayload)
+    result_field = next(field for field in payload.embed.fields if field.name == "功法装配结果")
+    assert "主修流派：问心剑道 → 斩情剑道" in result_field.value
+    assert "主修功法：斩情诀｜一阶｜凡品" in result_field.value
+    assert "战斗流派：斩情剑道" in result_field.value
+    assert "配置版本" not in result_field.value

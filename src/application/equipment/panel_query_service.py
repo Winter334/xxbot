@@ -43,6 +43,11 @@ _RESOURCE_NAME_BY_ID = {
     "insight": "感悟",
     "refining_essence": "祭炼精华",
 }
+_AUXILIARY_SLOT_NAME_BY_ID = {
+    "guard": "护体",
+    "movement": "身法",
+    "spirit": "神识",
+}
 _DROP_SOURCE_LABEL_BY_TYPE = {
     _ENDLESS_SOURCE_TYPE: "无涯渊境",
     _BREAKTHROUGH_SOURCE_TYPE: "突破秘境",
@@ -275,7 +280,7 @@ class EquipmentPanelQueryService:
         if quality_name:
             parts.append(quality_name)
         if skill_type == "auxiliary" and auxiliary_slot_id:
-            parts.append(f"辅位 {auxiliary_slot_id}")
+            parts.append(f"辅位 {_AUXILIARY_SLOT_NAME_BY_ID.get(auxiliary_slot_id, '未知辅位')}")
         return "功法实例：" + "｜".join(parts)
 
     @staticmethod
