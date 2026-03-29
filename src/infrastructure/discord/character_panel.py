@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from enum import StrEnum
 import logging
 from typing import Protocol
+import unicodedata
 from weakref import WeakKeyDictionary
 
 import discord
@@ -174,42 +175,15 @@ class CharacterPanelPresenter:
     ) -> discord.Embed:
         embed = discord.Embed(
             title=f"{overview.character_name}｜修仙面板",
-            description=f"{overview.main_skill.path_name}｜公开角色展示",
             color=discord.Color.blurple(),
         )
         del discord_display_name
-        embed.add_field(name="修行概览", value=cls._build_cultivation_summary_block(overview), inline=True)
-        embed.add_field(name="功法", value=cls._build_skill_block(overview), inline=True)
-        embed.add_field(name="核心状态", value=cls._build_core_status_block(overview), inline=True)
-        embed.add_field(name="装备 / 法宝", value=cls._build_equipment_artifact_block(overview), inline=False)
-        embed.add_field(name="基础属性", value=cls._build_primary_stats_block(overview), inline=False)
-        embed.add_field(name="修行进度", value=cls._build_progress_block(overview), inline=False)
-        if avatar_url:
-            embed.set_thumbnail(url=avatar_url)
-        embed.set_footer(text="公开展示｜实际操作入口请使用下方按钮")
-        return embed
-
-    @classmethod
-    def build_private_detail_embed(
-        cls,
-        *,
-        overview: CharacterPanelOverview,
-        discord_display_name: str,
-        avatar_url: str | None,
-    ) -> discord.Embed:
-        embed = discord.Embed(
-            title=f"{overview.character_name}｜属性详情",
-            description=f"{overview.main_skill.path_name}｜仅操作者可见",
-            color=discord.Color.dark_teal(),
-        )
-        del discord_display_name
-        embed.add_field(name="修行概览", value=cls._build_cultivation_summary_block(overview), inline=True)
-        embed.add_field(name="功法", value=cls._build_skill_block(overview), inline=True)
-        embed.add_field(name="核心状态", value=cls._build_core_status_block(overview), inline=True)
-        embed.add_field(name="装备 / 法宝", value=cls._build_equipment_artifact_block(overview), inline=False)
-        embed.add_field(name="基础属性", value=cls._build_primary_stats_block(overview), inline=False)
-        embed.add_field(name="扩展属性", value=cls._build_secondary_stats_block(overview), inline=False)
-        embed.add_field(name="修行进度", value=cls._build_progress_block(overview), inline=False)
+        embed.add_field(name="🌟 修行概览", value=cls._build_cultivation_summary_block(overview), inline=True)
+        embed.add_field(name="🫀 核心状态", value=cls._build_core_status_block(overview), inline=True)
+        embed.add_field(name="📜 功法", value=cls._build_skill_block(overview), inline=False)
+        embed.add_field(name="⚔️ 装备 / 法宝", value=cls._build_equipment_artifact_block(overview), inline=False)
+        embed.add_field(name="📊 属性总览", value=cls._build_combined_stats_block(overview), inline=False)
+        embed.add_field(name="📈 修行进度", value=cls._build_progress_block(overview), inline=False)
         if avatar_url:
             embed.set_thumbnail(url=avatar_url)
         return embed
@@ -285,24 +259,24 @@ class CharacterPanelPresenter:
     @classmethod
     def _build_cultivation_summary_block(cls, overview: CharacterPanelOverview) -> str:
         return (
-            f"称号：{overview.character_title or '无'}\n"
-            f"徽记：{overview.badge_name or '无'}\n"
-            f"境界：{overview.realm_name}·{overview.stage_name}\n"
-            f"战力：{overview.public_power_score}\n"
-            f"灵石：{overview.spirit_stone}"
+            f"🏷 称号：{overview.character_title or '无'}\n"
+            f"🎖 徽记：{overview.badge_name or '无'}\n"
+            f"🧭 境界：{overview.realm_name}·{overview.stage_name}\n"
+            f"🔥 战力：{overview.public_power_score}\n"
+            f"💰 灵石：{overview.spirit_stone}"
         )
 
     @classmethod
     def _build_skill_block(cls, overview: CharacterPanelOverview) -> str:
         lines = [
             (
-                f"主修：{overview.main_skill.skill_name}｜{overview.main_skill.rank_name}｜"
-                f"{overview.main_skill.quality_name}｜{overview.main_skill.path_name}"
+                f"{cls._skill_slot_label(overview.main_skill.slot_id)}：{overview.main_skill.skill_name}｜"
+                f"{overview.main_skill.rank_name}｜{overview.main_skill.quality_name}｜{overview.main_skill.path_name}"
             )
         ]
         for skill in overview.auxiliary_skills:
             lines.append(
-                f"{_slot_name_to_chinese(skill.slot_id)}：{skill.skill_name}｜{skill.rank_name}｜"
+                f"{cls._skill_slot_label(skill.slot_id)}：{skill.skill_name}｜{skill.rank_name}｜"
                 f"{skill.quality_name}｜{skill.path_name}"
             )
         return "\n".join(lines)
@@ -311,8 +285,8 @@ class CharacterPanelPresenter:
     def _build_core_status_block(overview: CharacterPanelOverview) -> str:
         projection = overview.battle_projection
         return (
-            f"气血：{projection.current_hp}/{projection.max_hp}\n"
-            f"灵力：{projection.current_resource}/{projection.max_resource}"
+            f"❤️ 气血：{projection.current_hp}/{projection.max_hp}\n"
+            f"🔷 灵力：{projection.current_resource}/{projection.max_resource}"
         )
 
     @classmethod
@@ -335,34 +309,42 @@ class CharacterPanelPresenter:
         return f"[{item.quality_name}·{item.rank_name}] {item.display_name}｜强化 +{item.enhancement_level}"
 
     @classmethod
-    def _build_primary_stats_block(cls, overview: CharacterPanelOverview) -> str:
+    def _build_combined_stats_block(cls, overview: CharacterPanelOverview) -> str:
         projection = overview.battle_projection
-        return cls._build_stat_code_block(
+        return cls._build_two_column_stat_code_block(
             (
-                f"攻力：{projection.attack_power}",
-                f"护体：{projection.guard_power}",
-                f"迅捷：{projection.speed}",
-                f"命中：{cls._format_permille(projection.hit_rate_permille)}",
-                f"闪避：{cls._format_permille(projection.dodge_rate_permille)}",
-                f"暴击：{cls._format_permille(projection.crit_rate_permille)}",
-                f"暴伤：{cls._format_permille(projection.crit_damage_bonus_permille)}",
+                (f"⚔ 攻力：{projection.attack_power}", f"🩸 穿透：{cls._format_permille(projection.damage_bonus_permille)}"),
+                (f"🛡 护体：{projection.guard_power}", f"🧱 减伤：{cls._format_permille(projection.damage_reduction_permille)}"),
+                (f"💨 迅捷：{projection.speed}", f"↩ 反击：{cls._format_permille(projection.counter_rate_permille)}"),
+                (f"🎯 命中：{cls._format_permille(projection.hit_rate_permille)}", f"🪄 控势：{cls._format_permille(projection.control_bonus_permille)}"),
+                (f"🍃 闪避：{cls._format_permille(projection.dodge_rate_permille)}", f"🧘 定心：{cls._format_permille(projection.control_resist_permille)}"),
+                (f"💥 暴击：{cls._format_permille(projection.crit_rate_permille)}", f"💚 疗愈：{cls._format_permille(projection.healing_power_permille)}"),
+                (f"🔥 暴伤：{cls._format_permille(projection.crit_damage_bonus_permille)}", f"🫧 护盾：{cls._format_permille(projection.shield_power_permille)}"),
             )
         )
 
     @classmethod
-    def _build_secondary_stats_block(cls, overview: CharacterPanelOverview) -> str:
-        projection = overview.battle_projection
-        return cls._build_stat_code_block(
-            (
-                f"穿透：{cls._format_permille(projection.damage_bonus_permille)}",
-                f"减伤：{cls._format_permille(projection.damage_reduction_permille)}",
-                f"反击：{cls._format_permille(projection.counter_rate_permille)}",
-                f"控势：{cls._format_permille(projection.control_bonus_permille)}",
-                f"定心：{cls._format_permille(projection.control_resist_permille)}",
-                f"疗愈：{cls._format_permille(projection.healing_power_permille)}",
-                f"护盾：{cls._format_permille(projection.shield_power_permille)}",
-            )
-        )
+    def _build_two_column_stat_code_block(cls, rows: tuple[tuple[str, str | None], ...]) -> str:
+        left_width = max(cls._display_width(left) for left, _ in rows)
+        formatted_rows: list[str] = []
+        for left, right in rows:
+            if not right:
+                formatted_rows.append(left)
+                continue
+            formatted_rows.append(f"{cls._pad_display_text(left, width=left_width + 5)}{right}")
+        return cls._build_stat_code_block(tuple(formatted_rows))
+
+    @classmethod
+    def _pad_display_text(cls, value: str, *, width: int) -> str:
+        padding = max(0, width - cls._display_width(value))
+        return value + (" " * padding)
+
+    @staticmethod
+    def _display_width(value: str) -> int:
+        width = 0
+        for char in value:
+            width += 2 if unicodedata.east_asian_width(char) in {"F", "W"} else 1
+        return width
 
     @classmethod
     def _build_progress_block(cls, overview: CharacterPanelOverview) -> str:
@@ -419,6 +401,15 @@ class CharacterPanelPresenter:
             "accessory": "🧿",
             "artifact": "💠",
         }.get(slot_id, "•")
+
+    @staticmethod
+    def _skill_slot_label(slot_id: str) -> str:
+        return {
+            "main": "🗡 主修",
+            "guard": "🛡 护体",
+            "movement": "👣 身法",
+            "spirit": "✨ 灵技",
+        }.get(slot_id, f"📘 {slot_id}")
 
     @staticmethod
     def _format_permille(value: int) -> str:
@@ -490,18 +481,6 @@ class CharacterHomePanelView(discord.ui.View):
             interaction,
             character_id=self.character_id,
             owner_user_id=self.owner_user_id,
-        )
-
-    @discord.ui.button(label="查看属性详情", style=discord.ButtonStyle.secondary)
-    async def view_detail(  # type: ignore[override]
-        self,
-        interaction: discord.Interaction,
-        button: discord.ui.Button,
-    ) -> None:
-        del button
-        await self._controller.open_private_detail(
-            interaction,
-            character_id=self.character_id,
         )
 
 
@@ -795,27 +774,6 @@ class CharacterPanelController:
             view=view,
         )
         await self.responder.edit_public_message(interaction, payload=payload)
-
-    async def open_private_detail(self, interaction: discord.Interaction, *, character_id: int) -> None:
-        """打开仅操作者可见的属性详情。"""
-        try:
-            overview = self._load_overview(character_id=character_id)
-        except CharacterPanelQueryServiceError as exc:
-            await self.responder.send_private_error(interaction, message=str(exc))
-            return
-
-        payload = PanelMessagePayload(
-            embed=CharacterPanelPresenter.build_private_detail_embed(
-                overview=overview,
-                discord_display_name=_resolve_display_name(interaction.user),
-                avatar_url=_resolve_avatar_url(interaction.user),
-            )
-        )
-        await self.responder.send_message(
-            interaction,
-            payload=payload,
-            visibility=PanelVisibility.PRIVATE,
-        )
 
     async def open_cultivation_panel(self, interaction: discord.Interaction, *, character_id: int) -> None:
         """从公开主面板打开修炼私有面板。"""
