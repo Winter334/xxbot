@@ -11,6 +11,7 @@ from typing import Any
 from application.battle import AutoBattleRequest, AutoBattleService
 from application.character.current_attribute_service import CurrentAttributeService
 from application.character.skill_drop_service import SkillDropService
+from application.dungeon.endless_drop_service import EndlessSettlementDropOrchestrator, EndlessSettlementDropOrchestratorError
 from application.equipment.equipment_service import EquipmentItemSnapshot, EquipmentService, EquipmentServiceError
 from application.naming import ItemNamingBatchService
 from domain.battle import BattleOutcome, BattleSide, BattleSnapshot, BattleUnitSnapshot
@@ -263,15 +264,29 @@ class EndlessRunRewardLedgerSnapshot:
     stable_cultivation: int
     stable_insight: int
     stable_refining_essence: int
-    pending_equipment_score: int
-    pending_artifact_score: int
-    pending_dao_pattern_score: int
+    pending_drop_progress: int
+    drop_count: int
     last_reward_floor: int | None
     drop_display: tuple[dict[str, Any], ...]
     latest_node_result: dict[str, Any] | None
     advanced_floor_count: int
     latest_anchor_unlock: dict[str, Any] | None
     encounter_history: tuple[dict[str, Any], ...]
+
+    @property
+    def pending_equipment_score(self) -> int:
+        """兼容旧字段：统一掉落进度语义下恒为 0。"""
+        return 0
+
+    @property
+    def pending_artifact_score(self) -> int:
+        """兼容旧字段：统一掉落进度语义下恒为 0。"""
+        return 0
+
+    @property
+    def pending_dao_pattern_score(self) -> int:
+        """兼容旧字段：统一掉落进度语义下恒为 0。"""
+        return 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -307,7 +322,7 @@ class EndlessRunStatusSnapshot:
 
 @dataclass(frozen=True, slots=True)
 class EndlessFloorAdvanceResult:
-    """无尽副本单层推进结果。"""
+    """无尽副本自动推进结果。"""
 
     character_id: int
     cleared_floor: int
@@ -318,6 +333,10 @@ class EndlessFloorAdvanceResult:
     reward_granted: bool
     anchor_unlock_result: dict[str, Any] | None
     latest_node_result: dict[str, Any]
+    advanced_results: tuple[dict[str, Any], ...]
+    stopped_floor: int
+    stopped_reason: str
+    decision_floor: int | None
     run_status: EndlessRunStatusSnapshot
 
 
@@ -404,6 +423,11 @@ class EndlessDungeonService:
         self._equipment_service = equipment_service
         self._naming_batch_service = naming_batch_service
         self._growth_progression = CharacterGrowthProgression(self._static_config)
+        self._drop_orchestrator = None if self._equipment_service is None else EndlessSettlementDropOrchestrator(
+            equipment_service=self._equipment_service,
+            skill_drop_service=self._skill_drop_service,
+            static_config=self._static_config,
+        )
         self._realm_coefficient_by_realm_id = {
             entry.realm_id: Decimal(entry.coefficient)
             for entry in self._static_config.base_coefficients.realm_curve.entries
@@ -515,38 +539,12 @@ class EndlessDungeonService:
         character_id: int,
         persist_battle_report: bool = True,
     ) -> EndlessFloorAdvanceResult:
-        """推进当前运行态到下一层结算前状态。"""
+        """自动推进当前运行态，直到抵达决策点或战败。"""
         aggregate = self._require_character_aggregate(character_id)
         progress = self._require_progress(aggregate)
         endless_run_state = self._require_advancable_run_state(character_id)
         if self._auto_battle_service is None:
             raise EndlessRunStateError("无尽副本推进缺少自动战斗服务")
-
-        highest_unlocked_anchor_floor = self._resolve_highest_unlocked_anchor_floor(progress)
-        floor_snapshot = self._resolve_floor(
-            current_floor=endless_run_state.current_floor,
-            highest_unlocked_anchor_floor=highest_unlocked_anchor_floor,
-        )
-        encounter = self._encounter_generator.generate(
-            floor=floor_snapshot.floor,
-            seed=endless_run_state.run_seed,
-        )
-        request = self._build_auto_battle_request(
-            aggregate=aggregate,
-            progress=progress,
-            floor_snapshot=floor_snapshot,
-            encounter=encounter,
-            run_seed=endless_run_state.run_seed,
-        )
-        execution_result = self._auto_battle_service.execute(
-            request=request,
-            persist=persist_battle_report,
-        )
-        self._apply_progress_writeback(
-            progress=progress,
-            current_hp_ratio=execution_result.persistence_mapping.progress_writeback.current_hp_ratio,
-            current_mp_ratio=execution_result.persistence_mapping.progress_writeback.current_mp_ratio,
-        )
 
         reward_payload = self._normalize_reward_ledger_payload(endless_run_state.pending_rewards_json)
         existing_run_snapshot_payload = _normalize_optional_mapping(endless_run_state.run_snapshot_json) or {}
@@ -554,123 +552,169 @@ class EndlessDungeonService:
             existing_run_snapshot_payload.get("record_floor_before_run"),
             default=progress.highest_endless_floor,
         )
-        battle_outcome = self._extract_battle_outcome(execution_result)
-        reward_granted = battle_outcome is BattleOutcome.ALLY_VICTORY
-        reward_breakdown = None
+        advanced_results: list[dict[str, Any]] = []
+        final_anchor_unlock_result: dict[str, Any] | None = None
+        final_latest_node_result: dict[str, Any] | None = None
+        stopped_reason = "decision"
+        decision_floor: int | None = None
         next_floor: int | None = None
 
-        previous_highest_unlocked_anchor_floor = highest_unlocked_anchor_floor
-        new_highest_unlocked_anchor_floor = highest_unlocked_anchor_floor
-        if reward_granted:
-            reward_breakdown = self._progression.build_reward_breakdown(
-                floor_snapshot.floor,
-                realm_id=progress.realm_id,
+        while True:
+            highest_unlocked_anchor_floor = self._resolve_highest_unlocked_anchor_floor(progress)
+            floor_snapshot = self._resolve_floor(
+                current_floor=endless_run_state.current_floor,
+                highest_unlocked_anchor_floor=highest_unlocked_anchor_floor,
             )
-            progress.highest_endless_floor = max(progress.highest_endless_floor, floor_snapshot.floor)
-            new_highest_unlocked_anchor_floor = self._resolve_highest_unlocked_anchor_floor(progress)
+            encounter = self._encounter_generator.generate(
+                floor=floor_snapshot.floor,
+                seed=endless_run_state.run_seed,
+            )
+            request = self._build_auto_battle_request(
+                aggregate=aggregate,
+                progress=progress,
+                floor_snapshot=floor_snapshot,
+                encounter=encounter,
+                run_seed=endless_run_state.run_seed,
+            )
+            execution_result = self._auto_battle_service.execute(
+                request=request,
+                persist=persist_battle_report,
+            )
+            self._apply_progress_writeback(
+                progress=progress,
+                current_hp_ratio=execution_result.persistence_mapping.progress_writeback.current_hp_ratio,
+                current_mp_ratio=execution_result.persistence_mapping.progress_writeback.current_mp_ratio,
+            )
+            battle_outcome = self._extract_battle_outcome(execution_result)
+            reward_granted = battle_outcome is BattleOutcome.ALLY_VICTORY
+            reward_breakdown = None
 
-        anchor_unlock_result = self._build_anchor_unlock_result_payload(
-            cleared_floor=floor_snapshot.floor,
-            previous_highest_unlocked_anchor_floor=previous_highest_unlocked_anchor_floor,
-            new_highest_unlocked_anchor_floor=new_highest_unlocked_anchor_floor,
-        )
-        latest_node_result = self._build_latest_node_result_payload(
-            floor_snapshot=floor_snapshot,
-            encounter=encounter,
-            battle_outcome=battle_outcome,
-            battle_report_id=execution_result.persisted_battle_report_id,
-            reward_breakdown=reward_breakdown,
-            reward_granted=reward_granted,
-            current_hp_ratio=progress.current_hp_ratio,
-            current_mp_ratio=progress.current_mp_ratio,
-        )
-        encounter_history_entry = self._build_encounter_history_entry(
-            floor_snapshot=floor_snapshot,
-            encounter=encounter,
-            battle_outcome=battle_outcome,
-            battle_report_id=execution_result.persisted_battle_report_id,
-            reward_granted=reward_granted,
-        )
-        self._merge_reward_ledger_payload(
-            payload=reward_payload,
-            reward_breakdown=reward_breakdown,
-            encounter_history_entry=encounter_history_entry,
-            latest_node_result=latest_node_result,
-            anchor_unlock_result=anchor_unlock_result,
-            encounter=encounter,
-        )
+            previous_highest_unlocked_anchor_floor = highest_unlocked_anchor_floor
+            new_highest_unlocked_anchor_floor = highest_unlocked_anchor_floor
+            if reward_granted:
+                reward_breakdown = self._progression.build_reward_breakdown(
+                    floor_snapshot.floor,
+                    realm_id=progress.realm_id,
+                )
+                progress.highest_endless_floor = max(progress.highest_endless_floor, floor_snapshot.floor)
+                new_highest_unlocked_anchor_floor = self._resolve_highest_unlocked_anchor_floor(progress)
+
+            enemy_units = self._build_enemy_unit_payloads(request.snapshot.enemies)
+            battle_summary = execution_result.report_artifacts.summary.to_payload()
+            anchor_unlock_result = self._build_anchor_unlock_result_payload(
+                cleared_floor=floor_snapshot.floor,
+                previous_highest_unlocked_anchor_floor=previous_highest_unlocked_anchor_floor,
+                new_highest_unlocked_anchor_floor=new_highest_unlocked_anchor_floor,
+            )
+            latest_node_result = self._build_latest_node_result_payload(
+                floor_snapshot=floor_snapshot,
+                encounter=encounter,
+                battle_outcome=battle_outcome,
+                battle_report_id=execution_result.persisted_battle_report_id,
+                reward_breakdown=reward_breakdown,
+                reward_granted=reward_granted,
+                current_hp_ratio=progress.current_hp_ratio,
+                current_mp_ratio=progress.current_mp_ratio,
+                enemy_units=enemy_units,
+                battle_summary=battle_summary,
+            )
+            encounter_history_entry = self._build_encounter_history_entry(node_result=latest_node_result)
+            self._merge_reward_ledger_payload(
+                payload=reward_payload,
+                reward_breakdown=reward_breakdown,
+                encounter_history_entry=encounter_history_entry,
+                latest_node_result=latest_node_result,
+                anchor_unlock_result=anchor_unlock_result,
+                encounter=encounter,
+            )
+            advanced_results.append(dict(latest_node_result))
+            final_anchor_unlock_result = anchor_unlock_result
+            final_latest_node_result = latest_node_result
+            endless_run_state.last_region_bias_id = encounter.region_bias_id
+            endless_run_state.last_enemy_template_id = encounter.template_id
+
+            if not reward_granted:
+                endless_run_state.status = _ENDLESS_STATUS_PENDING_DEFEAT_SETTLEMENT
+                endless_run_state.current_floor = floor_snapshot.floor
+                endless_run_state.highest_floor_reached = max(
+                    _read_int(endless_run_state.highest_floor_reached),
+                    floor_snapshot.floor,
+                )
+                endless_run_state.current_node_type = floor_snapshot.node_type.value
+                endless_run_state.pending_rewards_json = reward_payload
+                endless_run_state.run_snapshot_json = self._build_run_snapshot_payload(
+                    status=_ENDLESS_STATUS_PENDING_DEFEAT_SETTLEMENT,
+                    selected_start_floor=endless_run_state.selected_start_floor,
+                    current_floor=floor_snapshot.floor,
+                    current_node_type=floor_snapshot.node_type,
+                    current_region=floor_snapshot.region,
+                    highest_unlocked_anchor_floor=new_highest_unlocked_anchor_floor,
+                    available_start_floors=self._progression.get_available_start_floors(new_highest_unlocked_anchor_floor),
+                    current_anchor_floor=floor_snapshot.anchor_floor,
+                    next_anchor_floor=floor_snapshot.next_anchor_floor,
+                    run_seed=endless_run_state.run_seed,
+                    encounter_history=reward_payload["encounter_history"],
+                    record_floor_before_run=record_floor_before_run,
+                )
+                stopped_reason = "defeat"
+                next_floor = None
+                break
+
+            next_floor = floor_snapshot.floor + 1
+            endless_run_state.highest_floor_reached = max(_read_int(endless_run_state.highest_floor_reached), next_floor)
+            if self._is_decision_floor(floor_snapshot.floor):
+                next_floor_snapshot = self._resolve_floor(
+                    current_floor=next_floor,
+                    highest_unlocked_anchor_floor=new_highest_unlocked_anchor_floor,
+                )
+                endless_run_state.status = _ENDLESS_STATUS_RUNNING
+                endless_run_state.current_floor = next_floor
+                endless_run_state.current_node_type = next_floor_snapshot.node_type.value
+                endless_run_state.pending_rewards_json = reward_payload
+                endless_run_state.run_snapshot_json = self._build_run_snapshot_payload(
+                    status=_ENDLESS_STATUS_RUNNING,
+                    selected_start_floor=endless_run_state.selected_start_floor,
+                    current_floor=next_floor,
+                    current_node_type=next_floor_snapshot.node_type,
+                    current_region=next_floor_snapshot.region,
+                    highest_unlocked_anchor_floor=new_highest_unlocked_anchor_floor,
+                    available_start_floors=self._progression.get_available_start_floors(new_highest_unlocked_anchor_floor),
+                    current_anchor_floor=next_floor_snapshot.anchor_floor,
+                    next_anchor_floor=next_floor_snapshot.next_anchor_floor,
+                    run_seed=endless_run_state.run_seed,
+                    encounter_history=reward_payload["encounter_history"],
+                    record_floor_before_run=record_floor_before_run,
+                )
+                stopped_reason = "decision"
+                decision_floor = floor_snapshot.floor
+                break
+
+            endless_run_state.current_floor = next_floor
 
         self._character_repository.save_progress(progress)
-
-        if reward_granted:
-            next_floor = floor_snapshot.floor + 1
-            next_floor_snapshot = self._resolve_floor(
-                current_floor=next_floor,
-                highest_unlocked_anchor_floor=new_highest_unlocked_anchor_floor,
-            )
-            endless_run_state.status = _ENDLESS_STATUS_RUNNING
-            endless_run_state.current_floor = next_floor
-            endless_run_state.highest_floor_reached = max(_read_int(endless_run_state.highest_floor_reached), next_floor)
-            endless_run_state.current_node_type = next_floor_snapshot.node_type.value
-            endless_run_state.last_region_bias_id = encounter.region_bias_id
-            endless_run_state.last_enemy_template_id = encounter.template_id
-            endless_run_state.pending_rewards_json = reward_payload
-            endless_run_state.run_snapshot_json = self._build_run_snapshot_payload(
-                status=_ENDLESS_STATUS_RUNNING,
-                selected_start_floor=endless_run_state.selected_start_floor,
-                current_floor=next_floor,
-                current_node_type=next_floor_snapshot.node_type,
-                current_region=next_floor_snapshot.region,
-                highest_unlocked_anchor_floor=new_highest_unlocked_anchor_floor,
-                available_start_floors=self._progression.get_available_start_floors(new_highest_unlocked_anchor_floor),
-                current_anchor_floor=next_floor_snapshot.anchor_floor,
-                next_anchor_floor=next_floor_snapshot.next_anchor_floor,
-                run_seed=endless_run_state.run_seed,
-                encounter_history=reward_payload["encounter_history"],
-                record_floor_before_run=record_floor_before_run,
-            )
-        else:
-            endless_run_state.status = _ENDLESS_STATUS_PENDING_DEFEAT_SETTLEMENT
-            endless_run_state.current_floor = floor_snapshot.floor
-            endless_run_state.highest_floor_reached = max(
-                _read_int(endless_run_state.highest_floor_reached),
-                floor_snapshot.floor,
-            )
-            endless_run_state.current_node_type = floor_snapshot.node_type.value
-            endless_run_state.last_region_bias_id = encounter.region_bias_id
-            endless_run_state.last_enemy_template_id = encounter.template_id
-            endless_run_state.pending_rewards_json = reward_payload
-            endless_run_state.run_snapshot_json = self._build_run_snapshot_payload(
-                status=_ENDLESS_STATUS_PENDING_DEFEAT_SETTLEMENT,
-                selected_start_floor=endless_run_state.selected_start_floor,
-                current_floor=floor_snapshot.floor,
-                current_node_type=floor_snapshot.node_type,
-                current_region=floor_snapshot.region,
-                highest_unlocked_anchor_floor=new_highest_unlocked_anchor_floor,
-                available_start_floors=self._progression.get_available_start_floors(new_highest_unlocked_anchor_floor),
-                current_anchor_floor=floor_snapshot.anchor_floor,
-                next_anchor_floor=floor_snapshot.next_anchor_floor,
-                run_seed=endless_run_state.run_seed,
-                encounter_history=reward_payload["encounter_history"],
-                record_floor_before_run=record_floor_before_run,
-            )
-
         self._state_repository.save_endless_run_state(endless_run_state)
         status_snapshot = self._build_status_snapshot(
             character_id=character_id,
             progress=progress,
             endless_run_state=endless_run_state,
         )
+        if not advanced_results or final_latest_node_result is None:
+            raise EndlessRunStateError("无尽副本自动推进结果为空")
+        last_result = advanced_results[-1]
         return EndlessFloorAdvanceResult(
             character_id=character_id,
-            cleared_floor=floor_snapshot.floor,
+            cleared_floor=_read_int(last_result.get("floor"), default=endless_run_state.current_floor),
             next_floor=next_floor,
-            encounter=self._encounter_to_payload(encounter),
-            battle_outcome=battle_outcome.value,
-            battle_report_id=execution_result.persisted_battle_report_id,
-            reward_granted=reward_granted,
-            anchor_unlock_result=anchor_unlock_result,
-            latest_node_result=latest_node_result,
+            encounter=dict(_normalize_optional_mapping(last_result.get("encounter")) or {}),
+            battle_outcome=str(last_result.get("battle_outcome") or ""),
+            battle_report_id=_read_optional_int(last_result.get("battle_report_id")),
+            reward_granted=bool(last_result.get("reward_granted")),
+            anchor_unlock_result=final_anchor_unlock_result,
+            latest_node_result=final_latest_node_result,
+            advanced_results=tuple(advanced_results),
+            stopped_floor=_read_int(last_result.get("floor"), default=endless_run_state.current_floor),
+            stopped_reason=stopped_reason,
+            decision_floor=decision_floor,
             run_status=status_snapshot,
         )
 
@@ -691,6 +735,7 @@ class EndlessDungeonService:
             return self._refresh_settlement_result(character_id=character_id, result=persisted_result)
         if endless_run_state.status != _ENDLESS_STATUS_RUNNING:
             raise EndlessRunStateError(f"当前无尽副本运行不可撤离结算：{character_id}，状态为 {endless_run_state.status}")
+        self._require_retreatable_run_state(endless_run_state)
         return self._settle_run(
             character_id=character_id,
             progress=progress,
@@ -781,16 +826,12 @@ class EndlessDungeonService:
         )
         self._character_repository.save_progress(progress)
         source_ref = f"endless:{settlement_type}:floor_{terminated_floor}"
-        instantiated_drop_entries = self._instantiate_settlement_equipment_drops(
+        final_drop_entries = self._generate_settlement_drop_entries(
             character_id=character_id,
+            progress=progress,
             terminated_floor=terminated_floor,
             settled_rewards=applied_rewards,
             run_seed=endless_run_state.run_seed,
-        )
-        skill_drop = self._skill_drop_service.generate_endless_settlement_drop(
-            character_id=character_id,
-            floor=terminated_floor,
-            seed=self._compose_battle_seed(run_seed=endless_run_state.run_seed, floor=terminated_floor),
             source_ref=source_ref,
         )
         result = self._build_settlement_result(
@@ -802,8 +843,7 @@ class EndlessDungeonService:
             deducted_rewards=deducted_rewards,
             settled_rewards=applied_rewards,
             settled_at=now,
-            skill_drop_summary=skill_drop.to_drop_summary(),
-            instantiated_drop_entries=instantiated_drop_entries,
+            instantiated_drop_entries=final_drop_entries,
         )
         self._create_naming_batch_if_configured(
             character_id=character_id,
@@ -880,7 +920,6 @@ class EndlessDungeonService:
         deducted_rewards: EndlessRewardBreakdown,
         settled_rewards: EndlessRewardBreakdown,
         settled_at: datetime,
-        skill_drop_summary: dict[str, Any] | None,
         instantiated_drop_entries: tuple[dict[str, Any], ...] = (),
     ) -> EndlessRunSettlementResult:
         stable_rewards = EndlessSettlementRewardSection(
@@ -904,7 +943,6 @@ class EndlessDungeonService:
                 settlement_type=settlement_type,
                 stable_rewards=stable_rewards,
                 pending_rewards=pending_rewards,
-                skill_drop_summary=skill_drop_summary,
                 instantiated_drop_entries=instantiated_drop_entries,
             ),
             accounting_completed=True,
@@ -1018,7 +1056,6 @@ class EndlessDungeonService:
         settlement_type: str,
         stable_rewards: EndlessSettlementRewardSection,
         pending_rewards: EndlessSettlementRewardSection,
-        skill_drop_summary: dict[str, Any] | None,
         instantiated_drop_entries: tuple[dict[str, Any], ...] = (),
     ) -> tuple[dict[str, Any], ...]:
         drop_entries = [
@@ -1038,106 +1075,33 @@ class EndlessDungeonService:
             },
         ]
         drop_entries.extend(dict(item) for item in instantiated_drop_entries)
-        if skill_drop_summary is not None:
-            drop_entries.append(dict(skill_drop_summary))
         return tuple(drop_entries)
 
-    def _instantiate_settlement_equipment_drops(
+    def _generate_settlement_drop_entries(
         self,
         *,
         character_id: int,
+        progress: CharacterProgress,
         terminated_floor: int,
         settled_rewards: EndlessRewardBreakdown,
         run_seed: int,
+        source_ref: str,
     ) -> tuple[dict[str, Any], ...]:
-        drop_entries: list[dict[str, Any]] = []
-        if settled_rewards.pending_equipment_score > 0:
-            equipment_item = self._generate_settlement_item(
-                character_id=character_id,
-                score=settled_rewards.pending_equipment_score,
-                floor=terminated_floor,
-                is_artifact=False,
-                seed=self._compose_equipment_drop_seed(run_seed=run_seed, floor=terminated_floor, is_artifact=False),
-            )
-            if equipment_item is not None:
-                drop_entries.append(
-                    self._build_equipment_drop_entry(
-                        item=equipment_item,
-                        score=settled_rewards.pending_equipment_score,
-                        source_floor=terminated_floor,
-                    )
-                )
-        if settled_rewards.pending_artifact_score > 0:
-            artifact_item = self._generate_settlement_item(
-                character_id=character_id,
-                score=settled_rewards.pending_artifact_score,
-                floor=terminated_floor,
-                is_artifact=True,
-                seed=self._compose_equipment_drop_seed(run_seed=run_seed, floor=terminated_floor, is_artifact=True),
-            )
-            if artifact_item is not None:
-                drop_entries.append(
-                    self._build_equipment_drop_entry(
-                        item=artifact_item,
-                        score=settled_rewards.pending_artifact_score,
-                        source_floor=terminated_floor,
-                    )
-                )
-        return tuple(drop_entries)
-
-    def _generate_settlement_item(
-        self,
-        *,
-        character_id: int,
-        score: int,
-        floor: int,
-        is_artifact: bool,
-        seed: int,
-    ) -> EquipmentItemSnapshot | None:
-        if score <= 0:
-            return None
-        if self._equipment_service is None:
-            raise EndlessRunStateError("无尽副本结算缺少装备生成服务")
+        if settled_rewards.pending_drop_progress <= 0:
+            return ()
+        if self._drop_orchestrator is None:
+            raise EndlessRunStateError("无尽副本结算缺少统一掉落编排服务")
         try:
-            result = self._equipment_service.generate_endless_settlement_item(
+            return self._drop_orchestrator.generate_settlement_drops(
                 character_id=character_id,
-                score=score,
-                floor=floor,
-                is_artifact=is_artifact,
-                seed=seed,
+                realm_id=progress.realm_id,
+                pending_drop_progress=settled_rewards.pending_drop_progress,
+                run_seed=run_seed,
+                terminated_floor=terminated_floor,
+                source_ref=source_ref,
             )
-        except EquipmentServiceError as exc:
+        except EndlessSettlementDropOrchestratorError as exc:
             raise EndlessRunStateError(str(exc)) from exc
-        return None if result is None else result.item
-
-    @staticmethod
-    def _build_equipment_drop_entry(
-        *,
-        item: EquipmentItemSnapshot,
-        score: int,
-        source_floor: int,
-    ) -> dict[str, Any]:
-        return {
-            "entry_type": _ENDLESS_DROP_ENTRY_ARTIFACT if item.is_artifact else _ENDLESS_DROP_ENTRY_EQUIPMENT,
-            "item_id": item.item_id,
-            "quantity": 1,
-            "display_name": item.display_name,
-            "slot_id": item.slot_id,
-            "slot_name": item.slot_name,
-            "quality_id": item.quality_id,
-            "quality_name": item.quality_name,
-            "rank_id": item.rank_id,
-            "rank_name": item.rank_name,
-            "mapped_realm_id": item.mapped_realm_id,
-            "template_id": item.template_id,
-            "template_name": item.template_name,
-            "is_artifact": item.is_artifact,
-            "resonance_name": item.resonance_name,
-            "enhancement_level": item.enhancement_level,
-            "artifact_nurture_level": item.artifact_nurture_level,
-            "source_score": max(0, score),
-            "source_floor": max(1, source_floor),
-        }
 
     def _apply_settlement_progress_writeback(
         self,
@@ -1163,9 +1127,7 @@ class EndlessDungeonService:
             stable_cultivation=applied_cultivation,
             stable_insight=settled_rewards.stable_insight,
             stable_refining_essence=settled_rewards.stable_refining_essence,
-            pending_equipment_score=settled_rewards.pending_equipment_score,
-            pending_artifact_score=settled_rewards.pending_artifact_score,
-            pending_dao_pattern_score=settled_rewards.pending_dao_pattern_score,
+            pending_drop_progress=settled_rewards.pending_drop_progress,
         )
 
     @staticmethod
@@ -1174,9 +1136,7 @@ class EndlessDungeonService:
             stable_cultivation=reward_ledger.stable_cultivation,
             stable_insight=reward_ledger.stable_insight,
             stable_refining_essence=reward_ledger.stable_refining_essence,
-            pending_equipment_score=reward_ledger.pending_equipment_score,
-            pending_artifact_score=reward_ledger.pending_artifact_score,
-            pending_dao_pattern_score=reward_ledger.pending_dao_pattern_score,
+            pending_drop_progress=reward_ledger.pending_drop_progress,
         )
 
     @staticmethod
@@ -1189,9 +1149,7 @@ class EndlessDungeonService:
             stable_cultivation=max(0, original.stable_cultivation - settled.stable_cultivation),
             stable_insight=max(0, original.stable_insight - settled.stable_insight),
             stable_refining_essence=max(0, original.stable_refining_essence - settled.stable_refining_essence),
-            pending_equipment_score=max(0, original.pending_equipment_score - settled.pending_equipment_score),
-            pending_artifact_score=max(0, original.pending_artifact_score - settled.pending_artifact_score),
-            pending_dao_pattern_score=max(0, original.pending_dao_pattern_score - settled.pending_dao_pattern_score),
+            pending_drop_progress=max(0, original.pending_drop_progress - settled.pending_drop_progress),
         )
 
     @staticmethod
@@ -1224,6 +1182,15 @@ class EndlessDungeonService:
         if endless_run_state is None:
             raise EndlessRunNotFoundError(f"角色不存在可结算的无尽副本运行：{character_id}")
         return endless_run_state
+
+    def _require_retreatable_run_state(self, endless_run_state: EndlessRunState) -> None:
+        decision_floor = self._resolve_last_decision_floor(endless_run_state.pending_rewards_json)
+        if decision_floor is None:
+            raise EndlessRunStateError("当前无尽副本未停在可撤离的决策层")
+        if _read_int(endless_run_state.current_floor, default=0) != decision_floor + 1:
+            raise EndlessRunStateError(
+                f"当前无尽副本未停在第 {decision_floor} 层决策点后的待选状态，无法撤离"
+            )
 
     def _build_empty_status_snapshot(
         self,
@@ -1457,27 +1424,22 @@ class EndlessDungeonService:
             stable_totals["refining_essence"] = (
                 _read_int(stable_totals.get("refining_essence")) + reward_breakdown.stable_refining_essence
             )
-            pending_totals["equipment_score"] = (
-                _read_int(pending_totals.get("equipment_score")) + reward_breakdown.pending_equipment_score
-            )
-            pending_totals["artifact_score"] = (
-                _read_int(pending_totals.get("artifact_score")) + reward_breakdown.pending_artifact_score
-            )
-            pending_totals["dao_pattern_score"] = (
-                _read_int(pending_totals.get("dao_pattern_score")) + reward_breakdown.pending_dao_pattern_score
+            pending_totals["drop_progress"] = (
+                _read_int(pending_totals.get("drop_progress")) + reward_breakdown.pending_drop_progress
             )
             payload["last_reward_floor"] = encounter.floor
             payload["advanced_floor_count"] = _read_int(payload.get("advanced_floor_count")) + 1
             drop_display = _normalize_mapping_list(payload.get("drop_display"))
+            current_progress = _read_int(pending_totals.get("drop_progress"))
             drop_display.append(
                 {
                     "floor": encounter.floor,
                     "node_type": encounter.node_type.value,
                     "region_id": encounter.region_id,
                     "region_bias_id": encounter.region_bias_id,
-                    "equipment_score": reward_breakdown.pending_equipment_score,
-                    "artifact_score": reward_breakdown.pending_artifact_score,
-                    "dao_pattern_score": reward_breakdown.pending_dao_pattern_score,
+                    "drop_progress_gained": reward_breakdown.pending_drop_progress,
+                    "pending_drop_progress": current_progress,
+                    "drop_count": current_progress // 10,
                 }
             )
             payload["drop_display"] = drop_display
@@ -1498,6 +1460,8 @@ class EndlessDungeonService:
         reward_granted: bool,
         current_hp_ratio: Decimal,
         current_mp_ratio: Decimal,
+        enemy_units: tuple[dict[str, Any], ...],
+        battle_summary: dict[str, Any],
     ) -> dict[str, Any]:
         reward_payload = None
         if reward_breakdown is not None:
@@ -1513,35 +1477,20 @@ class EndlessDungeonService:
             "enemy_race_id": encounter.race_id,
             "enemy_template_id": encounter.template_id,
             "enemy_count": encounter.enemy_count,
+            "encounter": EndlessDungeonService._encounter_to_payload(encounter),
+            "enemy_units": [dict(item) for item in enemy_units],
             "battle_outcome": battle_outcome.value,
             "battle_report_id": battle_report_id,
             "reward_granted": reward_granted,
             "reward_payload": reward_payload,
+            "battle_summary": dict(battle_summary),
             "current_hp_ratio": format(current_hp_ratio, ".4f"),
             "current_mp_ratio": format(current_mp_ratio, ".4f"),
         }
 
     @staticmethod
-    def _build_encounter_history_entry(
-        *,
-        floor_snapshot,
-        encounter: EndlessEnemyEncounter,
-        battle_outcome: BattleOutcome,
-        battle_report_id: int | None,
-        reward_granted: bool,
-    ) -> dict[str, Any]:
-        return {
-            "floor": floor_snapshot.floor,
-            "node_type": floor_snapshot.node_type.value,
-            "region_id": encounter.region_id,
-            "region_bias_id": encounter.region_bias_id,
-            "enemy_race_id": encounter.race_id,
-            "enemy_template_id": encounter.template_id,
-            "enemy_count": encounter.enemy_count,
-            "battle_outcome": battle_outcome.value,
-            "battle_report_id": battle_report_id,
-            "reward_granted": reward_granted,
-        }
+    def _build_encounter_history_entry(*, node_result: Mapping[str, Any]) -> dict[str, Any]:
+        return dict(node_result)
 
     @staticmethod
     def _build_anchor_unlock_result_payload(
@@ -1631,9 +1580,7 @@ class EndlessDungeonService:
                 "refining_essence": 0,
             },
             "pending_totals": {
-                "equipment_score": 0,
-                "artifact_score": 0,
-                "dao_pattern_score": 0,
+                "drop_progress": 0,
             },
             "last_reward_floor": None,
             "drop_display": [],
@@ -1717,11 +1664,17 @@ class EndlessDungeonService:
                 "insight": _read_int(stable_totals.get("insight")),
                 "refining_essence": _read_int(stable_totals.get("refining_essence")),
             }
+        pending_drop_progress = 0
         if isinstance(pending_totals, Mapping):
+            pending_drop_progress = _read_int(pending_totals.get("drop_progress"))
+            if pending_drop_progress <= 0:
+                pending_drop_progress = (
+                    _read_int(pending_totals.get("equipment_score"))
+                    + _read_int(pending_totals.get("artifact_score"))
+                    + _read_int(pending_totals.get("dao_pattern_score"))
+                )
             normalized_payload["pending_totals"] = {
-                "equipment_score": _read_int(pending_totals.get("equipment_score")),
-                "artifact_score": _read_int(pending_totals.get("artifact_score")),
-                "dao_pattern_score": _read_int(pending_totals.get("dao_pattern_score")),
+                "drop_progress": pending_drop_progress,
             }
         normalized_payload["last_reward_floor"] = _read_optional_int(payload.get("last_reward_floor"))
         normalized_payload["drop_display"] = _normalize_mapping_list(payload.get("drop_display"))
@@ -1736,13 +1689,13 @@ class EndlessDungeonService:
         normalized_payload = EndlessDungeonService._normalize_reward_ledger_payload(payload)
         stable_totals = normalized_payload["stable_totals"]
         pending_totals = normalized_payload["pending_totals"]
+        pending_drop_progress = _read_int(pending_totals.get("drop_progress"))
         return EndlessRunRewardLedgerSnapshot(
             stable_cultivation=_read_int(stable_totals.get("cultivation")),
             stable_insight=_read_int(stable_totals.get("insight")),
             stable_refining_essence=_read_int(stable_totals.get("refining_essence")),
-            pending_equipment_score=_read_int(pending_totals.get("equipment_score")),
-            pending_artifact_score=_read_int(pending_totals.get("artifact_score")),
-            pending_dao_pattern_score=_read_int(pending_totals.get("dao_pattern_score")),
+            pending_drop_progress=pending_drop_progress,
+            drop_count=pending_drop_progress // 10,
             last_reward_floor=_read_optional_int(normalized_payload.get("last_reward_floor")),
             drop_display=tuple(_normalize_mapping_list(normalized_payload.get("drop_display"))),
             latest_node_result=_normalize_optional_mapping(normalized_payload.get("latest_node_result")),
@@ -1892,6 +1845,39 @@ class EndlessDungeonService:
     ) -> None:
         progress.current_hp_ratio = current_hp_ratio
         progress.current_mp_ratio = current_mp_ratio
+
+    @staticmethod
+    def _build_enemy_unit_payloads(enemy_units: tuple[BattleUnitSnapshot, ...]) -> tuple[dict[str, Any], ...]:
+        return tuple(
+            {
+                "unit_id": enemy.unit_id,
+                "unit_name": enemy.unit_name,
+                "realm_id": enemy.realm_id,
+                "stage_id": enemy.stage_id,
+                "max_hp": enemy.max_hp,
+                "attack_power": enemy.attack_power,
+                "guard_power": enemy.guard_power,
+                "speed": enemy.speed,
+                "behavior_template_id": enemy.behavior_template_id,
+            }
+            for enemy in enemy_units
+        )
+
+    @staticmethod
+    def _is_decision_floor(floor: int) -> bool:
+        normalized_floor = max(1, floor)
+        return normalized_floor % 10 in (5, 0)
+
+    @staticmethod
+    def _resolve_last_decision_floor(payload: Mapping[str, Any] | None) -> int | None:
+        normalized_payload = EndlessDungeonService._normalize_reward_ledger_payload(payload)
+        last_reward_floor = _read_optional_int(normalized_payload.get("last_reward_floor"))
+        if last_reward_floor is None or not EndlessDungeonService._is_decision_floor(last_reward_floor):
+            return None
+        latest_node_result = _normalize_optional_mapping(normalized_payload.get("latest_node_result"))
+        if latest_node_result is not None and not bool(latest_node_result.get("reward_granted")):
+            return None
+        return last_reward_floor
 
 
 

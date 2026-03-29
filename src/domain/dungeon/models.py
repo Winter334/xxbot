@@ -63,9 +63,7 @@ class EndlessRewardBreakdown:
     stable_cultivation: int
     stable_insight: int
     stable_refining_essence: int
-    pending_equipment_score: int
-    pending_artifact_score: int
-    pending_dao_pattern_score: int
+    pending_drop_progress: int
 
     def merge(self, other: "EndlessRewardBreakdown") -> "EndlessRewardBreakdown":
         """合并两段收益。"""
@@ -73,9 +71,7 @@ class EndlessRewardBreakdown:
             stable_cultivation=self.stable_cultivation + other.stable_cultivation,
             stable_insight=self.stable_insight + other.stable_insight,
             stable_refining_essence=self.stable_refining_essence + other.stable_refining_essence,
-            pending_equipment_score=self.pending_equipment_score + other.pending_equipment_score,
-            pending_artifact_score=self.pending_artifact_score + other.pending_artifact_score,
-            pending_dao_pattern_score=self.pending_dao_pattern_score + other.pending_dao_pattern_score,
+            pending_drop_progress=self.pending_drop_progress + other.pending_drop_progress,
         )
 
     def to_stable_payload(self) -> dict[str, int]:
@@ -88,11 +84,22 @@ class EndlessRewardBreakdown:
 
     def to_pending_payload(self) -> dict[str, int]:
         """导出未稳收益载荷。"""
-        return {
-            "equipment_score": self.pending_equipment_score,
-            "artifact_score": self.pending_artifact_score,
-            "dao_pattern_score": self.pending_dao_pattern_score,
-        }
+        return {"drop_progress": self.pending_drop_progress}
+
+    @property
+    def pending_equipment_score(self) -> int:
+        """兼容旧字段：统一掉落进度语义下恒为 0。"""
+        return 0
+
+    @property
+    def pending_artifact_score(self) -> int:
+        """兼容旧字段：统一掉落进度语义下恒为 0。"""
+        return 0
+
+    @property
+    def pending_dao_pattern_score(self) -> int:
+        """兼容旧字段：统一掉落进度语义下恒为 0。"""
+        return 0
 
 
 __all__ = [

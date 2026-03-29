@@ -371,17 +371,13 @@ class EquipmentService:
         self,
         *,
         character_id: int,
-        score: int,
-        floor: int,
+        rank_id: str,
+        quality_id: str,
         is_artifact: bool,
         seed: int | None = None,
-    ) -> EquipmentGenerationApplicationResult | None:
-        """按无尽结算保留分数生成一件同步命名掉落实例。"""
-        if score <= 0:
-            return None
+    ) -> EquipmentGenerationApplicationResult:
+        """按上层已判定的类型、阶数与品质生成同步命名掉落实例。"""
         slot_id = "artifact" if is_artifact else self._resolve_endless_reward_slot_id(seed=seed)
-        quality_id = self._resolve_endless_reward_quality_id(score=score)
-        rank_id = self._resolve_endless_reward_rank_id(floor=floor)
         return self.generate_equipment(
             character_id=character_id,
             slot_id=slot_id,
@@ -701,16 +697,6 @@ class EquipmentService:
     def _resolve_endless_reward_slot_id(self, *, seed: int | None) -> str:
         random_source = self._build_random_source(seed)
         return self._non_artifact_slot_ids[random_source.randrange(len(self._non_artifact_slot_ids))]
-
-    def _resolve_endless_reward_quality_id(self, *, score: int) -> str:
-        normalized_score = max(1, score)
-        quality_index = min(len(self._ordered_qualities) - 1, (normalized_score - 1) // 16)
-        return self._ordered_qualities[quality_index].quality_id
-
-    def _resolve_endless_reward_rank_id(self, *, floor: int) -> str:
-        normalized_floor = max(1, floor)
-        rank_order = min(len(self._ordered_ranks), ((normalized_floor - 1) // 10) + 1)
-        return self._ordered_ranks[rank_order - 1].rank_id
 
     def _execute_rule(self, executor: Callable[[], _T]) -> _T:
         try:

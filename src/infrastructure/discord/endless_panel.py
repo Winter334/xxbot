@@ -15,13 +15,13 @@ from application.character.panel_query_service import CharacterPanelQueryService
 from application.dungeon import (
     EndlessDungeonService,
     EndlessDungeonServiceError,
-    EndlessFloorAdvanceResult,
     EndlessRunSettlementResult,
     EndlessRunStatusSnapshot,
 )
-from application.equipment.panel_query_service import _ENDLESS_REWARD_NAME_BY_KEY
 from application.dungeon.endless_panel_service import (
+    EndlessAdvancePresentation,
     EndlessBattleReportDigest,
+    EndlessFloorPanelSnapshot,
     EndlessPanelQueryService,
     EndlessPanelQueryServiceError,
     EndlessPanelSnapshot,
@@ -39,12 +39,11 @@ _STATUS_RUNNING = "running"
 _STATUS_PENDING_DEFEAT_SETTLEMENT = "pending_defeat_settlement"
 _SETTLEMENT_RETREAT = "retreat"
 _SETTLEMENT_DEFEAT = "defeat"
-_HIGH_VALUE_EQUIPMENT_SCORE_THRESHOLD = 80
-_HIGH_VALUE_DAO_PATTERN_SCORE_THRESHOLD = 16
+_PUBLIC_HIGHLIGHT_EQUIPMENT_QUALITY_IDS = frozenset({"epic", "legendary"})
 _NODE_TYPE_NAME_BY_VALUE = {
-    "normal": "普通层",
+    "normal": "常规层",
     "elite": "精英层",
-    "anchor_boss": "锚点首领",
+    "anchor_boss": "首领层",
 }
 _STATUS_NAME_BY_VALUE = {
     None: "未运行",
@@ -52,17 +51,17 @@ _STATUS_NAME_BY_VALUE = {
     _STATUS_PENDING_DEFEAT_SETTLEMENT: "待战败结算",
 }
 _SETTLEMENT_NAME_BY_VALUE = {
-    _SETTLEMENT_RETREAT: "主动撤离",
+    _SETTLEMENT_RETREAT: "结算撤离",
     _SETTLEMENT_DEFEAT: "战败结算",
 }
 _STABLE_REWARD_ORDER = ("cultivation", "insight", "refining_essence")
-_PENDING_REWARD_ORDER = ("equipment_score", "artifact_score", "dao_pattern_score")
+_PENDING_REWARD_ORDER = ("drop_progress",)
 _STABLE_REWARD_NAME_BY_KEY = {
     "cultivation": "修为",
     "insight": "感悟",
     "refining_essence": "炼华精粹",
 }
-_PENDING_REWARD_NAME_BY_KEY = dict(_ENDLESS_REWARD_NAME_BY_KEY)
+_PENDING_REWARD_NAME_BY_KEY = {"drop_progress": "统一掉落进度"}
 _ENDLESS_EQUIPMENT_ENTRY_TYPE = "equipment_drop"
 _ENDLESS_ARTIFACT_ENTRY_TYPE = "artifact_drop"
 _ENDLESS_SKILL_ENTRY_TYPE = "skill_drop"
@@ -107,22 +106,29 @@ class EndlessPanelPresenter:
         selected_start_floor: int,
         action_note: EndlessActionNote | None = None,
     ) -> discord.Embed:
+        presentation = snapshot.run_presentation
         embed = discord.Embed(
-            title=f"{snapshot.overview.character_name}｜无涯渊境入口",
+            title=f"{snapshot.overview.character_name}｜无涯渊境",
             description="仅操作者可见",
             color=discord.Color.dark_magenta(),
         )
-        embed.add_field(name="当前渊境状态", value=cls._build_status_block(snapshot=snapshot), inline=False)
+        embed.add_field(name="当前渊行状态", value=cls._build_status_block(snapshot=snapshot), inline=False)
         embed.add_field(
-            name="可挑战信息",
+            name="下一战敌阵" if snapshot.run_status.has_active_run else "挑战准备",
             value=cls._build_challenge_block(snapshot=snapshot, selected_start_floor=selected_start_floor),
             inline=False,
         )
-        embed.add_field(name="本轮渊行", value=cls._build_reward_ledger_block(snapshot=snapshot), inline=False)
+        embed.add_field(name="本轮战况", value=cls._build_reward_ledger_block(snapshot=snapshot), inline=False)
+        embed.add_field(name="最近战斗记录", value=cls._build_recent_floor_history_block(snapshot=snapshot), inline=False)
         embed.add_field(name="最近结算摘要", value=cls._build_recent_settlement_summary(snapshot=snapshot), inline=False)
         if action_note is not None and action_note.lines:
             embed.add_field(name=action_note.title, value="\n".join(action_note.lines), inline=False)
-        embed.set_footer(text=f"当前无涯渊境入口层位：第 {selected_start_floor} 层")
+        footer_text = f"当前选择起始层：第 {selected_start_floor} 层"
+        if presentation.decision_floor is not None:
+            footer_text += f"｜已停在第 {presentation.decision_floor} 层决策点"
+        elif presentation.next_floor is not None and snapshot.run_status.has_active_run:
+            footer_text += f"｜下一战：第 {presentation.next_floor} 层"
+        embed.set_footer(text=footer_text)
         return embed
 
     @classmethod
@@ -152,23 +158,23 @@ class EndlessPanelPresenter:
             inline=False,
         )
         embed.add_field(
-            name="资源变化",
+            name="资源与掉落",
             value=cls._build_settlement_resource_block(settlement=settlement),
             inline=False,
         )
         embed.add_field(
-            name="阶段推进",
+            name="终局战况",
             value=cls._build_settlement_progress_block(snapshot=snapshot, recent_settlement=recent_settlement),
+            inline=False,
+        )
+        embed.add_field(
+            name="关键战斗过程",
+            value=cls._build_battle_report_block(recent_settlement=recent_settlement),
             inline=False,
         )
         embed.add_field(
             name="主要掉落",
             value=cls._build_private_drop_block(settlement=settlement),
-            inline=False,
-        )
-        embed.add_field(
-            name="关键战报摘要",
-            value=cls._build_battle_report_block(recent_settlement=recent_settlement),
             inline=False,
         )
         if action_note is not None and action_note.lines:
@@ -187,14 +193,14 @@ class EndlessPanelPresenter:
         hp_ratio = cls._format_ratio_by_current_and_max(projection.current_hp, projection.max_hp)
         mp_ratio = cls._format_ratio_by_current_and_max(projection.current_resource, projection.max_resource)
         run_status = snapshot.run_status
+        presentation = snapshot.run_presentation
         lines = [
-            f"状态：{_STATUS_NAME_BY_VALUE.get(run_status.status, run_status.status or '未运行')}",
+            f"状态：{presentation.phase_label}",
             f"生命：{projection.current_hp}/{projection.max_hp}｜{hp_ratio}",
             f"灵力：{projection.current_resource}/{projection.max_resource}｜{mp_ratio}",
-            f"已解锁最高锚点：第 {run_status.anchor_status.highest_unlocked_anchor_floor} 层",
         ]
         if not run_status.has_active_run:
-            lines.append("当前没有进行中的无涯渊境探索。")
+            lines.append("当前未在渊行中，可从已解锁起始层重新开始挑战。")
             return "\n".join(lines)
         current_region = run_status.current_region
         if current_region is not None:
@@ -204,53 +210,62 @@ class EndlessPanelPresenter:
                     f"区域主题：{current_region.theme_summary}",
                 )
             )
-        lines.extend(
-            (
-                f"当前层数：第 {run_status.current_floor} 层",
-                f"运行内最高：第 {run_status.highest_floor_reached} 层",
-                f"当前节点：{_NODE_TYPE_NAME_BY_VALUE.get(_safe_enum_value(run_status.current_node_type), '-')}",
-                f"起始层：第 {run_status.selected_start_floor} 层",
+        lines.append(f"本轮起始层：第 {run_status.selected_start_floor} 层")
+        if presentation.phase == "pending_defeat_settlement":
+            lines.append(f"本轮止步：第 {presentation.stopped_floor} 层，当前只能执行战败结算。")
+        elif presentation.decision_floor is not None:
+            lines.append(
+                f"本轮止步：第 {presentation.decision_floor} 层决策点｜下一战为第 {presentation.next_floor} 层"
             )
+        else:
+            lines.append(f"当前待挑战：第 {run_status.current_floor} 层")
+        lines.append(
+            f"已完成战斗：{presentation.battle_count} 场｜已跨越楼层：{presentation.advanced_floor_count}"
+        )
+        lines.append(
+            f"累计统一掉落进度：{presentation.pending_drop_progress}｜可结算掉落 {presentation.claimable_drop_count} 次"
         )
         if run_status.started_at is not None:
             lines.append(f"开始时间：{_format_datetime(run_status.started_at)}")
-        if run_status.status == _STATUS_PENDING_DEFEAT_SETTLEMENT:
-            lines.append("本次推进已失败，需要先执行战败结算。")
         return "\n".join(lines)
 
     @classmethod
     def _build_challenge_block(cls, *, snapshot: EndlessPanelSnapshot, selected_start_floor: int) -> str:
         run_status = snapshot.run_status
-        anchor_status = run_status.anchor_status
-        available_start_floors = "、".join(f"第 {floor} 层" for floor in anchor_status.available_start_floors)
-        lines = [
-            f"可选起点：{available_start_floors}",
-            f"当前锚点：{cls._format_floor(anchor_status.current_anchor_floor)}",
-            f"下一锚点：{cls._format_floor(anchor_status.next_anchor_floor)}",
-        ]
-        if run_status.has_active_run:
-            lines.extend(
+        presentation = snapshot.run_presentation
+        available_start_floors = "、".join(f"第 {floor} 层" for floor in run_status.anchor_status.available_start_floors)
+        if not run_status.has_active_run:
+            entry_floor = 1 if selected_start_floor <= 1 else selected_start_floor + 1
+            return "\n".join(
                 (
-                    f"当前渊行起点：第 {run_status.selected_start_floor} 层",
-                    "运行中不可更改起始层。",
+                    f"可选起始层：{available_start_floors}",
+                    f"当前选择：第 {selected_start_floor} 层",
+                    f"本次入场：第 {entry_floor} 层",
+                    "点击“开始挑战”后，将从所选起始层接续无涯渊境。",
                 )
             )
-            return "\n".join(lines)
-        entry_floor = 1 if selected_start_floor <= 1 else selected_start_floor + 1
-        lines.extend(
-            (
-                f"当前选择起始层：第 {selected_start_floor} 层",
-                f"本轮进入层数：第 {entry_floor} 层",
-                "选择起始层后，可直接开始运行。",
-            )
-        )
+        preview = presentation.upcoming_floor_preview
+        if preview is None:
+            if presentation.phase == "pending_defeat_settlement":
+                return "当前已进入战败待结算状态，需先完成本轮结算。"
+            return "当前暂无可预览的下一战敌阵。"
+        lines = [
+            cls._format_floor_enemy_header(floor_snapshot=preview),
+            cls._format_enemy_style_line(floor_snapshot=preview),
+            cls._format_enemy_unit_summary(floor_snapshot=preview),
+        ]
+        if presentation.can_settle_retreat and presentation.decision_floor is not None:
+            lines.append("当前位于决策点，可继续挑战或结算撤离。")
+        else:
+            lines.append("点击“继续挑战”后，将自动推进至下一处决策点或战败。")
         return "\n".join(lines)
 
     @classmethod
     def _build_reward_ledger_block(cls, *, snapshot: EndlessPanelSnapshot) -> str:
         reward_ledger = snapshot.run_status.reward_ledger
+        presentation = snapshot.run_presentation
         if reward_ledger is None:
-            return "当前没有进行中的收益账本。"
+            return "当前没有进行中的渊行账本。"
         lines = [
             "稳定收益："
             + cls._format_reward_mapping_by_keys(
@@ -262,33 +277,24 @@ class EndlessPanelPresenter:
                 key_order=_STABLE_REWARD_ORDER,
                 name_mapping=_STABLE_REWARD_NAME_BY_KEY,
             ),
-            "未稳收益："
-            + cls._format_reward_mapping_by_keys(
-                reward_mapping={
-                    "equipment_score": reward_ledger.pending_equipment_score,
-                    "artifact_score": reward_ledger.pending_artifact_score,
-                    "dao_pattern_score": reward_ledger.pending_dao_pattern_score,
-                },
-                key_order=_PENDING_REWARD_ORDER,
-                name_mapping=_PENDING_REWARD_NAME_BY_KEY,
-            ),
-            f"已推进层数：{reward_ledger.advanced_floor_count}",
+            f"累计统一掉落进度：{presentation.pending_drop_progress}｜可结算掉落 {presentation.claimable_drop_count} 次",
+            f"已完成战斗：{presentation.battle_count} 场｜已跨越楼层：{presentation.advanced_floor_count}",
         ]
-        latest_node_result = reward_ledger.latest_node_result
-        if latest_node_result is not None:
-            lines.append(
-                "最近节点："
-                + cls._format_latest_node_result(latest_node_result=latest_node_result)
-            )
-        if reward_ledger.latest_anchor_unlock is not None and bool(reward_ledger.latest_anchor_unlock.get("unlocked")):
-            anchor_floor = reward_ledger.latest_anchor_unlock.get("anchor_floor")
-            lines.append(f"锚点推进：已解锁第 {anchor_floor} 层起点")
-        if reward_ledger.drop_display:
-            latest_drop = reward_ledger.drop_display[-1]
-            lines.append(
-                "掉落预览："
-                + cls._format_drop_preview(latest_drop=latest_drop)
-            )
+        latest_floor_result = presentation.latest_floor_result
+        if latest_floor_result is not None:
+            lines.append("最近结果：" + cls._format_floor_result_summary(floor_snapshot=latest_floor_result))
+        return "\n".join(lines)
+
+    @classmethod
+    def _build_recent_floor_history_block(cls, *, snapshot: EndlessPanelSnapshot) -> str:
+        floor_results = snapshot.run_presentation.recent_floor_results
+        if not floor_results:
+            return "当前暂无已完成的楼层战斗。"
+        lines: list[str] = []
+        for floor_snapshot in floor_results[-3:]:
+            lines.append("• " + cls._format_floor_result_summary(floor_snapshot=floor_snapshot))
+            process_lines = cls._format_floor_process_lines(floor_snapshot=floor_snapshot, max_round_lines=1)
+            lines.extend(f"  {line}" for line in process_lines)
         return "\n".join(lines)
 
     @classmethod
@@ -306,25 +312,25 @@ class EndlessPanelPresenter:
                 key_order=_STABLE_REWARD_ORDER,
                 name_mapping=_STABLE_REWARD_NAME_BY_KEY,
             ),
-            "未稳收益："
-            + cls._format_reward_mapping_by_keys(
-                reward_mapping=settlement.pending_rewards.settled,
-                key_order=_PENDING_REWARD_ORDER,
-                name_mapping=_PENDING_REWARD_NAME_BY_KEY,
-            ),
+            f"统一掉落进度兑现：{max(0, _read_int(settlement.pending_rewards.settled.get('drop_progress')))}",
             f"结算时间：{_format_datetime(settlement.settled_at)}",
         ]
+        if recent_settlement.last_floor_result is not None:
+            lines.append("终局结果：" + cls._format_floor_result_summary(floor_snapshot=recent_settlement.last_floor_result))
         return "\n".join(lines)
 
     @classmethod
     def _build_settlement_overview_block(cls, *, recent_settlement: EndlessRecentSettlementSnapshot) -> str:
         settlement = recent_settlement.settlement_result
+        record_floor_before_run = recent_settlement.record_floor_before_run
+        current_record_floor = max(record_floor_before_run, settlement.terminated_floor)
         lines = [
             f"结算类型：{_SETTLEMENT_NAME_BY_VALUE.get(settlement.settlement_type, settlement.settlement_type)}",
             f"终止层数：第 {settlement.terminated_floor} 层",
             f"区域：{settlement.current_region.region_name}（{settlement.current_region.start_floor}-{settlement.current_region.end_floor} 层）",
             f"起始层：{cls._format_floor(recent_settlement.selected_start_floor)}",
-            f"本轮推进：{recent_settlement.advanced_floor_count} 层",
+            f"本轮自动推进战斗：{recent_settlement.advanced_floor_count} 场",
+            f"个人纪录：第 {record_floor_before_run} 层 → 第 {current_record_floor} 层",
             f"可重复查看：{'是' if settlement.can_repeat_read else '否'}",
         ]
         return "\n".join(lines)
@@ -351,7 +357,7 @@ class EndlessPanelPresenter:
                 key_order=_STABLE_REWARD_ORDER,
                 name_mapping=_STABLE_REWARD_NAME_BY_KEY,
             ),
-            "未稳收益",
+            "统一掉落进度",
             "- 原值："
             + cls._format_reward_mapping_by_keys(
                 reward_mapping=settlement.pending_rewards.original,
@@ -364,7 +370,7 @@ class EndlessPanelPresenter:
                 key_order=_PENDING_REWARD_ORDER,
                 name_mapping=_PENDING_REWARD_NAME_BY_KEY,
             ),
-            "- 入账："
+            "- 兑现："
             + cls._format_reward_mapping_by_keys(
                 reward_mapping=settlement.pending_rewards.settled,
                 key_order=_PENDING_REWARD_ORDER,
@@ -380,6 +386,7 @@ class EndlessPanelPresenter:
         snapshot: EndlessPanelSnapshot,
         recent_settlement: EndlessRecentSettlementSnapshot,
     ) -> str:
+        del snapshot
         settlement = recent_settlement.settlement_result
         record_floor_before_run = recent_settlement.record_floor_before_run
         current_record_floor = max(record_floor_before_run, settlement.terminated_floor)
@@ -391,19 +398,10 @@ class EndlessPanelPresenter:
             lines.append(f"纪录刷新：抵达第 {settlement.terminated_floor} 层")
         else:
             lines.append("纪录变化：本次未刷新个人纪录")
-        latest_anchor_unlock = recent_settlement.latest_anchor_unlock
-        if latest_anchor_unlock is not None and bool(latest_anchor_unlock.get("unlocked")):
-            lines.append(f"锚点解锁：第 {latest_anchor_unlock.get('anchor_floor')} 层")
-        else:
-            lines.append(
-                f"当前可选最高锚点：第 {snapshot.run_status.anchor_status.highest_unlocked_anchor_floor} 层"
-            )
-        latest_node_result = recent_settlement.latest_node_result
-        if latest_node_result is not None:
-            lines.append(
-                "终局节点："
-                + cls._format_latest_node_result(latest_node_result=latest_node_result)
-            )
+        last_floor_result = recent_settlement.last_floor_result
+        if last_floor_result is not None:
+            lines.append("终局敌阵：" + cls._format_floor_enemy_header(floor_snapshot=last_floor_result))
+            lines.append("终局结果：" + cls._format_floor_result_summary(floor_snapshot=last_floor_result))
         return "\n".join(lines)
 
     @classmethod
@@ -415,55 +413,114 @@ class EndlessPanelPresenter:
 
     @classmethod
     def _build_battle_report_block(cls, *, recent_settlement: EndlessRecentSettlementSnapshot) -> str:
-        latest_node_result = recent_settlement.latest_node_result
-        battle_report_digest = recent_settlement.battle_report_digest
-        if battle_report_digest is None and latest_node_result is None:
-            return "本次结算没有关联的持久化战报摘要。"
-        lines: list[str] = []
-        if latest_node_result is not None:
-            lines.append(
-                "节点结果："
-                + cls._format_latest_node_result(latest_node_result=latest_node_result)
-            )
-        if battle_report_digest is not None:
-            lines.extend(
+        last_floor_result = recent_settlement.last_floor_result
+        if last_floor_result is None:
+            return "本次结算没有关联的终局战斗摘要。"
+        battle_report_digest = last_floor_result.battle_report_digest
+        lines = [cls._format_floor_result_summary(floor_snapshot=last_floor_result)]
+        if battle_report_digest is None:
+            return "\n".join(lines)
+        lines.extend(
+            (
+                f"战报标识：#{battle_report_digest.battle_report_id}",
+                f"聚焦角色：{battle_report_digest.focus_unit_name}",
+                f"战斗结果：{battle_report_digest.result}｜回合数：{battle_report_digest.completed_rounds}",
+                f"终局血蓝：生命 {cls._format_ratio_text(battle_report_digest.final_hp_ratio)}｜灵力 {cls._format_ratio_text(battle_report_digest.final_mp_ratio)}",
                 (
-                    f"战报标识：#{battle_report_digest.battle_report_id}",
-                    f"聚焦角色：{battle_report_digest.focus_unit_name}",
-                    f"战斗结果：{battle_report_digest.result}｜回合数：{battle_report_digest.completed_rounds}",
-                    f"终局血蓝：生命 {cls._format_ratio_text(battle_report_digest.final_hp_ratio)}｜灵力 {cls._format_ratio_text(battle_report_digest.final_mp_ratio)}",
-                    (
-                        "输出承伤："
-                        f"造成 {battle_report_digest.ally_damage_dealt}｜"
-                        f"承受 {battle_report_digest.ally_damage_taken}｜"
-                        f"治疗 {battle_report_digest.ally_healing_done}"
-                    ),
-                    (
-                        "关键触发："
-                        f"命中 {battle_report_digest.successful_hits}｜"
-                        f"暴击 {battle_report_digest.critical_hits}｜"
-                        f"被控跳过 {battle_report_digest.control_skips}"
-                    ),
-                )
+                    "输出承伤："
+                    f"造成 {battle_report_digest.ally_damage_dealt}｜"
+                    f"承受 {battle_report_digest.ally_damage_taken}｜"
+                    f"治疗 {battle_report_digest.ally_healing_done}"
+                ),
+                (
+                    "关键触发："
+                    f"命中 {battle_report_digest.successful_hits}｜"
+                    f"暴击 {battle_report_digest.critical_hits}｜"
+                    f"控场 {battle_report_digest.control_skips}｜"
+                    f"击破 {battle_report_digest.unit_defeated}"
+                ),
             )
+        )
+        if battle_report_digest.action_highlights:
+            lines.append("关键技能：" + "、".join(battle_report_digest.action_highlights))
+        lines.extend(battle_report_digest.round_highlights[:2])
         return "\n".join(lines)
 
     @classmethod
-    def _format_drop_preview(cls, *, latest_drop: Mapping[str, Any]) -> str:
-        reward_mapping = {
-            "equipment_score": _read_int(latest_drop.get("equipment_score")),
-            "artifact_score": _read_int(latest_drop.get("artifact_score")),
-            "dao_pattern_score": _read_int(latest_drop.get("dao_pattern_score")),
-        }
-        prefix = f"第 {_read_int(latest_drop.get('floor'))} 层"
+    def _format_floor_enemy_header(cls, *, floor_snapshot: EndlessFloorPanelSnapshot) -> str:
         return (
-            f"{prefix}｜"
-            + cls._format_reward_mapping_by_keys(
-                reward_mapping=reward_mapping,
-                key_order=_PENDING_REWARD_ORDER,
-                name_mapping=_PENDING_REWARD_NAME_BY_KEY,
-            )
+            f"第 {floor_snapshot.floor} 层｜{floor_snapshot.node_label}｜{floor_snapshot.region_name}｜"
+            f"{floor_snapshot.race_name}·{floor_snapshot.template_name}×{floor_snapshot.enemy_count}"
         )
+
+    @classmethod
+    def _format_enemy_style_line(cls, *, floor_snapshot: EndlessFloorPanelSnapshot) -> str:
+        parts = [f"成长层级：{floor_snapshot.realm_name}·{floor_snapshot.stage_name}"]
+        if floor_snapshot.style_tags:
+            parts.append("标签：" + " / ".join(floor_snapshot.style_tags))
+        profiles = [
+            item
+            for item in (floor_snapshot.race_profile, floor_snapshot.template_profile)
+            if item and item != "-"
+        ]
+        if profiles:
+            parts.append("风格：" + "｜".join(profiles))
+        return "｜".join(parts)
+
+    @staticmethod
+    def _format_enemy_unit_summary(*, floor_snapshot: EndlessFloorPanelSnapshot) -> str:
+        if not floor_snapshot.enemy_units:
+            return "属性摘要：暂缺"
+        parts = [
+            (
+                f"{unit.unit_name} 气血 {unit.max_hp}｜攻力 {unit.attack_power}｜"
+                f"护体 {unit.guard_power}｜迅捷 {unit.speed}"
+            )
+            for unit in floor_snapshot.enemy_units[:2]
+        ]
+        if len(floor_snapshot.enemy_units) > 2:
+            parts.append(f"其余 {len(floor_snapshot.enemy_units) - 2} 名同系敌人")
+        return "属性摘要：" + "；".join(parts)
+
+    @classmethod
+    def _format_floor_result_summary(cls, *, floor_snapshot: EndlessFloorPanelSnapshot) -> str:
+        parts = [
+            f"第 {floor_snapshot.floor} 层",
+            floor_snapshot.node_label,
+            f"{floor_snapshot.race_name}·{floor_snapshot.template_name}×{floor_snapshot.enemy_count}",
+        ]
+        if floor_snapshot.battle_outcome_label is not None:
+            parts.append(f"结果 {floor_snapshot.battle_outcome_label}")
+        if floor_snapshot.current_hp_ratio is not None or floor_snapshot.current_mp_ratio is not None:
+            parts.append(
+                f"血蓝 {cls._format_ratio_text(floor_snapshot.current_hp_ratio)}"
+                f"/{cls._format_ratio_text(floor_snapshot.current_mp_ratio)}"
+            )
+        if floor_snapshot.cumulative_drop_progress is not None:
+            parts.append(
+                f"进度 {floor_snapshot.cumulative_drop_progress}（可结算 {max(0, floor_snapshot.claimable_drop_count or 0)} 次）"
+            )
+        return "｜".join(parts)
+
+    @staticmethod
+    def _format_floor_process_lines(
+        *,
+        floor_snapshot: EndlessFloorPanelSnapshot,
+        max_round_lines: int,
+    ) -> tuple[str, ...]:
+        digest = floor_snapshot.battle_report_digest
+        if digest is None:
+            return ()
+        lines: list[str] = []
+        if digest.action_highlights:
+            lines.append("关键技能：" + "、".join(digest.action_highlights[:3]))
+        if digest.round_highlights:
+            lines.extend(digest.round_highlights[:max_round_lines])
+        if not lines:
+            lines.append(
+                f"战斗信号：命中 {digest.successful_hits}｜暴击 {digest.critical_hits}｜击破 {digest.unit_defeated}"
+            )
+        return tuple(lines)
 
     @classmethod
     def _format_latest_node_result(cls, *, latest_node_result: Mapping[str, Any]) -> str:
@@ -499,24 +556,14 @@ class EndlessPanelPresenter:
                 lines.append(f"稳定资源包：{formatted}")
                 continue
             if entry_type == "pending_reward_bundle":
-                highlight_mapping = cls._extract_high_value_pending_reward_mapping(settled_mapping=settled_mapping)
                 if public_mode:
-                    if highlight_mapping:
-                        lines.append(
-                            "高价值掉落："
-                            + cls._format_reward_mapping_by_keys(
-                                reward_mapping=highlight_mapping,
-                                key_order=_PENDING_REWARD_ORDER,
-                                name_mapping=_PENDING_REWARD_NAME_BY_KEY,
-                            )
-                        )
                     continue
                 formatted = cls._format_reward_mapping_by_keys(
                     reward_mapping=settled_mapping,
                     key_order=_PENDING_REWARD_ORDER,
                     name_mapping=_PENDING_REWARD_NAME_BY_KEY,
                 )
-                lines.append(f"未稳掉落：{formatted}")
+                lines.append(f"统一掉落进度：{formatted}")
                 continue
             if entry_type in {_ENDLESS_EQUIPMENT_ENTRY_TYPE, _ENDLESS_ARTIFACT_ENTRY_TYPE}:
                 line = cls._format_instance_drop_entry(entry=entry, public_mode=public_mode)
@@ -535,19 +582,22 @@ class EndlessPanelPresenter:
         if not display_name:
             return None
         is_artifact = bool(entry.get("is_artifact"))
-        source_score = max(0, _read_int(entry.get("source_score")))
+        source_progress = max(0, _read_int(entry.get("source_progress")))
+        quality_id = str(entry.get("quality_id") or "").strip()
+        quality_name = str(entry.get("quality_name") or "").strip()
         if public_mode:
-            if is_artifact:
-                if source_score <= 0:
-                    return None
-            elif source_score < _HIGH_VALUE_EQUIPMENT_SCORE_THRESHOLD:
+            if source_progress <= 0:
                 return None
-            quality_name = str(entry.get("quality_name") or "").strip()
+            if (
+                not is_artifact
+                and quality_id not in _PUBLIC_HIGHLIGHT_EQUIPMENT_QUALITY_IDS
+                and quality_name not in {"史诗", "传说"}
+            ):
+                return None
             if not quality_name:
                 return ("法宝实例：" if is_artifact else "装备实例：") + display_name
             return ("法宝实例：" if is_artifact else "装备实例：") + f"{display_name}｜{quality_name}"
         parts = [display_name]
-        quality_name = str(entry.get("quality_name") or "").strip()
         rank_name = str(entry.get("rank_name") or "").strip()
         slot_name = str(entry.get("slot_name") or "").strip()
         resonance_name = str(entry.get("resonance_name") or "").strip()
@@ -583,17 +633,8 @@ class EndlessPanelPresenter:
 
     @staticmethod
     def _extract_high_value_pending_reward_mapping(*, settled_mapping: Mapping[str, int]) -> dict[str, int]:
-        equipment_score = _read_int(settled_mapping.get("equipment_score"))
-        artifact_score = _read_int(settled_mapping.get("artifact_score"))
-        dao_pattern_score = _read_int(settled_mapping.get("dao_pattern_score"))
-        highlight_mapping: dict[str, int] = {}
-        if equipment_score >= _HIGH_VALUE_EQUIPMENT_SCORE_THRESHOLD:
-            highlight_mapping["equipment_score"] = equipment_score
-        if artifact_score > 0:
-            highlight_mapping["artifact_score"] = artifact_score
-        if dao_pattern_score >= _HIGH_VALUE_DAO_PATTERN_SCORE_THRESHOLD:
-            highlight_mapping["dao_pattern_score"] = dao_pattern_score
-        return highlight_mapping
+        del settled_mapping
+        return {}
 
     @staticmethod
     def _format_reward_mapping(*, reward_ledger_to_mapping: Mapping[str, int] | None) -> str:
@@ -676,15 +717,12 @@ class EndlessPublicSettlementPresenter:
             lines.append(
                 f"个人纪录刷新：第 {settlement.terminated_floor} 层（原纪录第 {recent_settlement.record_floor_before_run} 层）"
             )
-        latest_anchor_unlock = recent_settlement.latest_anchor_unlock
-        if latest_anchor_unlock is not None and bool(latest_anchor_unlock.get("unlocked")):
-            lines.append(f"首次解锁第 {latest_anchor_unlock.get('anchor_floor')} 层锚点")
-        high_value_drop_lines = EndlessPanelPresenter._extract_final_drop_lines(
+        public_drop_lines = EndlessPanelPresenter._extract_final_drop_lines(
             settlement=settlement,
             public_mode=True,
         )
-        if high_value_drop_lines:
-            lines.append("出现高价值掉落")
+        if public_drop_lines:
+            lines.append("本轮出现主要掉落")
         return tuple(lines)
 
     @staticmethod
@@ -696,7 +734,7 @@ class EndlessPublicSettlementPresenter:
             f"区域：{settlement.current_region.region_name}",
         ]
         if recent_settlement.advanced_floor_count > 0:
-            lines.append(f"本轮推进：{recent_settlement.advanced_floor_count} 层")
+            lines.append(f"本轮自动推进战斗：{recent_settlement.advanced_floor_count} 场")
         return "\n".join(lines)
 
     @staticmethod
@@ -706,17 +744,10 @@ class EndlessPublicSettlementPresenter:
             key_order=_STABLE_REWARD_ORDER,
             name_mapping=_STABLE_REWARD_NAME_BY_KEY,
         )
-        pending_mapping = EndlessPanelPresenter._extract_high_value_pending_reward_mapping(
-            settled_mapping=settlement.pending_rewards.settled,
-        )
-        if not pending_mapping:
+        drop_progress = max(0, _read_int(settlement.pending_rewards.settled.get("drop_progress")))
+        if drop_progress <= 0:
             return f"稳定入账：{stable_summary}"
-        pending_summary = EndlessPanelPresenter._format_reward_mapping_by_keys(
-            reward_mapping=pending_mapping,
-            key_order=_PENDING_REWARD_ORDER,
-            name_mapping=_PENDING_REWARD_NAME_BY_KEY,
-        )
-        return f"稳定入账：{stable_summary}\n高价值保留：{pending_summary}"
+        return f"稳定入账：{stable_summary}\n统一掉落进度兑现：{drop_progress}"
 
 
 class EndlessStartFloorSelect(discord.ui.Select):
@@ -796,10 +827,13 @@ class EndlessPanelView(discord.ui.View):
 
     def _sync_component_state(self) -> None:
         run_status = self.snapshot.run_status
+        presentation = self.snapshot.run_presentation
         self.start_run.disabled = run_status.has_active_run
-        self.advance_next_floor.disabled = run_status.status != _STATUS_RUNNING
-        self.settle_retreat.disabled = run_status.status != _STATUS_RUNNING
-        self.settle_defeat.disabled = run_status.status != _STATUS_PENDING_DEFEAT_SETTLEMENT
+        self.advance_next_floor.disabled = not presentation.can_continue or run_status.status != _STATUS_RUNNING
+        self.settle_retreat.disabled = not presentation.can_settle_retreat
+        self.settle_defeat.disabled = not presentation.can_settle_defeat
+        self._set_item_visibility(self.settle_retreat, visible=presentation.can_settle_retreat)
+        self._set_item_visibility(self.settle_defeat, visible=presentation.can_settle_defeat)
         self.view_recent_settlement.disabled = (
             self.snapshot.recent_settlement is None or self.display_mode is EndlessDisplayMode.SETTLEMENT
         )
@@ -808,7 +842,15 @@ class EndlessPanelView(discord.ui.View):
             if isinstance(item, EndlessStartFloorSelect):
                 item.disabled = run_status.has_active_run
 
-    @discord.ui.button(label="开始运行", style=discord.ButtonStyle.success, row=0)
+    def _set_item_visibility(self, item: discord.ui.Item[Any], *, visible: bool) -> None:
+        if visible:
+            if item not in self.children:
+                self.add_item(item)
+            return
+        if item in self.children:
+            self.remove_item(item)
+
+    @discord.ui.button(label="开始挑战", style=discord.ButtonStyle.success, row=0)
     async def start_run(  # type: ignore[override]
         self,
         interaction: discord.Interaction,
@@ -822,7 +864,7 @@ class EndlessPanelView(discord.ui.View):
             selected_start_floor=self.selected_start_floor,
         )
 
-    @discord.ui.button(label="推进一层", style=discord.ButtonStyle.primary, row=0)
+    @discord.ui.button(label="继续挑战", style=discord.ButtonStyle.primary, row=0)
     async def advance_next_floor(  # type: ignore[override]
         self,
         interaction: discord.Interaction,
@@ -837,7 +879,7 @@ class EndlessPanelView(discord.ui.View):
             display_mode=self.display_mode,
         )
 
-    @discord.ui.button(label="主动撤离", style=discord.ButtonStyle.danger, row=0)
+    @discord.ui.button(label="结算撤离", style=discord.ButtonStyle.danger, row=0)
     async def settle_retreat(  # type: ignore[override]
         self,
         interaction: discord.Interaction,
@@ -996,17 +1038,10 @@ class EndlessPanelController:
         except (EndlessPanelQueryServiceError, EndlessDungeonServiceError) as exc:
             await self.responder.send_private_error(interaction, message=str(exc))
             return
-        current_region = run_status.current_region
-        action_lines = [
-            f"起始层：第 {selected_start_floor} 层",
-            f"进入层数：第 {run_status.current_floor} 层",
-        ]
-        if current_region is not None:
-            action_lines.append(f"当前区域：{current_region.region_name}")
-        action_lines.append(
-            f"下一锚点：{EndlessPanelPresenter._format_floor(run_status.anchor_status.next_anchor_floor)}"
+        action_note = EndlessActionNote(
+            title="挑战已开始",
+            lines=self._build_start_lines(snapshot=snapshot, selected_start_floor=selected_start_floor),
         )
-        action_note = EndlessActionNote(title="运行已开始", lines=tuple(action_lines))
         await self._edit_panel(
             interaction,
             snapshot=snapshot,
@@ -1025,16 +1060,16 @@ class EndlessPanelController:
         selected_start_floor: int,
         display_mode: EndlessDisplayMode,
     ) -> None:
-        """推进当前无尽运行到下一层或待结算态。"""
+        """推进当前无尽运行到下一处决策点或待结算态。"""
         del display_mode
         try:
-            result, snapshot = self._advance_next_floor(character_id=character_id)
+            advance_presentation, snapshot = self._advance_next_floor(character_id=character_id)
         except (EndlessPanelQueryServiceError, EndlessDungeonServiceError) as exc:
             await self.responder.send_private_error(interaction, message=str(exc))
             return
         action_note = EndlessActionNote(
-            title="本层推进结果",
-            lines=self._build_advance_lines(result=result),
+            title="本次自动推进",
+            lines=self._build_advance_lines(advance_presentation=advance_presentation),
         )
         await self._edit_panel(
             interaction,
@@ -1171,12 +1206,16 @@ class EndlessPanelController:
             snapshot = services.endless_panel_query_service.get_panel_snapshot(character_id=character_id)
             return run_status, snapshot
 
-    def _advance_next_floor(self, *, character_id: int) -> tuple[EndlessFloorAdvanceResult, EndlessPanelSnapshot]:
+    def _advance_next_floor(self, *, character_id: int) -> tuple[EndlessAdvancePresentation, EndlessPanelSnapshot]:
         with session_scope(self._session_factory) as session:
             services: EndlessPanelServiceBundle = self._service_bundle_factory(session)
             result = services.endless_dungeon_service.advance_next_floor(character_id=character_id)
+            advance_presentation = services.endless_panel_query_service.build_advance_presentation(
+                character_id=character_id,
+                result=result,
+            )
             snapshot = services.endless_panel_query_service.get_panel_snapshot(character_id=character_id)
-            return result, snapshot
+            return advance_presentation, snapshot
 
     def _settle_retreat(self, *, character_id: int) -> tuple[EndlessRunSettlementResult, EndlessPanelSnapshot]:
         with session_scope(self._session_factory) as session:
@@ -1308,26 +1347,47 @@ class EndlessPanelController:
             return
 
     @staticmethod
-    def _build_advance_lines(*, result: EndlessFloorAdvanceResult) -> tuple[str, ...]:
-        lines = [
-            f"本层：第 {result.cleared_floor} 层",
-            f"结果：{result.battle_outcome}",
-        ]
-        if result.next_floor is not None:
-            lines.append(f"已推进至：第 {result.next_floor} 层")
-        else:
-            lines.append("当前进入待战败结算态。")
-        if result.battle_report_id is not None:
-            lines.append(f"战报标识：#{result.battle_report_id}")
-        if bool(result.anchor_unlock_result.get("unlocked")):
-            lines.append(f"锚点解锁：第 {result.anchor_unlock_result.get('anchor_floor')} 层")
-        latest_node_result = result.latest_node_result
-        if latest_node_result:
-            lines.append(
-                "终局状态："
-                f"生命 {EndlessPanelPresenter._format_ratio_text(latest_node_result.get('current_hp_ratio'))}｜"
-                f"灵力 {EndlessPanelPresenter._format_ratio_text(latest_node_result.get('current_mp_ratio'))}"
+    def _build_start_lines(*, snapshot: EndlessPanelSnapshot, selected_start_floor: int) -> tuple[str, ...]:
+        lines = [f"起始层：第 {selected_start_floor} 层"]
+        preview = snapshot.run_presentation.upcoming_floor_preview
+        if preview is None:
+            if snapshot.run_status.current_floor is not None:
+                lines.append(f"进入层数：第 {snapshot.run_status.current_floor} 层")
+            return tuple(lines)
+        lines.extend(
+            (
+                f"进入层数：第 {preview.floor} 层",
+                EndlessPanelPresenter._format_floor_enemy_header(floor_snapshot=preview),
+                EndlessPanelPresenter._format_enemy_style_line(floor_snapshot=preview),
+                EndlessPanelPresenter._format_enemy_unit_summary(floor_snapshot=preview),
+                "点击“继续挑战”后，将自动推进至下一处决策点或战败。",
             )
+        )
+        return tuple(lines)
+
+    @staticmethod
+    def _build_advance_lines(*, advance_presentation: EndlessAdvancePresentation) -> tuple[str, ...]:
+        floor_results = advance_presentation.floor_results
+        if not floor_results:
+            return ("本次自动推进未产生可展示结果。",)
+        start_floor = floor_results[0].floor
+        end_floor = floor_results[-1].floor
+        lines = [
+            f"自动推进：第 {start_floor} 层" if start_floor == end_floor else f"自动推进：第 {start_floor}-{end_floor} 层",
+            f"停止原因：{advance_presentation.stopped_reason_label}",
+            f"累计统一掉落进度：{advance_presentation.pending_drop_progress}｜可结算掉落 {advance_presentation.claimable_drop_count} 次",
+        ]
+        for floor_snapshot in floor_results:
+            lines.append("• " + EndlessPanelPresenter._format_floor_result_summary(floor_snapshot=floor_snapshot))
+            process_lines = EndlessPanelPresenter._format_floor_process_lines(
+                floor_snapshot=floor_snapshot,
+                max_round_lines=1,
+            )
+            lines.extend(f"  {line}" for line in process_lines)
+        if advance_presentation.can_settle_retreat and advance_presentation.decision_floor is not None:
+            lines.append(f"已抵达第 {advance_presentation.decision_floor} 层决策点，可继续挑战或结算撤离。")
+        else:
+            lines.append("本次推进已战败，需先执行战败结算。")
         return tuple(lines)
 
     @staticmethod
@@ -1341,12 +1401,7 @@ class EndlessPanelController:
                 key_order=_STABLE_REWARD_ORDER,
                 name_mapping=_STABLE_REWARD_NAME_BY_KEY,
             ),
-            "待确认保留："
-            + EndlessPanelPresenter._format_reward_mapping_by_keys(
-                reward_mapping=settlement.pending_rewards.settled,
-                key_order=_PENDING_REWARD_ORDER,
-                name_mapping=_PENDING_REWARD_NAME_BY_KEY,
-            ),
+            f"统一掉落进度兑现：{max(0, _read_int(settlement.pending_rewards.settled.get('drop_progress')))}",
         )
 
 

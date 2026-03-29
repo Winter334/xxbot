@@ -144,5 +144,14 @@ def test_load_static_config_matches_skill_equipment_enemy_breakthrough_and_endle
         "shade",
         "thunder",
     )
-    assert config.endless_dungeon.get_node_reward("anchor_boss") is not None
-    assert config.endless_dungeon.get_node_reward("anchor_boss").pending_artifact_score == 18
+    normal_reward = config.endless_dungeon.get_node_reward("normal")
+    elite_reward = config.endless_dungeon.get_node_reward("elite")
+    anchor_reward = config.endless_dungeon.get_node_reward("anchor_boss")
+
+    assert normal_reward is not None
+    assert elite_reward is not None
+    assert anchor_reward is not None
+    assert normal_reward.pending_drop_progress == 1
+    assert elite_reward.pending_drop_progress == 12
+    assert anchor_reward.pending_drop_progress == 10
+    assert normal_reward.pending_drop_progress * 8 + elite_reward.pending_drop_progress == 20

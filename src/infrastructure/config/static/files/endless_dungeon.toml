@@ -16,9 +16,6 @@ favored_template_bonus = "0.20"
 stable_cultivation_per_region = 20
 stable_insight_per_region = 5
 stable_refining_essence_per_region = 2
-pending_equipment_per_region = 6
-pending_artifact_per_region = 3
-pending_dao_pattern_per_region = 2
 failure_pending_keep_ratio = "0.00"
 
 [[regions]]
@@ -63,9 +60,7 @@ order = 1
 stable_cultivation = 80
 stable_insight = 16
 stable_refining_essence = 8
-pending_equipment_score = 0
-pending_artifact_score = 0
-pending_dao_pattern_score = 0
+pending_drop_progress = 1
 
 [[node_rewards]]
 node_type = "elite"
@@ -74,9 +69,7 @@ order = 2
 stable_cultivation = 140
 stable_insight = 30
 stable_refining_essence = 14
-pending_equipment_score = 30
-pending_artifact_score = 0
-pending_dao_pattern_score = 6
+pending_drop_progress = 12
 
 [[node_rewards]]
 node_type = "anchor_boss"
@@ -85,6 +78,4 @@ order = 3
 stable_cultivation = 220
 stable_insight = 48
 stable_refining_essence = 24
-pending_equipment_score = 80
-pending_artifact_score = 18
-pending_dao_pattern_score = 16
+pending_drop_progress = 10

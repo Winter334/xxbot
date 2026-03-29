@@ -363,6 +363,7 @@ def build_application_service_bundle(
         state_repository=state_repository,
         battle_record_repository=battle_record_repository,
         naming_batch_service=naming_batch_service,
+        static_config=static_config,
     )
     breakthrough_reward_service = BreakthroughRewardService(
         character_repository=character_repository,

@@ -149,8 +149,7 @@ class EndlessDungeonProgression:
         """按层数计算稳定收益与未稳收益。"""
         normalized_floor = self._normalize_floor(floor)
         region_snapshot = self.resolve_region(normalized_floor)
-        node_type = self.resolve_node_type(normalized_floor)
-        node_reward = self._require_node_reward(node_type.value)
+        node_reward = self._require_node_reward(self.resolve_node_type(normalized_floor).value)
         region_bonus_index = region_snapshot.region_index - 1
         scaling = self._config.reward_scaling
         return EndlessRewardBreakdown(
@@ -168,18 +167,7 @@ class EndlessDungeonProgression:
                 node_reward.stable_refining_essence
                 + scaling.stable_refining_essence_per_region * region_bonus_index
             ),
-            pending_equipment_score=(
-                node_reward.pending_equipment_score
-                + scaling.pending_equipment_per_region * region_bonus_index
-            ),
-            pending_artifact_score=(
-                node_reward.pending_artifact_score
-                + scaling.pending_artifact_per_region * region_bonus_index
-            ),
-            pending_dao_pattern_score=(
-                node_reward.pending_dao_pattern_score
-                + scaling.pending_dao_pattern_per_region * region_bonus_index
-            ),
+            pending_drop_progress=node_reward.pending_drop_progress,
         )
 
     def settle_failure_pending_rewards(self, rewards: EndlessRewardBreakdown) -> EndlessRewardBreakdown:
@@ -189,9 +177,7 @@ class EndlessDungeonProgression:
             stable_cultivation=rewards.stable_cultivation,
             stable_insight=rewards.stable_insight,
             stable_refining_essence=rewards.stable_refining_essence,
-            pending_equipment_score=int(rewards.pending_equipment_score * keep_ratio),
-            pending_artifact_score=int(rewards.pending_artifact_score * keep_ratio),
-            pending_dao_pattern_score=int(rewards.pending_dao_pattern_score * keep_ratio),
+            pending_drop_progress=int(rewards.pending_drop_progress * keep_ratio),
         )
 
     def settle_retreat_rewards(self, rewards: EndlessRewardBreakdown) -> EndlessRewardBreakdown:

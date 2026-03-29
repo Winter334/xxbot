@@ -40,14 +40,11 @@ class EndlessEncounterConfig(StaticConfigModel):
 
 
 class EndlessRewardScalingConfig(StaticConfigModel):
-    """无尽副本收益随区域递增的规则。"""
+    """无尽副本稳定收益随区域递增的规则。"""
 
     stable_cultivation_per_region: PositiveInt
     stable_insight_per_region: PositiveInt
     stable_refining_essence_per_region: PositiveInt
-    pending_equipment_per_region: PositiveInt
-    pending_artifact_per_region: PositiveInt
-    pending_dao_pattern_per_region: PositiveInt
     failure_pending_keep_ratio: PercentageDecimal
 
 
@@ -66,9 +63,7 @@ class EndlessNodeRewardDefinition(OrderedConfigItem):
     stable_cultivation: PositiveInt
     stable_insight: PositiveInt
     stable_refining_essence: PositiveInt
-    pending_equipment_score: NonNegativeInt
-    pending_artifact_score: NonNegativeInt
-    pending_dao_pattern_score: NonNegativeInt
+    pending_drop_progress: NonNegativeInt
 
 
 class EndlessDungeonConfig(VersionedSectionConfig):
@@ -230,12 +225,27 @@ class EndlessDungeonConfig(VersionedSectionConfig):
                 identifier="anchor_boss",
                 reason="锚点首领的稳定修为收益必须高于精英节点",
             )
-        if anchor_reward.pending_equipment_score < elite_reward.pending_equipment_score:
+        if elite_reward.pending_drop_progress < normal_reward.pending_drop_progress:
             collector.add(
                 filename=filename,
-                config_path="node_rewards[].pending_equipment_score",
+                config_path="node_rewards[].pending_drop_progress",
+                identifier="elite",
+                reason="精英节点掉落进度不得低于普通节点",
+            )
+        if anchor_reward.pending_drop_progress != 10:
+            collector.add(
+                filename=filename,
+                config_path="node_rewards[].pending_drop_progress",
                 identifier="anchor_boss",
-                reason="锚点首领的未稳装备收益不得低于精英节点",
+                reason="第 10 层首领的统一掉落进度必须固定为 10",
+            )
+        non_boss_cycle_progress = normal_reward.pending_drop_progress * 8 + elite_reward.pending_drop_progress
+        if non_boss_cycle_progress != 20:
+            collector.add(
+                filename=filename,
+                config_path="node_rewards[].pending_drop_progress",
+                identifier="cycle_non_boss_progress",
+                reason="每个 10 层循环中，第 1-9 层的统一掉落进度总和必须为 20",
             )
 
 

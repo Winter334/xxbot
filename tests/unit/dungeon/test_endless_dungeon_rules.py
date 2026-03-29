@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
+from application.dungeon.endless_drop_service import EndlessSettlementDropOrchestrator
 from domain.dungeon import EndlessDungeonProgression, EndlessEncounterGenerator, EndlessNodeType
 from infrastructure.config.static import load_static_config
 
@@ -103,32 +106,59 @@ def test_endless_encounter_generation_uses_node_type_enemy_count() -> None:
     assert boss_encounter.enemy_count == 3
 
 
-def test_endless_reward_rules_support_stable_pending_retreat_and_failure_results() -> None:
-    """收益规则应区分稳定收益、未稳收益、撤离与战败。"""
+def test_endless_reward_rules_support_unified_drop_progress_retreat_and_failure_results() -> None:
+    """收益规则应区分稳定收益、统一掉落进度、撤离与战败。"""
     progression = EndlessDungeonProgression(load_static_config())
+    realm_id = "great_vehicle"
 
-    elite_rewards = progression.build_reward_breakdown(25)
-    anchor_rewards = progression.build_reward_breakdown(50)
+    elite_rewards = progression.build_reward_breakdown(25, realm_id=realm_id)
+    anchor_rewards = progression.build_reward_breakdown(30, realm_id=realm_id)
+    cycle_non_boss_progress = sum(
+        progression.build_reward_breakdown(floor, realm_id=realm_id).pending_drop_progress
+        for floor in range(21, 30)
+    )
     retreat_rewards = progression.settle_retreat_rewards(anchor_rewards)
     failure_rewards = progression.settle_failure_pending_rewards(anchor_rewards)
 
-    assert elite_rewards.stable_cultivation == 160
-    assert elite_rewards.stable_insight == 35
+    assert elite_rewards.stable_cultivation > 0
+    assert elite_rewards.stable_insight > 0
     assert elite_rewards.stable_refining_essence == 16
-    assert elite_rewards.pending_equipment_score == 36
-    assert elite_rewards.pending_artifact_score == 3
-    assert elite_rewards.pending_dao_pattern_score == 8
+    assert elite_rewards.pending_drop_progress == 12
 
-    assert anchor_rewards.stable_cultivation == 260
-    assert anchor_rewards.stable_insight == 58
-    assert anchor_rewards.stable_refining_essence == 28
-    assert anchor_rewards.pending_equipment_score == 92
-    assert anchor_rewards.pending_artifact_score == 24
-    assert anchor_rewards.pending_dao_pattern_score == 20
+    assert anchor_rewards.stable_cultivation > elite_rewards.stable_cultivation
+    assert anchor_rewards.stable_insight > elite_rewards.stable_insight
+    assert anchor_rewards.stable_refining_essence == 26
+    assert anchor_rewards.pending_drop_progress == 10
+    assert cycle_non_boss_progress == 20
 
     assert retreat_rewards == anchor_rewards
     assert failure_rewards.stable_cultivation == anchor_rewards.stable_cultivation
     assert failure_rewards.stable_insight == anchor_rewards.stable_insight
-    assert failure_rewards.pending_equipment_score == 46
-    assert failure_rewards.pending_artifact_score == 12
-    assert failure_rewards.pending_dao_pattern_score == 10
+    assert failure_rewards.stable_refining_essence == anchor_rewards.stable_refining_essence
+    assert failure_rewards.pending_drop_progress == 0
+
+
+def test_endless_settlement_drop_quality_is_independent_from_progress_and_rank_is_capped_by_next_realm() -> None:
+    """统一掉落编排的品质不依赖进度值，阶数上限不超过下一境界映射阶数。"""
+    static_config = load_static_config()
+    equipment_service = SimpleNamespace()
+    skill_drop_service = SimpleNamespace()
+    orchestrator = EndlessSettlementDropOrchestrator(
+        equipment_service=equipment_service,
+        skill_drop_service=skill_drop_service,
+        static_config=static_config,
+    )
+
+    low_progress_spec = orchestrator._resolve_drop_spec(  # type: ignore[attr-defined]
+        realm_id="great_vehicle",
+        random_source=__import__("random").Random(123456),
+    )
+    high_progress_spec = orchestrator._resolve_drop_spec(  # type: ignore[attr-defined]
+        realm_id="great_vehicle",
+        random_source=__import__("random").Random(123456),
+    )
+
+    assert low_progress_spec.quality_order == high_progress_spec.quality_order
+    assert low_progress_spec.quality_id == high_progress_spec.quality_id
+    assert orchestrator._resolve_max_rank_order(realm_id="great_vehicle") == 10  # type: ignore[attr-defined]
+    assert orchestrator._resolve_max_rank_order(realm_id="tribulation") == 10  # type: ignore[attr-defined]

@@ -104,11 +104,12 @@ class SkillDropService:
         self,
         *,
         character_id: int,
-        floor: int,
+        rank_id: str,
+        quality_id: str,
         seed: int | None = None,
         source_ref: str,
     ) -> SkillDropGenerationResult:
-        """为无尽副本最终结算生成一件功法掉落。"""
+        """为无尽副本最终结算生成功法掉落，阶数与品质由上层统一判定。"""
         self._require_character(character_id)
         random_source = random.Random(seed)
         skill_type = self._weighted_pick(
@@ -125,11 +126,6 @@ class SkillDropService:
         lineage_id = self._pick_lineage_id(
             character_id=character_id,
             pool_id=pool_id,
-            random_source=random_source,
-        )
-        rank_id = self._resolve_rank_id(floor=floor, random_source=random_source)
-        quality_id = self._weighted_pick(
-            choices=_QUALITY_WEIGHT_BY_ID,
             random_source=random_source,
         )
         generated_item = self._skill_runtime_support.generate_skill_item(
@@ -175,12 +171,6 @@ class SkillDropService:
             choices=tuple((entry.lineage_id, entry.weight) for entry in candidate_entries),
             random_source=random_source,
         )
-
-    def _resolve_rank_id(self, *, floor: int, random_source: random.Random) -> str:
-        base_order = min(len(self._ordered_ranks), max(1, ((max(1, floor) - 1) // 10) + 1))
-        offset = self._weighted_pick(choices=_RANK_OFFSET_WEIGHT_PAIRS, random_source=random_source)
-        resolved_order = max(1, min(len(self._ordered_ranks), base_order + int(offset)))
-        return self._ordered_ranks[resolved_order - 1].rank_id
 
     @staticmethod
     def _weighted_pick(*, choices, random_source: random.Random):
