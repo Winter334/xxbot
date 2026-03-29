@@ -16,6 +16,7 @@ from infrastructure.discord.character_panel import CharacterPanelController
 from infrastructure.discord.cultivation_panel import CultivationPanelController
 from infrastructure.discord.endless_panel import EndlessPanelController
 from infrastructure.discord.equipment_panel import EquipmentPanelController
+from infrastructure.discord.forge_panel import ForgePanelController
 from infrastructure.discord.leaderboard_panel import LeaderboardPanelController
 from infrastructure.discord.pvp_panel import PvpPanelController
 from infrastructure.discord.recovery_panel import RecoveryPanelController
@@ -37,6 +38,7 @@ class XianBotClient(discord.Client):
         endless_panel_controller: EndlessPanelController,
         breakthrough_panel_controller: BreakthroughPanelController,
         backpack_panel_controller: BackpackPanelController,
+        forge_panel_controller: ForgePanelController,
         equipment_panel_controller: EquipmentPanelController,
         recovery_panel_controller: RecoveryPanelController,
         pvp_panel_controller: PvpPanelController,
@@ -54,6 +56,7 @@ class XianBotClient(discord.Client):
         self.endless_panel_controller = endless_panel_controller
         self.breakthrough_panel_controller = breakthrough_panel_controller
         self.backpack_panel_controller = backpack_panel_controller
+        self.forge_panel_controller = forge_panel_controller
         self.equipment_panel_controller = equipment_panel_controller
         self.recovery_panel_controller = recovery_panel_controller
         self.pvp_panel_controller = pvp_panel_controller
@@ -113,6 +116,10 @@ class XianBotClient(discord.Client):
         @xian_group.command(name="背包", description="打开背包私有面板")
         async def xian_backpack(interaction: discord.Interaction) -> None:
             await self.backpack_panel_controller.open_panel_by_discord_user_id(interaction)
+
+        @xian_group.command(name="锻造", description="打开锻造私有面板")
+        async def xian_forge(interaction: discord.Interaction) -> None:
+            await self.forge_panel_controller.open_panel_by_discord_user_id(interaction)
 
         @xian_group.command(name="装备", description="兼容旧入口，打开背包私有面板")
         async def xian_equipment(interaction: discord.Interaction) -> None:

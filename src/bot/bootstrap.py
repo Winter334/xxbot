@@ -20,6 +20,7 @@ from application.dungeon import EndlessDungeonService
 from application.dungeon.endless_panel_service import EndlessPanelQueryService
 from application.equipment.backpack_query_service import BackpackPanelQueryService
 from application.equipment.equipment_service import EquipmentService
+from application.equipment.forge_query_service import ForgePanelQueryService
 from application.equipment.panel_query_service import EquipmentPanelQueryService
 from application.naming import HttpAiItemNamingProvider, ItemNamingBatchService
 from application.healing import HealingPanelService
@@ -59,6 +60,7 @@ from infrastructure.discord.client import XianBotClient
 from infrastructure.discord.cultivation_panel import CultivationPanelController
 from infrastructure.discord.endless_panel import EndlessPanelController
 from infrastructure.discord.equipment_panel import EquipmentPanelController
+from infrastructure.discord.forge_panel import ForgePanelController
 from infrastructure.discord.leaderboard_panel import LeaderboardPanelController
 from infrastructure.discord.pvp_panel import PvpPanelController
 from infrastructure.discord.recovery_panel import RecoveryPanelController
@@ -92,6 +94,7 @@ class ApplicationServiceBundle:
     equipment_service: EquipmentService
     equipment_panel_query_service: EquipmentPanelQueryService
     backpack_panel_query_service: BackpackPanelQueryService
+    forge_panel_query_service: ForgePanelQueryService
     healing_panel_service: HealingPanelService
 
 
@@ -145,6 +148,13 @@ def build_client(
             static_config=static_config,
         ),
     )
+    forge_panel_controller = ForgePanelController(
+        session_factory=session_factory,
+        service_bundle_factory=lambda session: build_application_service_bundle(
+            session=session,
+            static_config=static_config,
+        ),
+    )
     endless_panel_controller = EndlessPanelController(
         session_factory=session_factory,
         service_bundle_factory=lambda session: build_application_service_bundle(
@@ -184,6 +194,7 @@ def build_client(
         endless_panel_controller=endless_panel_controller,
         breakthrough_panel_controller=breakthrough_panel_controller,
         backpack_panel_controller=backpack_panel_controller,
+        forge_panel_controller=forge_panel_controller,
         recovery_panel_controller=recovery_panel_controller,
         pvp_panel_controller=pvp_panel_controller,
         leaderboard_panel_controller=leaderboard_panel_controller,
@@ -204,6 +215,7 @@ def build_client(
         endless_panel_controller=endless_panel_controller,
         breakthrough_panel_controller=breakthrough_panel_controller,
         backpack_panel_controller=backpack_panel_controller,
+        forge_panel_controller=forge_panel_controller,
         equipment_panel_controller=equipment_panel_controller,
         recovery_panel_controller=recovery_panel_controller,
         pvp_panel_controller=pvp_panel_controller,
@@ -401,6 +413,12 @@ def build_application_service_bundle(
         profile_panel_query_service=profile_panel_query_service,
         static_config=static_config,
     )
+    forge_panel_query_service = ForgePanelQueryService(
+        equipment_service=equipment_service,
+        inventory_repository=inventory_repository,
+        profile_panel_query_service=profile_panel_query_service,
+        static_config=static_config,
+    )
     healing_panel_service = HealingPanelService(
         character_repository=character_repository,
         state_repository=state_repository,
@@ -441,6 +459,7 @@ def build_application_service_bundle(
         equipment_service=equipment_service,
         equipment_panel_query_service=equipment_panel_query_service,
         backpack_panel_query_service=backpack_panel_query_service,
+        forge_panel_query_service=forge_panel_query_service,
         healing_panel_service=healing_panel_service,
     )
 

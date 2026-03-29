@@ -532,6 +532,18 @@ class CharacterHomePanelView(discord.ui.View):
             character_id=self.character_id,
         )
 
+    @discord.ui.button(label="锻造", style=discord.ButtonStyle.secondary, row=1)
+    async def open_forge(  # type: ignore[override]
+        self,
+        interaction: discord.Interaction,
+        button: discord.ui.Button,
+    ) -> None:
+        del button
+        await self._controller.open_forge_panel(
+            interaction,
+            character_id=self.character_id,
+        )
+
     @discord.ui.button(label="仙榜论道", style=discord.ButtonStyle.secondary, row=2)
     async def open_pvp(  # type: ignore[override]
         self,
@@ -655,6 +667,7 @@ class CharacterPanelController:
         endless_panel_controller: PrivatePanelController | None = None,
         breakthrough_panel_controller: PrivatePanelController | None = None,
         backpack_panel_controller: PrivatePanelController | None = None,
+        forge_panel_controller: PrivatePanelController | None = None,
         recovery_panel_controller: PrivatePanelController | None = None,
         pvp_panel_controller: PrivatePanelController | None = None,
         leaderboard_panel_controller: PrivatePanelController | None = None,
@@ -667,6 +680,7 @@ class CharacterPanelController:
         self._endless_panel_controller = endless_panel_controller
         self._breakthrough_panel_controller = breakthrough_panel_controller
         self._backpack_panel_controller = backpack_panel_controller
+        self._forge_panel_controller = forge_panel_controller
         self._recovery_panel_controller = recovery_panel_controller
         self._pvp_panel_controller = pvp_panel_controller
         self._leaderboard_panel_controller = leaderboard_panel_controller
@@ -802,6 +816,13 @@ class CharacterPanelController:
             await self.responder.send_private_error(interaction, message="背包面板尚未接入。")
             return
         await self._backpack_panel_controller.open_panel(interaction, character_id=character_id)
+
+    async def open_forge_panel(self, interaction: discord.Interaction, *, character_id: int) -> None:
+        """从公开主面板打开锻造私有面板。"""
+        if self._forge_panel_controller is None:
+            await self.responder.send_private_error(interaction, message="锻造面板尚未接入。")
+            return
+        await self._forge_panel_controller.open_panel(interaction, character_id=character_id)
 
     async def open_equipment_panel(self, interaction: discord.Interaction, *, character_id: int) -> None:
         """兼容旧入口：转发到背包私有面板。"""
