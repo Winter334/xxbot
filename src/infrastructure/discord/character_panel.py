@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from enum import StrEnum
 import logging
 from typing import Protocol
+from weakref import WeakKeyDictionary
 
 import discord
 from sqlalchemy.orm import Session, sessionmaker
@@ -23,6 +24,9 @@ from infrastructure.db.session import session_scope
 logger = logging.getLogger(__name__)
 
 _PUBLIC_PANEL_TIMEOUT_SECONDS = 20 * 60
+_PRIVATE_PANEL_TIMEOUT_SECONDS = 14 * 60
+_EXPIRED_PANEL_FOOTER_TEXT = "交互已过期，请重新打开最新面板。"
+_VIEW_MESSAGE_REGISTRY: WeakKeyDictionary[discord.ui.View, discord.Message] = WeakKeyDictionary()
 
 
 class PanelVisibility(StrEnum):
@@ -54,6 +58,57 @@ class PrivatePanelController(Protocol):
         """打开指定角色的私有面板。"""
 
 
+def _cap_private_view_timeout(view: discord.ui.View | None) -> None:
+    if view is None:
+        return
+    current_timeout = view.timeout
+    if current_timeout is None or current_timeout > _PRIVATE_PANEL_TIMEOUT_SECONDS:
+        view.timeout = _PRIVATE_PANEL_TIMEOUT_SECONDS
+
+
+def _bind_view_message(view: discord.ui.View | None, message: discord.Message) -> None:
+    if view is None:
+        return
+    _VIEW_MESSAGE_REGISTRY[view] = message
+    bind_message = getattr(view, "bind_message", None)
+    if callable(bind_message):
+        bind_message(message)
+
+
+def _build_timeout_embed(message: discord.Message) -> discord.Embed | None:
+    if not message.embeds:
+        return None
+    embed = discord.Embed.from_dict(message.embeds[0].to_dict())
+    footer_text = getattr(embed.footer, "text", None)
+    footer_icon_url = getattr(embed.footer, "icon_url", None)
+    if footer_text and _EXPIRED_PANEL_FOOTER_TEXT in footer_text:
+        return embed
+    next_footer_text = _EXPIRED_PANEL_FOOTER_TEXT if not footer_text else f"{footer_text}｜{_EXPIRED_PANEL_FOOTER_TEXT}"
+    if footer_icon_url:
+        embed.set_footer(text=next_footer_text, icon_url=footer_icon_url)
+        return embed
+    embed.set_footer(text=next_footer_text)
+    return embed
+
+
+async def _managed_view_on_timeout(self: discord.ui.View) -> None:
+    message = _VIEW_MESSAGE_REGISTRY.get(self)
+    if message is None:
+        return
+    try:
+        await message.delete()
+        return
+    except (discord.Forbidden, discord.HTTPException):
+        pass
+    try:
+        await message.edit(view=None)
+    except (discord.Forbidden, discord.HTTPException):
+        logger.warning("私有面板超时回收失败", extra={"message_id": message.id, "view": type(self).__name__})
+
+
+discord.ui.View.on_timeout = _managed_view_on_timeout  # type: ignore[method-assign]
+
+
 class DiscordInteractionVisibilityResponder:
     """统一处理公开与私有响应。"""
 
@@ -64,11 +119,18 @@ class DiscordInteractionVisibilityResponder:
         payload: PanelMessagePayload,
         visibility: PanelVisibility,
     ) -> None:
+        if visibility is PanelVisibility.PRIVATE:
+            _cap_private_view_timeout(payload.view)
         await interaction.response.send_message(
             embed=payload.embed,
             view=payload.view,
             ephemeral=visibility is PanelVisibility.PRIVATE,
         )
+        try:
+            message = await interaction.original_response()
+        except (discord.NotFound, discord.HTTPException):
+            return
+        _bind_view_message(payload.view, message)
 
     async def edit_public_message(
         self,
@@ -77,6 +139,8 @@ class DiscordInteractionVisibilityResponder:
         payload: PanelMessagePayload,
     ) -> None:
         await interaction.response.edit_message(embed=payload.embed, view=payload.view)
+        if interaction.message is not None:
+            _bind_view_message(payload.view, interaction.message)
 
     async def edit_message(
         self,
@@ -84,7 +148,10 @@ class DiscordInteractionVisibilityResponder:
         *,
         payload: PanelMessagePayload,
     ) -> None:
+        _cap_private_view_timeout(payload.view)
         await interaction.response.edit_message(embed=payload.embed, view=payload.view)
+        if interaction.message is not None:
+            _bind_view_message(payload.view, interaction.message)
 
     async def send_private_error(self, interaction: discord.Interaction, *, message: str) -> None:
         embed = discord.Embed(title="角色主面板", description=message, color=discord.Color.red())
@@ -404,7 +471,11 @@ class CharacterHomePanelView(discord.ui.View):
             await self.message.delete()
         except (discord.Forbidden, discord.HTTPException):
             try:
-                await self.message.edit(view=None)
+                embed = _build_timeout_embed(self.message)
+                if embed is None:
+                    await self.message.edit(view=None)
+                else:
+                    await self.message.edit(embed=embed, view=None)
             except (discord.Forbidden, discord.HTTPException):
                 logger.warning("公开角色主面板回收失败", extra={"message_id": self.message.id})
 
@@ -648,8 +719,6 @@ class CharacterPanelController:
             payload=payload,
             visibility=PanelVisibility.PUBLIC,
         )
-        message = await interaction.original_response()
-        view.bind_message(message)
 
     async def start_character_creation(self, interaction: discord.Interaction) -> None:
         """进入显式角色创建链路。"""
@@ -726,8 +795,6 @@ class CharacterPanelController:
             view=view,
         )
         await self.responder.edit_public_message(interaction, payload=payload)
-        if interaction.message is not None:
-            view.bind_message(interaction.message)
 
     async def open_private_detail(self, interaction: discord.Interaction, *, character_id: int) -> None:
         """打开仅操作者可见的属性详情。"""
