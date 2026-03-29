@@ -37,6 +37,8 @@ from application.character.cultivation_panel_service import (
 )
 from application.character.panel_query_service import (
     CharacterPanelBattleProjection,
+    CharacterPanelEquipmentDisplay,
+    CharacterPanelEquipmentSlotDisplay,
     CharacterPanelOverview,
     CharacterPanelQueryService,
     CharacterPanelQueryServiceError,
@@ -86,6 +88,8 @@ __all__ = [
     "CharacterGrowthStateError",
     "CharacterNotFoundError",
     "CharacterPanelBattleProjection",
+    "CharacterPanelEquipmentDisplay",
+    "CharacterPanelEquipmentSlotDisplay",
     "CharacterPanelOverview",
     "CharacterPanelQueryService",
     "CharacterPanelQueryServiceError",

@@ -126,6 +126,9 @@ def _build_overview(*, character_id: int = 1001, character_name: str = "青玄")
             damage_reduction_permille=90,
             counter_rate_permille=20,
         ),
+        spirit_stone=6422,
+        equipment_slots=(),
+        artifact_item=None,
     )
 
 

@@ -296,6 +296,13 @@ def build_application_service_bundle(
         growth_service=growth_service,
         static_config=static_config,
     )
+    equipment_service = EquipmentService(
+        character_repository=character_repository,
+        equipment_repository=equipment_repository,
+        inventory_repository=inventory_repository,
+        static_config=static_config,
+        score_service=score_service,
+    )
     character_panel_query_service = CharacterPanelQueryService(
         player_repository=player_repository,
         character_repository=character_repository,
@@ -304,14 +311,8 @@ def build_application_service_bundle(
         progression_service=progression_service,
         score_service=score_service,
         current_attribute_service=current_attribute_service,
+        equipment_service=equipment_service,
         static_config=static_config,
-    )
-    equipment_service = EquipmentService(
-        character_repository=character_repository,
-        equipment_repository=equipment_repository,
-        inventory_repository=inventory_repository,
-        static_config=static_config,
-        score_service=score_service,
     )
     settings = get_settings()
     naming_batch_service = ItemNamingBatchService(

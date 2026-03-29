@@ -106,8 +106,8 @@ class CharacterPanelPresenter:
         avatar_url: str | None,
     ) -> discord.Embed:
         embed = discord.Embed(
-            title=overview.character_name,
-            description="公开角色主面板",
+            title=f"{overview.character_name}｜修仙面板",
+            description=f"{overview.main_skill.path_name}｜公开角色展示",
             color=discord.Color.blurple(),
         )
         embed.add_field(
@@ -118,21 +118,16 @@ class CharacterPanelPresenter:
             ),
             inline=False,
         )
-        embed.add_field(name="称号", value=overview.character_title or "无", inline=True)
-        embed.add_field(name="徽记", value=overview.badge_name or "无", inline=True)
-        embed.add_field(name="境界", value=f"{overview.realm_name}·{overview.stage_name}", inline=True)
-        embed.add_field(name="战力", value=f"{overview.public_power_score}", inline=True)
+        embed.add_field(name="修行概览", value=cls._build_cultivation_summary_block(overview), inline=True)
         embed.add_field(name="主修功法", value=cls._build_main_skill_block(overview), inline=True)
-        embed.add_field(name="操作", value="刷新主面板｜查看属性详情｜修炼｜无涯渊境｜突破秘境｜装备｜仙榜论道｜天榜｜恢复状态", inline=True)
+        embed.add_field(name="核心状态", value=cls._build_status_block(overview), inline=True)
         embed.add_field(name="辅助功法", value=cls._build_auxiliary_skill_block(overview), inline=False)
-        embed.add_field(
-            name="主展示属性",
-            value=cls._build_primary_stats_block(overview),
-            inline=False,
-        )
+        embed.add_field(name="装备概览", value=cls._build_equipment_block(overview), inline=False)
+        embed.add_field(name="本命法宝", value=cls._build_artifact_block(overview), inline=False)
+        embed.add_field(name="基础属性", value=cls._build_primary_stats_block(overview), inline=False)
         if avatar_url:
             embed.set_thumbnail(url=avatar_url)
-        embed.set_footer(text="公开展示，仅操作者可交互")
+        embed.set_footer(text="公开展示｜实际操作入口请使用下方按钮")
         return embed
 
     @classmethod
@@ -143,10 +138,9 @@ class CharacterPanelPresenter:
         discord_display_name: str,
         avatar_url: str | None,
     ) -> discord.Embed:
-        projection = overview.battle_projection
         embed = discord.Embed(
             title=f"{overview.character_name}｜属性详情",
-            description="仅操作者可见",
+            description=f"{overview.main_skill.path_name}｜仅操作者可见",
             color=discord.Color.dark_teal(),
         )
         embed.add_field(
@@ -157,48 +151,20 @@ class CharacterPanelPresenter:
             ),
             inline=False,
         )
-        embed.add_field(
-            name="基础状态",
-            value=(
-                f"生命：{projection.current_hp}/{projection.max_hp}\n"
-                f"灵力：{projection.current_resource}/{projection.max_resource}\n"
-                f"境界：{overview.realm_name}·{overview.stage_name}\n"
-                f"战力：{overview.public_power_score}"
-            ),
-            inline=False,
-        )
+        embed.add_field(name="修行概览", value=cls._build_cultivation_summary_block(overview), inline=True)
+        embed.add_field(name="当前状态", value=cls._build_status_block(overview), inline=True)
         embed.add_field(
             name="功法装配",
             value=(
-                f"主修：{cls._build_main_skill_block(overview)}\n"
-                f"辅助：{cls._build_auxiliary_skill_block(overview)}"
+                f"主修：\n{cls._build_main_skill_block(overview)}\n\n"
+                f"辅助：\n{cls._build_auxiliary_skill_block(overview)}"
             ),
             inline=False,
         )
-        embed.add_field(
-            name="扩展属性",
-            value=(
-                f"穿透：{cls._format_permille(projection.damage_bonus_permille)}\n"
-                f"减伤：{cls._format_permille(projection.damage_reduction_permille)}\n"
-                f"反击：{cls._format_permille(projection.counter_rate_permille)}\n"
-                f"控势：{cls._format_permille(projection.control_bonus_permille)}\n"
-                f"定心：{cls._format_permille(projection.control_resist_permille)}\n"
-                f"疗愈：{cls._format_permille(projection.healing_power_permille)}\n"
-                f"护盾：{cls._format_permille(projection.shield_power_permille)}"
-            ),
-            inline=False,
-        )
-        embed.add_field(
-            name="稳定投影补充",
-            value=(
-                f"命中：{cls._format_permille(projection.hit_rate_permille)}\n"
-                f"闪避：{cls._format_permille(projection.dodge_rate_permille)}\n"
-                f"暴击：{cls._format_permille(projection.crit_rate_permille)}\n"
-                f"暴伤：{cls._format_permille(projection.crit_damage_bonus_permille)}\n"
-                f"攻力：{projection.attack_power}｜护体：{projection.guard_power}｜迅捷：{projection.speed}"
-            ),
-            inline=False,
-        )
+        embed.add_field(name="装备概览", value=cls._build_equipment_block(overview), inline=False)
+        embed.add_field(name="本命法宝", value=cls._build_artifact_block(overview), inline=False)
+        embed.add_field(name="基础属性", value=cls._build_primary_stats_block(overview), inline=False)
+        embed.add_field(name="扩展属性", value=cls._build_secondary_stats_block(overview), inline=False)
         if avatar_url:
             embed.set_thumbnail(url=avatar_url)
         return embed
@@ -271,27 +237,111 @@ class CharacterPanelPresenter:
             f"{main_skill.path_name}"
         )
 
+    @classmethod
+    def _build_cultivation_summary_block(cls, overview: CharacterPanelOverview) -> str:
+        return (
+            f"称号：{overview.character_title or '无'}\n"
+            f"徽记：{overview.badge_name or '无'}\n"
+            f"境界：{overview.realm_name}·{overview.stage_name}\n"
+            f"战力：{overview.public_power_score}\n"
+            f"灵石：{overview.spirit_stone}"
+        )
+
+    @staticmethod
+    def _build_status_block(overview: CharacterPanelOverview) -> str:
+        projection = overview.battle_projection
+        return (
+            f"气血：{projection.current_hp}/{projection.max_hp}\n"
+            f"灵力：{projection.current_resource}/{projection.max_resource}\n"
+            f"攻力：{projection.attack_power}｜护体：{projection.guard_power}\n"
+            f"迅捷：{projection.speed}"
+        )
+
     @staticmethod
     def _build_auxiliary_skill_block(overview: CharacterPanelOverview) -> str:
+        if not overview.auxiliary_skills:
+            return "暂无辅助功法"
         return "\n".join(
             f"{_slot_name_to_chinese(skill.slot_id)}：{skill.skill_name}｜{skill.rank_name}｜{skill.quality_name}｜{skill.path_name}"
             for skill in overview.auxiliary_skills
         )
 
     @classmethod
+    def _build_equipment_block(cls, overview: CharacterPanelOverview) -> str:
+        if not overview.equipment_slots:
+            return "暂无已装备兵甲。"
+        lines: list[str] = []
+        for slot in overview.equipment_slots:
+            icon = cls._slot_icon(slot.slot_id)
+            if slot.item is None:
+                lines.append(f"{icon} {slot.slot_name}：未装备")
+                continue
+            detail_parts = list(slot.item.primary_stats[:2])
+            if slot.item.affix_summary:
+                detail_parts.append("词条 " + "｜".join(slot.item.affix_summary[:1]))
+            detail_line = "｜".join(detail_parts) if detail_parts else "暂无属性摘要"
+            lines.append(
+                f"{icon} {slot.slot_name}：{cls._format_equipment_item_head(slot.item)}\n"
+                f"└ {detail_line}"
+            )
+        return "\n".join(lines)
+
+    @classmethod
+    def _build_artifact_block(cls, overview: CharacterPanelOverview) -> str:
+        item = overview.artifact_item
+        if item is None:
+            return "尚未装备本命法宝。"
+        lines = [f"名称：{cls._format_equipment_item_head(item)}"]
+        lines.append(f"共鸣：{item.resonance_name or '无'}")
+        if item.primary_stats:
+            lines.append("属性：" + "｜".join(item.primary_stats))
+        if item.affix_summary:
+            lines.append("词条：" + "｜".join(item.affix_summary))
+        return "\n".join(lines)
+
+    @classmethod
+    def _format_equipment_item_head(cls, item) -> str:
+        parts = [f"[{item.quality_name}·{item.rank_name}] {item.display_name}"]
+        parts.append(f"强化 +{item.enhancement_level}")
+        if item.is_artifact:
+            parts.append(f"祭炼 {item.artifact_nurture_level}")
+        return "｜".join(parts)
+
+    @classmethod
     def _build_primary_stats_block(cls, overview: CharacterPanelOverview) -> str:
         projection = overview.battle_projection
-        return (
-            f"气血：{projection.current_hp}/{projection.max_hp}\n"
-            f"灵力：{projection.current_resource}/{projection.max_resource}\n"
-            f"攻力：{projection.attack_power}\n"
-            f"护体：{projection.guard_power}\n"
-            f"迅捷：{projection.speed}\n"
-            f"命中：{cls._format_permille(projection.hit_rate_permille)}\n"
-            f"闪避：{cls._format_permille(projection.dodge_rate_permille)}\n"
-            f"暴击：{cls._format_permille(projection.crit_rate_permille)}\n"
-            f"暴伤：{cls._format_permille(projection.crit_damage_bonus_permille)}"
+        return cls._build_stat_code_block(
+            (
+                f"气血 {projection.current_hp}/{projection.max_hp}｜灵力 {projection.current_resource}/{projection.max_resource}",
+                f"攻力 {projection.attack_power}｜护体 {projection.guard_power}｜迅捷 {projection.speed}",
+                f"命中 {cls._format_permille(projection.hit_rate_permille)}｜闪避 {cls._format_permille(projection.dodge_rate_permille)}",
+                f"暴击 {cls._format_permille(projection.crit_rate_permille)}｜暴伤 {cls._format_permille(projection.crit_damage_bonus_permille)}",
+            )
         )
+
+    @classmethod
+    def _build_secondary_stats_block(cls, overview: CharacterPanelOverview) -> str:
+        projection = overview.battle_projection
+        return cls._build_stat_code_block(
+            (
+                f"穿透 {cls._format_permille(projection.damage_bonus_permille)}｜减伤 {cls._format_permille(projection.damage_reduction_permille)}｜反击 {cls._format_permille(projection.counter_rate_permille)}",
+                f"控势 {cls._format_permille(projection.control_bonus_permille)}｜定心 {cls._format_permille(projection.control_resist_permille)}",
+                f"疗愈 {cls._format_permille(projection.healing_power_permille)}｜护盾 {cls._format_permille(projection.shield_power_permille)}",
+            )
+        )
+
+    @staticmethod
+    def _build_stat_code_block(lines: tuple[str, ...]) -> str:
+        return "```text\n" + "\n".join(lines) + "\n```"
+
+    @staticmethod
+    def _slot_icon(slot_id: str) -> str:
+        return {
+            "weapon": "⚔",
+            "armor": "🛡",
+            "accessory": "🧿",
+            "artifact": "💠",
+        }.get(slot_id, "•")
 
     @staticmethod
     def _format_permille(value: int) -> str:
