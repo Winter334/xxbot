@@ -127,6 +127,11 @@ def _build_overview(*, character_id: int = 1001, character_name: str = "青玄")
             counter_rate_permille=20,
         ),
         spirit_stone=6422,
+        current_cultivation_value=320,
+        required_cultivation_value=1000,
+        current_comprehension_value=40,
+        required_comprehension_value=100,
+        target_realm_name="筑基",
         equipment_slots=(),
         artifact_item=None,
     )

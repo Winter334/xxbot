@@ -90,6 +90,11 @@ def _build_overview() -> CharacterPanelOverview:
             counter_rate_permille=71,
         ),
         spirit_stone=6422,
+        current_cultivation_value=3743,
+        required_cultivation_value=5000,
+        current_comprehension_value=260,
+        required_comprehension_value=400,
+        target_realm_name="金丹",
         equipment_slots=(
             CharacterPanelEquipmentSlotDisplay(
                 slot_id="weapon",
@@ -114,10 +119,10 @@ def _build_overview() -> CharacterPanelOverview:
                 item=CharacterPanelEquipmentDisplay(
                     slot_id="armor",
                     slot_name="护甲",
-                    display_name="后天·玄岳法衣",
-                    quality_name="一品",
-                    rank_name="四阶",
-                    enhancement_level=12,
+                    display_name="危境回春云纹袍",
+                    quality_name="传说",
+                    rank_name="三阶",
+                    enhancement_level=0,
                     artifact_nurture_level=0,
                     is_artifact=False,
                     resonance_name=None,
@@ -146,20 +151,20 @@ def _build_overview() -> CharacterPanelOverview:
         artifact_item=CharacterPanelEquipmentDisplay(
             slot_id="artifact",
             slot_name="法宝",
-            display_name="后天·九霄星辰图",
-            quality_name="一品",
-            rank_name="四阶",
+            display_name="雷契返雷令",
+            quality_name="至宝",
+            rank_name="三阶",
             enhancement_level=0,
-            artifact_nurture_level=3,
+            artifact_nurture_level=0,
             is_artifact=True,
-            resonance_name="星海共鸣",
+            resonance_name="雷契",
             primary_stats=("气血 12000", "护盾 45.0%"),
             affix_summary=("星辉(天阶) 22.0%", "御空(地阶) 8.0%"),
         ),
     )
 
 
-def test_public_home_embed_removes_action_text_and_shows_equipment_summary() -> None:
+def test_public_home_embed_uses_simpler_sections_and_progress_bar() -> None:
     embed = CharacterPanelPresenter.build_public_home_embed(
         overview=_build_overview(),
         discord_display_name="流云",
@@ -167,25 +172,43 @@ def test_public_home_embed_removes_action_text_and_shows_equipment_summary() -> 
     )
 
     field_names = [field.name for field in embed.fields]
-    assert "操作" not in field_names
-    assert "装备概览" in field_names
-    assert "本命法宝" in field_names
+    assert "身份" not in field_names
+    assert "功法" in field_names
+    assert "装备 / 法宝" in field_names
+    assert "修行进度" in field_names
 
-    equipment_field = next(field for field in embed.fields if field.name == "装备概览")
-    artifact_field = next(field for field in embed.fields if field.name == "本命法宝")
+    skill_field = next(field for field in embed.fields if field.name == "功法")
+    equipment_field = next(field for field in embed.fields if field.name == "装备 / 法宝")
+    core_field = next(field for field in embed.fields if field.name == "核心状态")
     stats_field = next(field for field in embed.fields if field.name == "基础属性")
+    progress_field = next(field for field in embed.fields if field.name == "修行进度")
 
-    assert "⚔ 武器" in equipment_field.value
-    assert "🛡 护甲" in equipment_field.value
-    assert "🧿 饰品" in equipment_field.value
-    assert "后天·寒星断岳剑" in equipment_field.value
-    assert "祭炼 3" in artifact_field.value
-    assert "星海共鸣" in artifact_field.value
+    assert "主修：太虚剑经" in skill_field.value
+    assert "护体：玄甲护心诀" in skill_field.value
+    assert "身法：流云踏月步" in skill_field.value
+    assert "灵技：剑心照神诀" in skill_field.value
+
+    assert "危境回春云纹袍｜强化 +0" in equipment_field.value
+    assert "雷契返雷令｜强化 +0" in equipment_field.value
+    assert "词条" not in equipment_field.value
+    assert "属性" not in equipment_field.value
+
+    assert "气血：58590/58590" in core_field.value
+    assert "灵力：56313/56313" in core_field.value
+    assert "攻力" not in core_field.value
+
+    assert "气血" not in stats_field.value
+    assert "灵力" not in stats_field.value
+    assert "攻力：14058" in stats_field.value
     assert stats_field.value.startswith("```text\n")
-    assert embed.footer.text == "公开展示｜实际操作入口请使用下方按钮"
+
+    assert "目标境界：金丹" in progress_field.value
+    assert "修为：" in progress_field.value
+    assert "感悟：" in progress_field.value
+    assert "█" in progress_field.value
 
 
-def test_private_detail_embed_shows_extended_stats_and_artifact_summary() -> None:
+def test_private_detail_embed_keeps_extended_stats_and_progress_bar() -> None:
     embed = CharacterPanelPresenter.build_private_detail_embed(
         overview=_build_overview(),
         discord_display_name="流云",
@@ -193,11 +216,14 @@ def test_private_detail_embed_shows_extended_stats_and_artifact_summary() -> Non
     )
 
     field_names = [field.name for field in embed.fields]
+    assert "身份" not in field_names
     assert "扩展属性" in field_names
-    assert "装备概览" in field_names
-    assert "本命法宝" in field_names
+    assert "修行进度" in field_names
 
     extended_field = next(field for field in embed.fields if field.name == "扩展属性")
-    assert "穿透 37.8%" in extended_field.value
-    assert "减伤 194.6%" in extended_field.value
-    assert "控势 4.5%" in extended_field.value
+    progress_field = next(field for field in embed.fields if field.name == "修行进度")
+    assert "穿透：37.8%" in extended_field.value
+    assert "减伤：194.6%" in extended_field.value
+    assert "控势：4.5%" in extended_field.value
+    assert "3743/5000" in progress_field.value
+    assert "260/400" in progress_field.value

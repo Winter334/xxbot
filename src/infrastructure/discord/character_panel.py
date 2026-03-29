@@ -110,21 +110,13 @@ class CharacterPanelPresenter:
             description=f"{overview.main_skill.path_name}｜公开角色展示",
             color=discord.Color.blurple(),
         )
-        embed.add_field(
-            name="身份",
-            value=cls._build_identity_block(
-                overview=overview,
-                discord_display_name=discord_display_name,
-            ),
-            inline=False,
-        )
+        del discord_display_name
         embed.add_field(name="修行概览", value=cls._build_cultivation_summary_block(overview), inline=True)
-        embed.add_field(name="主修功法", value=cls._build_main_skill_block(overview), inline=True)
-        embed.add_field(name="核心状态", value=cls._build_status_block(overview), inline=True)
-        embed.add_field(name="辅助功法", value=cls._build_auxiliary_skill_block(overview), inline=False)
-        embed.add_field(name="装备概览", value=cls._build_equipment_block(overview), inline=False)
-        embed.add_field(name="本命法宝", value=cls._build_artifact_block(overview), inline=False)
+        embed.add_field(name="功法", value=cls._build_skill_block(overview), inline=True)
+        embed.add_field(name="核心状态", value=cls._build_core_status_block(overview), inline=True)
+        embed.add_field(name="装备 / 法宝", value=cls._build_equipment_artifact_block(overview), inline=False)
         embed.add_field(name="基础属性", value=cls._build_primary_stats_block(overview), inline=False)
+        embed.add_field(name="修行进度", value=cls._build_progress_block(overview), inline=False)
         if avatar_url:
             embed.set_thumbnail(url=avatar_url)
         embed.set_footer(text="公开展示｜实际操作入口请使用下方按钮")
@@ -143,28 +135,14 @@ class CharacterPanelPresenter:
             description=f"{overview.main_skill.path_name}｜仅操作者可见",
             color=discord.Color.dark_teal(),
         )
-        embed.add_field(
-            name="身份",
-            value=cls._build_identity_block(
-                overview=overview,
-                discord_display_name=discord_display_name,
-            ),
-            inline=False,
-        )
+        del discord_display_name
         embed.add_field(name="修行概览", value=cls._build_cultivation_summary_block(overview), inline=True)
-        embed.add_field(name="当前状态", value=cls._build_status_block(overview), inline=True)
-        embed.add_field(
-            name="功法装配",
-            value=(
-                f"主修：\n{cls._build_main_skill_block(overview)}\n\n"
-                f"辅助：\n{cls._build_auxiliary_skill_block(overview)}"
-            ),
-            inline=False,
-        )
-        embed.add_field(name="装备概览", value=cls._build_equipment_block(overview), inline=False)
-        embed.add_field(name="本命法宝", value=cls._build_artifact_block(overview), inline=False)
+        embed.add_field(name="功法", value=cls._build_skill_block(overview), inline=True)
+        embed.add_field(name="核心状态", value=cls._build_core_status_block(overview), inline=True)
+        embed.add_field(name="装备 / 法宝", value=cls._build_equipment_artifact_block(overview), inline=False)
         embed.add_field(name="基础属性", value=cls._build_primary_stats_block(overview), inline=False)
         embed.add_field(name="扩展属性", value=cls._build_secondary_stats_block(overview), inline=False)
+        embed.add_field(name="修行进度", value=cls._build_progress_block(overview), inline=False)
         if avatar_url:
             embed.set_thumbnail(url=avatar_url)
         return embed
@@ -247,75 +225,60 @@ class CharacterPanelPresenter:
             f"灵石：{overview.spirit_stone}"
         )
 
+    @classmethod
+    def _build_skill_block(cls, overview: CharacterPanelOverview) -> str:
+        lines = [
+            (
+                f"主修：{overview.main_skill.skill_name}｜{overview.main_skill.rank_name}｜"
+                f"{overview.main_skill.quality_name}｜{overview.main_skill.path_name}"
+            )
+        ]
+        for skill in overview.auxiliary_skills:
+            lines.append(
+                f"{_slot_name_to_chinese(skill.slot_id)}：{skill.skill_name}｜{skill.rank_name}｜"
+                f"{skill.quality_name}｜{skill.path_name}"
+            )
+        return "\n".join(lines)
+
     @staticmethod
-    def _build_status_block(overview: CharacterPanelOverview) -> str:
+    def _build_core_status_block(overview: CharacterPanelOverview) -> str:
         projection = overview.battle_projection
         return (
             f"气血：{projection.current_hp}/{projection.max_hp}\n"
-            f"灵力：{projection.current_resource}/{projection.max_resource}\n"
-            f"攻力：{projection.attack_power}｜护体：{projection.guard_power}\n"
-            f"迅捷：{projection.speed}"
-        )
-
-    @staticmethod
-    def _build_auxiliary_skill_block(overview: CharacterPanelOverview) -> str:
-        if not overview.auxiliary_skills:
-            return "暂无辅助功法"
-        return "\n".join(
-            f"{_slot_name_to_chinese(skill.slot_id)}：{skill.skill_name}｜{skill.rank_name}｜{skill.quality_name}｜{skill.path_name}"
-            for skill in overview.auxiliary_skills
+            f"灵力：{projection.current_resource}/{projection.max_resource}"
         )
 
     @classmethod
-    def _build_equipment_block(cls, overview: CharacterPanelOverview) -> str:
-        if not overview.equipment_slots:
-            return "暂无已装备兵甲。"
+    def _build_equipment_artifact_block(cls, overview: CharacterPanelOverview) -> str:
         lines: list[str] = []
         for slot in overview.equipment_slots:
             icon = cls._slot_icon(slot.slot_id)
             if slot.item is None:
                 lines.append(f"{icon} {slot.slot_name}：未装备")
                 continue
-            detail_parts = list(slot.item.primary_stats[:2])
-            if slot.item.affix_summary:
-                detail_parts.append("词条 " + "｜".join(slot.item.affix_summary[:1]))
-            detail_line = "｜".join(detail_parts) if detail_parts else "暂无属性摘要"
-            lines.append(
-                f"{icon} {slot.slot_name}：{cls._format_equipment_item_head(slot.item)}\n"
-                f"└ {detail_line}"
-            )
-        return "\n".join(lines)
-
-    @classmethod
-    def _build_artifact_block(cls, overview: CharacterPanelOverview) -> str:
-        item = overview.artifact_item
-        if item is None:
-            return "尚未装备本命法宝。"
-        lines = [f"名称：{cls._format_equipment_item_head(item)}"]
-        lines.append(f"共鸣：{item.resonance_name or '无'}")
-        if item.primary_stats:
-            lines.append("属性：" + "｜".join(item.primary_stats))
-        if item.affix_summary:
-            lines.append("词条：" + "｜".join(item.affix_summary))
+            lines.append(f"{icon} {slot.slot_name}：{cls._format_equipment_item_head(slot.item)}")
+        if overview.artifact_item is None:
+            lines.append("💠 本命法宝：未装备")
+        else:
+            lines.append(f"💠 本命法宝：{cls._format_equipment_item_head(overview.artifact_item)}")
         return "\n".join(lines)
 
     @classmethod
     def _format_equipment_item_head(cls, item) -> str:
-        parts = [f"[{item.quality_name}·{item.rank_name}] {item.display_name}"]
-        parts.append(f"强化 +{item.enhancement_level}")
-        if item.is_artifact:
-            parts.append(f"祭炼 {item.artifact_nurture_level}")
-        return "｜".join(parts)
+        return f"[{item.quality_name}·{item.rank_name}] {item.display_name}｜强化 +{item.enhancement_level}"
 
     @classmethod
     def _build_primary_stats_block(cls, overview: CharacterPanelOverview) -> str:
         projection = overview.battle_projection
         return cls._build_stat_code_block(
             (
-                f"气血 {projection.current_hp}/{projection.max_hp}｜灵力 {projection.current_resource}/{projection.max_resource}",
-                f"攻力 {projection.attack_power}｜护体 {projection.guard_power}｜迅捷 {projection.speed}",
-                f"命中 {cls._format_permille(projection.hit_rate_permille)}｜闪避 {cls._format_permille(projection.dodge_rate_permille)}",
-                f"暴击 {cls._format_permille(projection.crit_rate_permille)}｜暴伤 {cls._format_permille(projection.crit_damage_bonus_permille)}",
+                f"攻力：{projection.attack_power}",
+                f"护体：{projection.guard_power}",
+                f"迅捷：{projection.speed}",
+                f"命中：{cls._format_permille(projection.hit_rate_permille)}",
+                f"闪避：{cls._format_permille(projection.dodge_rate_permille)}",
+                f"暴击：{cls._format_permille(projection.crit_rate_permille)}",
+                f"暴伤：{cls._format_permille(projection.crit_damage_bonus_permille)}",
             )
         )
 
@@ -324,11 +287,58 @@ class CharacterPanelPresenter:
         projection = overview.battle_projection
         return cls._build_stat_code_block(
             (
-                f"穿透 {cls._format_permille(projection.damage_bonus_permille)}｜减伤 {cls._format_permille(projection.damage_reduction_permille)}｜反击 {cls._format_permille(projection.counter_rate_permille)}",
-                f"控势 {cls._format_permille(projection.control_bonus_permille)}｜定心 {cls._format_permille(projection.control_resist_permille)}",
-                f"疗愈 {cls._format_permille(projection.healing_power_permille)}｜护盾 {cls._format_permille(projection.shield_power_permille)}",
+                f"穿透：{cls._format_permille(projection.damage_bonus_permille)}",
+                f"减伤：{cls._format_permille(projection.damage_reduction_permille)}",
+                f"反击：{cls._format_permille(projection.counter_rate_permille)}",
+                f"控势：{cls._format_permille(projection.control_bonus_permille)}",
+                f"定心：{cls._format_permille(projection.control_resist_permille)}",
+                f"疗愈：{cls._format_permille(projection.healing_power_permille)}",
+                f"护盾：{cls._format_permille(projection.shield_power_permille)}",
             )
         )
+
+    @classmethod
+    def _build_progress_block(cls, overview: CharacterPanelOverview) -> str:
+        target_realm_name = overview.target_realm_name or "当前已到开放上限"
+        return "\n".join(
+            (
+                f"目标境界：{target_realm_name}",
+                cls._build_progress_line(
+                    label="修为",
+                    current=overview.current_cultivation_value,
+                    required=overview.required_cultivation_value,
+                ),
+                cls._build_progress_line(
+                    label="感悟",
+                    current=overview.current_comprehension_value,
+                    required=overview.required_comprehension_value,
+                ),
+            )
+        )
+
+    @classmethod
+    def _build_progress_line(cls, *, label: str, current: int, required: int | None) -> str:
+        if required is None or required <= 0:
+            return f"{label}：{cls._build_progress_bar(ratio=1.0)} 已达上限"
+        ratio = cls._normalize_progress_ratio(current=current, required=required)
+        return (
+            f"{label}：{cls._build_progress_bar(ratio=ratio)} {ratio * 100:.1f}%\n"
+            f"{max(0, min(current, required))}/{required}"
+        )
+
+    @staticmethod
+    def _normalize_progress_ratio(*, current: int, required: int) -> float:
+        if required <= 0:
+            return 1.0
+        normalized = max(0.0, min(float(current) / float(required), 1.0))
+        return normalized
+
+    @staticmethod
+    def _build_progress_bar(*, ratio: float, width: int = 12) -> str:
+        clamped_ratio = max(0.0, min(ratio, 1.0))
+        filled = int(round(clamped_ratio * width))
+        filled = max(0, min(filled, width))
+        return "▰" * filled + "▱" * (width - filled)
 
     @staticmethod
     def _build_stat_code_block(lines: tuple[str, ...]) -> str:

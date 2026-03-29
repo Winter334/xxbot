@@ -118,6 +118,11 @@ class CharacterPanelOverview:
     public_power_score: int
     battle_projection: CharacterPanelBattleProjection
     spirit_stone: int = 0
+    current_cultivation_value: int = 0
+    required_cultivation_value: int | None = None
+    current_comprehension_value: int = 0
+    required_comprehension_value: int | None = None
+    target_realm_name: str | None = None
     equipment_slots: tuple[CharacterPanelEquipmentSlotDisplay, ...] = ()
     artifact_item: CharacterPanelEquipmentDisplay | None = None
 
@@ -236,6 +241,11 @@ class CharacterPanelQueryService:
             public_power_score=aggregate.character.public_power_score,
             battle_projection=projection,
             spirit_stone=equipment_collection.spirit_stone,
+            current_cultivation_value=breakthrough_precheck.current_cultivation_value,
+            required_cultivation_value=breakthrough_precheck.required_cultivation_value,
+            current_comprehension_value=breakthrough_precheck.current_comprehension_value,
+            required_comprehension_value=breakthrough_precheck.required_comprehension_value,
+            target_realm_name=breakthrough_precheck.target_realm_name,
             equipment_slots=equipment_slots,
             artifact_item=artifact_item,
         )
