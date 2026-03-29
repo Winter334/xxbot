@@ -520,14 +520,14 @@ class CharacterHomePanelView(discord.ui.View):
             character_id=self.character_id,
         )
 
-    @discord.ui.button(label="装备", style=discord.ButtonStyle.secondary, row=1)
-    async def open_equipment(  # type: ignore[override]
+    @discord.ui.button(label="背包", style=discord.ButtonStyle.secondary, row=1)
+    async def open_backpack(  # type: ignore[override]
         self,
         interaction: discord.Interaction,
         button: discord.ui.Button,
     ) -> None:
         del button
-        await self._controller.open_equipment_panel(
+        await self._controller.open_backpack_panel(
             interaction,
             character_id=self.character_id,
         )
@@ -654,7 +654,7 @@ class CharacterPanelController:
         cultivation_panel_controller: PrivatePanelController | None = None,
         endless_panel_controller: PrivatePanelController | None = None,
         breakthrough_panel_controller: PrivatePanelController | None = None,
-        equipment_panel_controller: PrivatePanelController | None = None,
+        backpack_panel_controller: PrivatePanelController | None = None,
         recovery_panel_controller: PrivatePanelController | None = None,
         pvp_panel_controller: PrivatePanelController | None = None,
         leaderboard_panel_controller: PrivatePanelController | None = None,
@@ -666,7 +666,7 @@ class CharacterPanelController:
         self._cultivation_panel_controller = cultivation_panel_controller
         self._endless_panel_controller = endless_panel_controller
         self._breakthrough_panel_controller = breakthrough_panel_controller
-        self._equipment_panel_controller = equipment_panel_controller
+        self._backpack_panel_controller = backpack_panel_controller
         self._recovery_panel_controller = recovery_panel_controller
         self._pvp_panel_controller = pvp_panel_controller
         self._leaderboard_panel_controller = leaderboard_panel_controller
@@ -796,12 +796,16 @@ class CharacterPanelController:
             return
         await self._breakthrough_panel_controller.open_panel(interaction, character_id=character_id)
 
-    async def open_equipment_panel(self, interaction: discord.Interaction, *, character_id: int) -> None:
-        """从公开主面板打开装备私有面板。"""
-        if self._equipment_panel_controller is None:
-            await self.responder.send_private_error(interaction, message="装备面板尚未接入。")
+    async def open_backpack_panel(self, interaction: discord.Interaction, *, character_id: int) -> None:
+        """从公开主面板打开背包私有面板。"""
+        if self._backpack_panel_controller is None:
+            await self.responder.send_private_error(interaction, message="背包面板尚未接入。")
             return
-        await self._equipment_panel_controller.open_panel(interaction, character_id=character_id)
+        await self._backpack_panel_controller.open_panel(interaction, character_id=character_id)
+
+    async def open_equipment_panel(self, interaction: discord.Interaction, *, character_id: int) -> None:
+        """兼容旧入口：转发到背包私有面板。"""
+        await self.open_backpack_panel(interaction, character_id=character_id)
 
     async def open_pvp_panel(self, interaction: discord.Interaction, *, character_id: int) -> None:
         """从公开主面板打开仙榜论道私有面板。"""

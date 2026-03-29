@@ -1,5 +1,16 @@
 """阶段 6 装备应用服务导出。"""
 
+from application.equipment.backpack_query_service import (
+    BackpackEntryKey,
+    BackpackEntryKind,
+    BackpackEntrySummarySnapshot,
+    BackpackFilterId,
+    BackpackPanelQueryService,
+    BackpackPanelQueryServiceError,
+    BackpackPanelSnapshot,
+    BackpackPanelStateError,
+    BackpackSelectedDetailSnapshot,
+)
 from application.equipment.equipment_service import (
     ArtifactNurtureApplicationResult,
     EquipmentAffixSnapshot,
@@ -31,6 +42,15 @@ from application.equipment.equipment_service import (
 
 __all__ = [
     "ArtifactNurtureApplicationResult",
+    "BackpackEntryKey",
+    "BackpackEntryKind",
+    "BackpackEntrySummarySnapshot",
+    "BackpackFilterId",
+    "BackpackPanelQueryService",
+    "BackpackPanelQueryServiceError",
+    "BackpackPanelSnapshot",
+    "BackpackPanelStateError",
+    "BackpackSelectedDetailSnapshot",
     "EquipmentAffixSnapshot",
     "EquipmentAttributeSnapshot",
     "EquipmentCharacterNotFoundError",
