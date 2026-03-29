@@ -109,7 +109,6 @@ class BackpackPanelPresenter:
             description="仅操作者可见",
             color=discord.Color.dark_gold(),
         )
-        embed.add_field(name="筛选与分页", value=cls._build_overview_block(snapshot=snapshot), inline=False)
         embed.add_field(name="当前页条目", value=cls._build_page_entries_block(snapshot=snapshot), inline=False)
         if snapshot.selected_detail is not None:
             embed.add_field(name="当前选中实例", value=cls._build_selected_detail_block(snapshot=snapshot), inline=False)
@@ -117,7 +116,7 @@ class BackpackPanelPresenter:
             embed.add_field(name="必要对比", value=cls._build_compare_block(snapshot=snapshot), inline=False)
         if state.action_note is not None and state.action_note.lines:
             embed.add_field(name=state.action_note.title, value="\n".join(state.action_note.lines), inline=False)
-        embed.set_footer(text="背包仅负责实例浏览、筛选、分页、选中详情、同类对比与装配")
+        embed.set_footer(text="背包仅负责实例浏览、选中详情、同类对比与装配")
         return embed
 
     @classmethod
@@ -243,14 +242,18 @@ class BackpackPanelPresenter:
             f"{'法宝器胚' if item.is_artifact else '底材'}：{item.template_name}",
             f"阶数 / 品质：{item.rank_name}｜{item.quality_name}",
             f"强化：+{item.enhancement_level}",
-            f"主要属性：{cls._format_primary_stat_lines(item, limit=3)}",
+            f"主要属性：{cls._format_primary_stat_lines(item, limit=4)}",
         ]
         if item.is_artifact:
             lines.append(f"祭炼：{item.artifact_nurture_level}")
             lines.append(f"共鸣：{item.resonance_name or '无'}")
-        if item.affixes:
-            lines.append("关键词条：" + "｜".join(cls._format_affix_line(affix) for affix in item.affixes[:3]))
-        return "\n".join(lines)
+        affix_lines = cls._format_affix_detail_lines(item.affixes)
+        if affix_lines:
+            lines.append("词条明细：")
+            lines.extend(affix_lines)
+        else:
+            lines.append("词条：无")
+        return cls._truncate_lines(tuple(lines), limit=1000)
 
     @classmethod
     def _format_skill_detail(cls, skill_item: SkillPanelSkillSlotSnapshot) -> str:
@@ -261,8 +264,10 @@ class BackpackPanelPresenter:
             f"阶数 / 品质：{skill_item.rank_name}｜{skill_item.quality_name}",
         ]
         if skill_item.resolved_patch_ids:
-            lines.append("流派加成：" + "｜".join(_format_patch_name(patch_id) for patch_id in skill_item.resolved_patch_ids[:3]))
-        return "\n".join(lines)
+            lines.append("流派加成：" + "｜".join(_format_patch_name(patch_id) for patch_id in skill_item.resolved_patch_ids[:5]))
+        else:
+            lines.append("流派加成：无")
+        return cls._truncate_lines(tuple(lines), limit=1000)
 
     @staticmethod
     def _format_equipment_head(item: EquipmentItemSnapshot) -> str:
@@ -281,7 +286,139 @@ class BackpackPanelPresenter:
 
     @classmethod
     def _format_affix_line(cls, affix) -> str:
-        return f"{affix.affix_name}({affix.tier_name}) {cls._format_stat_value(affix.stat_id, affix.value)}"
+        head = f"{affix.affix_name}({affix.tier_name})" if affix.tier_name else affix.affix_name
+        if affix.affix_kind == "special_effect" or affix.special_effect is not None or not affix.stat_id.strip():
+            return head
+        return f"{head} {cls._format_stat_name(affix.stat_id)} {cls._format_stat_value(affix.stat_id, affix.value)}"
+
+    @classmethod
+    def _format_affix_detail_lines(cls, affixes) -> tuple[str, ...]:
+        lines: list[str] = []
+        for index, affix in enumerate(affixes[:6], start=1):
+            position = affix.position or index
+            header_parts = [f"{position}. {affix.affix_name}"]
+            if affix.tier_name:
+                header_parts.append(affix.tier_name)
+            header_parts.append("特殊词条" if affix.affix_kind == "special_effect" or affix.special_effect is not None else "数值词条")
+            effect_value = cls._format_affix_effect_value(affix)
+            if effect_value:
+                header_parts.append(effect_value)
+            scope_tags: list[str] = []
+            if getattr(affix, "is_pve_specialized", False):
+                scope_tags.append("PVE专精")
+            if getattr(affix, "is_pvp_specialized", False):
+                scope_tags.append("PVP专精")
+            if scope_tags:
+                header_parts.append(" / ".join(scope_tags))
+            description = cls._format_affix_description(affix)
+            if description:
+                header_parts.append(f"说明：{description}")
+            lines.append("｜".join(header_parts))
+        return tuple(lines)
+
+    @classmethod
+    def _format_affix_effect_value(cls, affix) -> str:
+        if affix.affix_kind == "special_effect" or affix.special_effect is not None or not affix.stat_id.strip():
+            if affix.special_effect is None:
+                return "特殊效果"
+            return f"触发：{cls._format_trigger_event(affix.special_effect.trigger_event)}"
+        return f"{cls._format_stat_name(affix.stat_id)} {cls._format_stat_value(affix.stat_id, affix.value)}"
+
+    @classmethod
+    def _format_affix_description(cls, affix) -> str:
+        static_config = get_static_config()
+        affix_definition = static_config.equipment.get_affix(affix.affix_id)
+        parts: list[str] = []
+        if affix_definition is not None and affix_definition.summary:
+            parts.append(str(affix_definition.summary))
+        if affix.special_effect is not None:
+            special_effect_text = cls._format_special_effect_summary(affix.special_effect)
+            if special_effect_text:
+                parts.append(special_effect_text)
+        if not parts:
+            return ""
+        deduplicated_parts: list[str] = []
+        for part in parts:
+            if not part or part in deduplicated_parts:
+                continue
+            deduplicated_parts.append(part)
+        return "；".join(deduplicated_parts)
+
+    @classmethod
+    def _format_special_effect_summary(cls, special_effect) -> str:
+        static_effect = get_static_config().equipment.get_special_effect(special_effect.effect_id)
+        parts: list[str] = []
+        if static_effect is not None and static_effect.summary:
+            parts.append(str(static_effect.summary))
+        parts.append(f"触发：{cls._format_trigger_event(special_effect.trigger_event)}")
+        payload_parts = cls._format_special_effect_payload_parts(special_effect.payload)
+        if payload_parts:
+            parts.append("参数：" + "、".join(payload_parts))
+        return "；".join(part for part in parts if part)
+
+    @classmethod
+    def _format_special_effect_payload_parts(cls, payload) -> tuple[str, ...]:
+        if not isinstance(payload, dict) or not payload:
+            return ()
+        ordered_keys = (
+            ("trigger_rate_permille", "触发率"),
+            ("suppression_permille", "压制幅度"),
+            ("dot_ratio_permille", "持续伤害系数"),
+            ("guard_ratio_permille", "护盾系数"),
+            ("damage_ratio_permille", "伤害转化系数"),
+            ("attack_ratio_permille", "攻力系数"),
+            ("hp_threshold_permille", "气血阈值"),
+            ("duration_rounds", "持续回合"),
+            ("cooldown_rounds", "冷却回合"),
+            ("max_stacks", "最多层数"),
+            ("max_triggers_per_round", "每回合触发上限"),
+            ("max_triggers_per_battle", "每场触发上限"),
+            ("requires_damage_resolved", "需造成伤害"),
+            ("require_empty_shield", "需当前无护盾"),
+        )
+        parts: list[str] = []
+        consumed_keys: set[str] = set()
+        for key, label in ordered_keys:
+            if key not in payload:
+                continue
+            consumed_keys.add(key)
+            value = payload.get(key)
+            formatted_value = cls._format_effect_payload_value(key=key, value=value)
+            parts.append(f"{label} {formatted_value}" if formatted_value else label)
+        for key in sorted(str(raw_key) for raw_key in payload.keys() if str(raw_key) not in consumed_keys):
+            parts.append(f"{key}={payload[key]}")
+        return tuple(parts)
+
+    @classmethod
+    def _format_effect_payload_value(cls, *, key: str, value) -> str:
+        if isinstance(value, bool):
+            return "是" if value else "否"
+        if isinstance(value, int):
+            if key.endswith("_permille"):
+                return f"{value / 10:.1f}%"
+            if key.endswith("_rounds"):
+                return f"{value} 回合"
+            if key == "max_stacks":
+                return f"{value} 层"
+            if key.startswith("max_triggers_per_"):
+                return f"{value} 次"
+            return str(value)
+        return str(value)
+
+    @staticmethod
+    def _format_trigger_event(trigger_event: str) -> str:
+        return {
+            "battle_start": "战斗开始时",
+            "round_start": "回合开始时",
+            "turn_start": "行动开始时",
+            "before_action": "出手前",
+            "after_action": "出手后",
+            "damage_resolved": "造成伤害后",
+            "damage_taken": "受到伤害后",
+            "turn_end": "行动结束时",
+            "round_end": "回合结束时",
+            "battle_end": "战斗结束时",
+        }.get(trigger_event, trigger_event)
 
     @classmethod
     def _build_equipment_delta_parts(

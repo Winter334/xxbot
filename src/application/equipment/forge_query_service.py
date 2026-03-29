@@ -9,7 +9,6 @@ from application.character.profile_panel_query_service import (
     ProfilePanelQueryService,
     ProfilePanelQueryServiceError,
     SkillPanelSkillSlotSnapshot,
-    SkillPanelSnapshot,
 )
 from application.equipment.equipment_service import (
     EquipmentItemSnapshot,
@@ -19,6 +18,7 @@ from application.equipment.equipment_service import (
 from infrastructure.config.static import StaticGameConfig, get_static_config
 from infrastructure.db.repositories import InventoryRepository
 
+_PAGE_SIZE = 25
 _MATERIAL_ITEM_TYPE = "material"
 _RESOURCE_NAME_BY_ID = {
     "spirit_stone": "灵石",
@@ -30,13 +30,35 @@ _RESOURCE_NAME_BY_ID = {
     "soul_binding_jade": "缚魂玉",
     "artifact_essence": "法宝精粹",
 }
+_EQUIPMENT_CATEGORY_ORDER = {
+    "weapon": 0,
+    "armor": 1,
+    "accessory": 2,
+    "artifact": 3,
+}
+_SKILL_SLOT_ORDER = {
+    "main": 0,
+    "guard": 1,
+    "movement": 2,
+    "spirit": 3,
+}
 _SKILL_CORE_ROLE_BY_SLOT_ID = {
     "main": "主修功法槽位，当前纳入统一锻造目标选择。",
     "guard": "护体功法槽位，当前纳入统一锻造目标选择。",
     "movement": "身法功法槽位，当前纳入统一锻造目标选择。",
     "spirit": "神识功法槽位，当前纳入统一锻造目标选择。",
 }
-_SKILL_ACTION_STATUS_TEXT = "当前功法培养写操作尚未开放；此处仅支持统一目标选择与详情查看。"
+
+
+class ForgeFilterId(StrEnum):
+    """锻造面板筛选标识。"""
+
+    ALL = "all"
+    WEAPON = "weapon"
+    ARMOR = "armor"
+    ACCESSORY = "accessory"
+    ARTIFACT = "artifact"
+    SKILL = "skill"
 
 
 class ForgeTargetKind(StrEnum):
@@ -98,10 +120,12 @@ class ForgeTargetSnapshot:
     slot_id: str
     slot_name: str
     core_role: str
-    equipped_item: EquipmentItemSnapshot | None = None
+    display_name: str
+    summary_line: str
+    equipped: bool = False
+    equipment_item: EquipmentItemSnapshot | None = None
     equipped_skill: SkillPanelSkillSlotSnapshot | None = None
     supported_operations: tuple[ForgeOperationId, ...] = ()
-    action_status_text: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -111,11 +135,17 @@ class ForgePanelSnapshot:
     character_id: int
     character_name: str
     resources: ForgeResourceSnapshot
+    filter_id: ForgeFilterId
+    page: int
+    page_size: int
+    total_items: int
+    total_pages: int
     targets: tuple[ForgeTargetSnapshot, ...]
+    selected_target: ForgeTargetSnapshot | None
 
 
 class ForgePanelQueryService:
-    """聚合锻造资源栏与已装备目标的查询服务。"""
+    """聚合锻造资源栏、筛选分页与培养目标的查询服务。"""
 
     def __init__(
         self,
@@ -130,9 +160,25 @@ class ForgePanelQueryService:
         self._profile_panel_query_service = profile_panel_query_service
         self._static_config = static_config or get_static_config()
         self._slot_definitions = tuple(self._static_config.equipment.ordered_slots)
+        self._slot_by_id = {slot.slot_id: slot for slot in self._slot_definitions}
+        self._equipment_quality_order_by_id = {
+            quality.quality_id: quality.order for quality in self._static_config.equipment.qualities
+        }
+        self._skill_quality_order_by_id = {
+            quality.quality_id: quality.order for quality in self._static_config.skill_generation.qualities
+        }
 
-    def get_panel_snapshot(self, *, character_id: int) -> ForgePanelSnapshot:
+    def get_panel_snapshot(
+        self,
+        *,
+        character_id: int,
+        filter_id: ForgeFilterId = ForgeFilterId.ALL,
+        page: int = 1,
+        selected_target_id: str | None = None,
+    ) -> ForgePanelSnapshot:
         """读取锻造面板快照。"""
+        normalized_filter = self._normalize_filter_id(filter_id)
+        normalized_page = max(1, int(page))
         try:
             collection = self._equipment_service.list_equipment(character_id=character_id)
             skill_snapshot = self._profile_panel_query_service.get_skill_snapshot(character_id=character_id)
@@ -140,25 +186,48 @@ class ForgePanelQueryService:
         except (EquipmentServiceError, ProfilePanelQueryServiceError) as exc:
             raise ForgePanelStateError(str(exc)) from exc
 
-        equipped_by_slot = {
-            item.slot_id: item
-            for item in collection.equipped_items
-            if item.item_state == "active" and item.equipped_slot_id == item.slot_id
-        }
+        active_equipment_items = tuple(item for item in collection.active_items if item.item_state == "active")
+        skill_items = tuple(skill_item for skill_item in (skill_snapshot.main_skill, *skill_snapshot.auxiliary_skills))
+        equipment_targets = tuple(self._build_equipment_target(item=item) for item in active_equipment_items)
+        skill_targets = tuple(self._build_skill_target(skill_item=skill_item) for skill_item in skill_items)
+        filtered_targets = self._build_filtered_targets(
+            filter_id=normalized_filter,
+            equipment_targets=equipment_targets,
+            skill_targets=skill_targets,
+        )
+        total_items = len(filtered_targets)
+        total_pages = max(1, (total_items + _PAGE_SIZE - 1) // _PAGE_SIZE)
+        current_page = min(normalized_page, total_pages)
+        page_targets = filtered_targets[(current_page - 1) * _PAGE_SIZE : current_page * _PAGE_SIZE]
+        selected_target = self._resolve_selected_target(
+            selected_target_id=selected_target_id,
+            page_targets=page_targets,
+        )
         resources = self._build_resource_snapshot(
             spirit_stone=collection.spirit_stone,
             material_items=material_items,
-        )
-        targets = self._build_targets(
-            equipped_by_slot=equipped_by_slot,
-            skill_snapshot=skill_snapshot,
         )
         return ForgePanelSnapshot(
             character_id=character_id,
             character_name=skill_snapshot.character_name,
             resources=resources,
-            targets=targets,
+            filter_id=normalized_filter,
+            page=current_page,
+            page_size=_PAGE_SIZE,
+            total_items=total_items,
+            total_pages=total_pages,
+            targets=page_targets,
+            selected_target=selected_target,
         )
+
+    @staticmethod
+    def _normalize_filter_id(filter_id: ForgeFilterId | str) -> ForgeFilterId:
+        if isinstance(filter_id, ForgeFilterId):
+            return filter_id
+        try:
+            return ForgeFilterId(str(filter_id).strip())
+        except ValueError as exc:
+            raise ForgePanelStateError(f"未支持的锻造筛选：{filter_id}") from exc
 
     def _build_resource_snapshot(self, *, spirit_stone: int, material_items) -> ForgeResourceSnapshot:
         material_quantity_by_id = {str(item.item_id): max(0, int(item.quantity)) for item in material_items}
@@ -198,86 +267,160 @@ class ForgePanelQueryService:
             entries=entries,
         )
 
-    def _build_targets(
+    def _build_filtered_targets(
         self,
         *,
-        equipped_by_slot: dict[str, EquipmentItemSnapshot],
-        skill_snapshot: SkillPanelSnapshot,
+        filter_id: ForgeFilterId,
+        equipment_targets: tuple[ForgeTargetSnapshot, ...],
+        skill_targets: tuple[ForgeTargetSnapshot, ...],
     ) -> tuple[ForgeTargetSnapshot, ...]:
-        equipment_targets = tuple(
-            ForgeTargetSnapshot(
-                target_id=slot.slot_id,
-                target_kind=ForgeTargetKind.EQUIPMENT,
-                slot_id=slot.slot_id,
-                slot_name=slot.name,
-                core_role=slot.core_role,
-                equipped_item=equipped_by_slot.get(slot.slot_id),
-                supported_operations=self._build_supported_operations(slot_id=slot.slot_id),
-                action_status_text=self._build_equipment_status_text(
-                    slot_name=slot.name,
-                    slot_id=slot.slot_id,
-                    equipped_item=equipped_by_slot.get(slot.slot_id),
-                ),
-            )
-            for slot in self._slot_definitions
+        if filter_id is ForgeFilterId.ALL:
+            merged_targets = [*equipment_targets, *skill_targets]
+            merged_targets.sort(key=self._build_all_target_sort_key)
+            return tuple(merged_targets)
+
+        if filter_id is ForgeFilterId.SKILL:
+            sorted_skills = sorted(skill_targets, key=self._build_skill_target_sort_key)
+            return tuple(sorted_skills)
+
+        filtered_equipment_targets = [
+            target
+            for target in equipment_targets
+            if target.equipment_item is not None
+            and self._match_equipment_filter(item=target.equipment_item, filter_id=filter_id)
+        ]
+        filtered_equipment_targets.sort(key=self._build_equipment_target_sort_key)
+        return tuple(filtered_equipment_targets)
+
+    def _build_all_target_sort_key(self, target: ForgeTargetSnapshot) -> tuple[int, int, int, int, int, int]:
+        if target.target_kind is ForgeTargetKind.EQUIPMENT:
+            item = target.equipment_item
+            if item is None:
+                return (len(_EQUIPMENT_CATEGORY_ORDER), 1, 0, 0, 0, 0)
+            category_order = _EQUIPMENT_CATEGORY_ORDER.get(self._resolve_equipment_category(item), len(_EQUIPMENT_CATEGORY_ORDER))
+            return (category_order, *self._build_equipment_target_sort_key(target))
+        return (len(_EQUIPMENT_CATEGORY_ORDER), *self._build_skill_target_sort_key(target))
+
+    def _build_equipment_target_sort_key(self, target: ForgeTargetSnapshot) -> tuple[int, int, int, int, int]:
+        item = target.equipment_item
+        if item is None:
+            return (1, 0, 0, 0, 0)
+        growth_level = item.artifact_nurture_level if item.is_artifact else item.enhancement_level
+        return (
+            0 if target.equipped else 1,
+            -self._equipment_quality_order_by_id.get(item.quality_id, 0),
+            -item.rank_order,
+            -growth_level,
+            -item.item_id,
         )
-        skill_targets = tuple(
-            self._build_skill_target(skill_item=skill_item)
-            for skill_item in (skill_snapshot.main_skill, *skill_snapshot.auxiliary_skills)
+
+    def _build_skill_target_sort_key(self, target: ForgeTargetSnapshot) -> tuple[int, int, int, int, int]:
+        skill_item = target.equipped_skill
+        if skill_item is None:
+            return (1, len(_SKILL_SLOT_ORDER), 0, 0, 0)
+        return (
+            0 if target.equipped else 1,
+            _SKILL_SLOT_ORDER.get(skill_item.slot_id, len(_SKILL_SLOT_ORDER)),
+            -self._skill_quality_order_by_id.get(skill_item.quality_id, 0),
+            -skill_item.item_id,
+            0,
         )
-        return equipment_targets + skill_targets
 
     @staticmethod
-    def _build_supported_operations(*, slot_id: str) -> tuple[ForgeOperationId, ...]:
-        base_operations = (
-            ForgeOperationId.ENHANCE,
-            ForgeOperationId.WASH,
-            ForgeOperationId.REFORGE,
-            ForgeOperationId.DISMANTLE,
-            ForgeOperationId.UNEQUIP,
-        )
-        if slot_id == "artifact":
-            return base_operations + (ForgeOperationId.NURTURE,)
-        return base_operations
+    def _resolve_equipment_category(item: EquipmentItemSnapshot) -> str:
+        if item.is_artifact or item.slot_id == ForgeFilterId.ARTIFACT.value:
+            return ForgeFilterId.ARTIFACT.value
+        return item.slot_id
 
-    def _build_equipment_status_text(
-        self,
-        *,
-        slot_name: str,
-        slot_id: str,
-        equipped_item: EquipmentItemSnapshot | None,
-    ) -> str:
-        if equipped_item is None:
-            return f"当前{slot_name}槽位暂无已装备目标，需先从背包装配后才能执行锻造操作。"
-        supported_operations = self._build_supported_operations(slot_id=slot_id)
-        operation_names = "｜".join(self._format_operation_name(operation_id) for operation_id in supported_operations)
-        return f"当前已锁定已装备目标，可执行：{operation_names}。"
+    @staticmethod
+    def _match_equipment_filter(*, item: EquipmentItemSnapshot, filter_id: ForgeFilterId) -> bool:
+        if filter_id is ForgeFilterId.WEAPON:
+            return item.slot_id == ForgeFilterId.WEAPON.value and not item.is_artifact
+        if filter_id is ForgeFilterId.ARMOR:
+            return item.slot_id == ForgeFilterId.ARMOR.value and not item.is_artifact
+        if filter_id is ForgeFilterId.ACCESSORY:
+            return item.slot_id == ForgeFilterId.ACCESSORY.value and not item.is_artifact
+        if filter_id is ForgeFilterId.ARTIFACT:
+            return item.slot_id == ForgeFilterId.ARTIFACT.value or item.is_artifact
+        return False
+
+    def _build_equipment_target(self, *, item: EquipmentItemSnapshot) -> ForgeTargetSnapshot:
+        slot_definition = self._slot_by_id.get(item.slot_id)
+        affix_count = len(item.affixes)
+        special_affix_count = sum(
+            1
+            for affix in item.affixes
+            if affix.affix_kind == "special_effect" or affix.special_effect is not None
+        )
+        equipped = item.equipped_slot_id == item.slot_id
+        growth_line = f"祭炼 {item.artifact_nurture_level}" if item.is_artifact else f"强化 +{item.enhancement_level}"
+        return ForgeTargetSnapshot(
+            target_id=self._serialize_equipment_target_id(item_id=item.item_id),
+            target_kind=ForgeTargetKind.EQUIPMENT,
+            slot_id=item.slot_id,
+            slot_name=item.slot_name,
+            core_role=(slot_definition.core_role if slot_definition is not None else f"{item.slot_name}目标"),
+            display_name=item.display_name,
+            summary_line=f"{item.quality_name}｜{item.rank_name}｜{growth_line}｜{affix_count}词条/{special_affix_count}特效",
+            equipped=equipped,
+            equipment_item=item,
+            supported_operations=self._build_supported_operations(item=item),
+        )
 
     def _build_skill_target(self, *, skill_item: SkillPanelSkillSlotSnapshot) -> ForgeTargetSnapshot:
+        patch_count = len(skill_item.resolved_patch_ids)
         return ForgeTargetSnapshot(
-            target_id=skill_item.slot_id,
+            target_id=self._serialize_skill_target_id(item_id=skill_item.item_id),
             target_kind=ForgeTargetKind.SKILL,
             slot_id=skill_item.slot_id,
             slot_name=f"{skill_item.slot_name}功法",
             core_role=_SKILL_CORE_ROLE_BY_SLOT_ID.get(skill_item.slot_id, "功法槽位，当前纳入统一锻造目标选择。"),
+            display_name=skill_item.skill_name,
+            summary_line=f"{skill_item.rank_name}｜{skill_item.quality_name}｜流派加成 {patch_count}",
+            equipped=skill_item.equipped_slot_id == skill_item.slot_id,
             equipped_skill=skill_item,
             supported_operations=(),
-            action_status_text=_SKILL_ACTION_STATUS_TEXT,
         )
 
     @staticmethod
-    def _format_operation_name(operation_id: ForgeOperationId) -> str:
-        return {
-            ForgeOperationId.ENHANCE: "强化",
-            ForgeOperationId.WASH: "洗炼",
-            ForgeOperationId.REFORGE: "重铸",
-            ForgeOperationId.NURTURE: "法宝培养",
-            ForgeOperationId.DISMANTLE: "分解",
-            ForgeOperationId.UNEQUIP: "卸下装备",
-        }[operation_id]
+    def _build_supported_operations(*, item: EquipmentItemSnapshot) -> tuple[ForgeOperationId, ...]:
+        operations: list[ForgeOperationId] = [
+            ForgeOperationId.ENHANCE,
+            ForgeOperationId.WASH,
+            ForgeOperationId.REFORGE,
+        ]
+        if item.is_artifact or item.slot_id == "artifact":
+            operations.append(ForgeOperationId.NURTURE)
+        operations.append(ForgeOperationId.DISMANTLE)
+        if item.equipped_slot_id == item.slot_id:
+            operations.append(ForgeOperationId.UNEQUIP)
+        return tuple(operations)
+
+    @staticmethod
+    def _resolve_selected_target(
+        *,
+        selected_target_id: str | None,
+        page_targets: tuple[ForgeTargetSnapshot, ...],
+    ) -> ForgeTargetSnapshot | None:
+        if not page_targets:
+            return None
+        if selected_target_id is not None:
+            for target in page_targets:
+                if target.target_id == selected_target_id:
+                    return target
+        return page_targets[0]
+
+    @staticmethod
+    def _serialize_equipment_target_id(*, item_id: int) -> str:
+        return f"equipment:{item_id}"
+
+    @staticmethod
+    def _serialize_skill_target_id(*, item_id: int) -> str:
+        return f"skill:{item_id}"
 
 
 __all__ = [
+    "ForgeFilterId",
     "ForgeOperationId",
     "ForgePanelQueryService",
     "ForgePanelQueryServiceError",

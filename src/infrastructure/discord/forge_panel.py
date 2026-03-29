@@ -24,6 +24,7 @@ from application.equipment.equipment_service import (
     EquipmentWashApplicationResult,
 )
 from application.equipment.forge_query_service import (
+    ForgeFilterId,
     ForgeOperationId,
     ForgePanelQueryService,
     ForgePanelQueryServiceError,
@@ -31,6 +32,7 @@ from application.equipment.forge_query_service import (
     ForgeTargetKind,
     ForgeTargetSnapshot,
 )
+from infrastructure.config.static import get_static_config
 from infrastructure.db.session import session_scope
 from infrastructure.discord.character_panel import (
     DiscordInteractionVisibilityResponder,
@@ -66,6 +68,15 @@ _OPERATION_NAME_BY_ID = {
     ForgeOperationId.DISMANTLE: "分解",
     ForgeOperationId.UNEQUIP: "卸下装备",
 }
+_FILTER_LABEL_BY_ID = {
+    ForgeFilterId.ALL: "全部",
+    ForgeFilterId.WEAPON: "武器",
+    ForgeFilterId.ARMOR: "护甲",
+    ForgeFilterId.ACCESSORY: "饰品",
+    ForgeFilterId.ARTIFACT: "法宝",
+    ForgeFilterId.SKILL: "功法",
+}
+_SKILL_ACTION_DISABLED_TEXT = "当前功法仅支持查看详情，培养写操作尚未开放。"
 
 
 class ForgePanelServiceBundle(Protocol):
@@ -97,7 +108,9 @@ class ForgeActionNote:
 class ForgePanelState:
     """锻造面板显式状态。"""
 
-    selected_slot_id: str | None = None
+    filter_id: ForgeFilterId = ForgeFilterId.ALL
+    page: int = 1
+    selected_target_id: str | None = None
     pending_action: ForgePendingAction = ForgePendingAction.NONE
     selected_locked_affix_positions: tuple[int, ...] = ()
     action_note: ForgeActionNote | None = None
@@ -113,19 +126,17 @@ class ForgePanelPresenter:
         snapshot: ForgePanelSnapshot,
         state: ForgePanelState,
     ) -> discord.Embed:
-        selected_target = _resolve_selected_target(snapshot=snapshot, selected_slot_id=state.selected_slot_id)
         embed = discord.Embed(
             title=f"{snapshot.character_name}｜锻造",
             description="仅操作者可见",
             color=discord.Color.dark_gold(),
         )
         embed.add_field(name="培养资源", value=cls._build_resource_block(snapshot=snapshot), inline=False)
-        embed.add_field(name="当前目标", value=cls._build_target_overview_block(target=selected_target), inline=False)
-        embed.add_field(name="目标详情", value=cls._build_target_detail_block(target=selected_target), inline=False)
-        embed.add_field(name="可执行操作", value=cls._build_operation_block(target=selected_target, state=state), inline=False)
+        embed.add_field(name="当前页目标", value=cls._build_target_list_block(snapshot=snapshot), inline=False)
+        embed.add_field(name="当前选中目标", value=cls._build_target_detail_block(target=snapshot.selected_target), inline=False)
         if state.action_note is not None and state.action_note.lines:
             embed.add_field(name=state.action_note.title, value="\n".join(state.action_note.lines), inline=False)
-        embed.set_footer(text="锻造只负责资源栏、已装备目标选择与成长操作；背包负责浏览与装配")
+        embed.set_footer(text="锻造仅负责目标筛选、分页、培养与分解；背包负责浏览与装配")
         return embed
 
     @staticmethod
@@ -144,24 +155,22 @@ class ForgePanelPresenter:
         return "\n".join(lines)
 
     @classmethod
-    def _build_target_overview_block(cls, *, target: ForgeTargetSnapshot | None) -> str:
-        if target is None:
-            return "当前没有可选锻造目标。"
-        target_kind_text = "装备 / 法宝" if target.target_kind is ForgeTargetKind.EQUIPMENT else "功法槽位"
-        if target.target_kind is ForgeTargetKind.EQUIPMENT:
-            current_target = target.equipped_item.display_name if target.equipped_item is not None else "暂无已装备目标"
-        else:
-            current_target = "无"
-            if target.equipped_skill is not None:
-                current_target = f"{target.equipped_skill.skill_name}｜{target.equipped_skill.path_name}"
-        return "\n".join(
-            (
-                f"目标类别：{target_kind_text}",
-                f"当前槽位：{target.slot_name}",
-                f"定位说明：{target.core_role}",
-                f"当前目标：{current_target}",
-            )
-        )
+    def _build_target_list_block(cls, *, snapshot: ForgePanelSnapshot) -> str:
+        if not snapshot.targets:
+            return "当前没有可培养目标。"
+        lines: list[str] = []
+        selected_target_id = None if snapshot.selected_target is None else snapshot.selected_target.target_id
+        for target in snapshot.targets:
+            prefix = "👉" if target.target_id == selected_target_id else "•"
+            if target.target_kind is ForgeTargetKind.SKILL:
+                kind_tag = "功法"
+                location_tag = "【已装配】" if target.equipped else ""
+            else:
+                item = target.equipment_item
+                kind_tag = "法宝" if item is not None and item.is_artifact else target.slot_name
+                location_tag = "【已装备】" if target.equipped else "【背包】"
+            lines.append(f"{prefix} {kind_tag}{location_tag}：{target.display_name}｜{target.summary_line}")
+        return cls._truncate_lines(tuple(lines), limit=950)
 
     @classmethod
     def _build_target_detail_block(cls, *, target: ForgeTargetSnapshot | None) -> str:
@@ -173,84 +182,47 @@ class ForgePanelPresenter:
 
     @classmethod
     def _build_equipment_detail_block(cls, *, target: ForgeTargetSnapshot) -> str:
-        if target.equipped_item is None:
-            return "\n".join(
-                (
-                    f"槽位：{target.slot_name}",
-                    f"定位：{target.core_role}",
-                    target.action_status_text,
-                )
-            )
-        item = target.equipped_item
+        item = target.equipment_item
+        if item is None:
+            return "选中目标已失效。"
         lines = [
-            f"当前装备：{cls._format_equipment_head(item)}",
+            f"名称：{cls._format_equipment_head(item)}",
+            f"来源：{'已装备' if target.equipped else '背包中'}",
             f"部位：{item.slot_name}",
-            f"底材：{item.template_name}",
+            f"{'法宝器胚' if item.is_artifact else '底材'}：{item.template_name}",
             f"阶数 / 品质：{item.rank_name}｜{item.quality_name}",
             f"强化：+{item.enhancement_level}",
-            f"主要属性：{cls._format_primary_stat_lines(item, limit=3)}",
+            f"主要属性：{cls._format_primary_stat_lines(item, limit=4)}",
         ]
         if item.is_artifact:
             lines.append(f"祭炼：{item.artifact_nurture_level}")
             lines.append(f"共鸣：{item.resonance_name or '无'}")
-        if item.affixes:
-            lines.append("关键词条：" + "｜".join(cls._format_affix_line(affix) for affix in item.affixes[:3]))
-        return "\n".join(lines)
+        affix_lines = cls._format_affix_detail_lines(item.affixes)
+        if affix_lines:
+            lines.append("词条明细：")
+            lines.extend(affix_lines)
+        else:
+            lines.append("词条：无")
+        return cls._truncate_lines(tuple(lines), limit=1000)
 
     @classmethod
     def _build_skill_detail_block(cls, *, target: ForgeTargetSnapshot) -> str:
         skill = target.equipped_skill
         if skill is None:
-            return "\n".join((f"槽位：{target.slot_name}", target.action_status_text))
+            return "选中功法目标已失效。"
         lines = [
-            f"当前功法：{skill.skill_name}",
+            f"功法：{skill.skill_name}",
             f"槽位：{skill.slot_name}",
+            f"定位：{target.core_role}",
             f"流派：{skill.path_name}",
             f"阶数 / 品质：{skill.rank_name}｜{skill.quality_name}",
         ]
         if skill.resolved_patch_ids:
-            lines.append("流派加成：" + "｜".join(skill.resolved_patch_ids[:3]))
-        lines.append(target.action_status_text)
-        return "\n".join(lines)
-
-    @classmethod
-    def _build_operation_block(cls, *, target: ForgeTargetSnapshot | None, state: ForgePanelState) -> str:
-        if target is None:
-            return "当前没有可执行的锻造操作。"
-        if target.target_kind is ForgeTargetKind.SKILL:
-            return target.action_status_text
-        supported_operations = "｜".join(_OPERATION_NAME_BY_ID[operation_id] for operation_id in target.supported_operations)
-        if target.equipped_item is None:
-            return "\n".join((f"可用操作：{supported_operations}", target.action_status_text))
-        lines = [
-            f"当前模式：{cls._format_pending_action(state.pending_action)}",
-            f"可用操作：{supported_operations}",
-        ]
-        if state.pending_action is ForgePendingAction.WASH:
-            lines.append(
-                "锁定词条："
-                + cls._build_locked_affix_summary(
-                    item=target.equipped_item,
-                    locked_affix_positions=state.selected_locked_affix_positions,
-                )
-            )
-            lines.append("已进入洗炼准备态；可在下拉框保留词条后再次点击“执行洗炼”。")
-        elif state.pending_action is ForgePendingAction.REFORGE:
-            lines.append("已进入重铸确认态；再次点击“确认重铸”后执行。")
-        elif state.pending_action is ForgePendingAction.DISMANTLE:
-            lines.append("已进入分解确认态；再次点击“确认分解”后执行。")
+            lines.append("流派加成：" + "｜".join(_format_patch_name(patch_id) for patch_id in skill.resolved_patch_ids[:5]))
         else:
-            lines.append(target.action_status_text)
-        return "\n".join(lines)
-
-    @staticmethod
-    def _format_pending_action(pending_action: ForgePendingAction) -> str:
-        return {
-            ForgePendingAction.NONE: "查看中",
-            ForgePendingAction.WASH: "洗炼准备",
-            ForgePendingAction.REFORGE: "重铸确认",
-            ForgePendingAction.DISMANTLE: "分解确认",
-        }[pending_action]
+            lines.append("流派加成：无")
+        lines.append(_SKILL_ACTION_DISABLED_TEXT)
+        return cls._truncate_lines(tuple(lines), limit=1000)
 
     @staticmethod
     def _format_equipment_head(item: EquipmentItemSnapshot) -> str:
@@ -269,7 +241,139 @@ class ForgePanelPresenter:
 
     @classmethod
     def _format_affix_line(cls, affix) -> str:
-        return f"{affix.affix_name}({affix.tier_name}) {cls._format_stat_value(affix.stat_id, affix.value)}"
+        head = f"{affix.affix_name}({affix.tier_name})" if affix.tier_name else affix.affix_name
+        if affix.affix_kind == "special_effect" or affix.special_effect is not None or not affix.stat_id.strip():
+            return head
+        return f"{head} {cls._format_stat_name(affix.stat_id)} {cls._format_stat_value(affix.stat_id, affix.value)}"
+
+    @classmethod
+    def _format_affix_detail_lines(cls, affixes) -> tuple[str, ...]:
+        lines: list[str] = []
+        for index, affix in enumerate(affixes[:6], start=1):
+            position = affix.position or index
+            header_parts = [f"{position}. {affix.affix_name}"]
+            if affix.tier_name:
+                header_parts.append(affix.tier_name)
+            header_parts.append("特殊词条" if affix.affix_kind == "special_effect" or affix.special_effect is not None else "数值词条")
+            effect_value = cls._format_affix_effect_value(affix)
+            if effect_value:
+                header_parts.append(effect_value)
+            scope_tags: list[str] = []
+            if getattr(affix, "is_pve_specialized", False):
+                scope_tags.append("PVE专精")
+            if getattr(affix, "is_pvp_specialized", False):
+                scope_tags.append("PVP专精")
+            if scope_tags:
+                header_parts.append(" / ".join(scope_tags))
+            description = cls._format_affix_description(affix)
+            if description:
+                header_parts.append(f"说明：{description}")
+            lines.append("｜".join(header_parts))
+        return tuple(lines)
+
+    @classmethod
+    def _format_affix_effect_value(cls, affix) -> str:
+        if affix.affix_kind == "special_effect" or affix.special_effect is not None or not affix.stat_id.strip():
+            if affix.special_effect is None:
+                return "特殊效果"
+            return f"触发：{cls._format_trigger_event(affix.special_effect.trigger_event)}"
+        return f"{cls._format_stat_name(affix.stat_id)} {cls._format_stat_value(affix.stat_id, affix.value)}"
+
+    @classmethod
+    def _format_affix_description(cls, affix) -> str:
+        static_config = get_static_config()
+        affix_definition = static_config.equipment.get_affix(affix.affix_id)
+        parts: list[str] = []
+        if affix_definition is not None and affix_definition.summary:
+            parts.append(str(affix_definition.summary))
+        if affix.special_effect is not None:
+            special_effect_text = cls._format_special_effect_summary(affix.special_effect)
+            if special_effect_text:
+                parts.append(special_effect_text)
+        if not parts:
+            return ""
+        deduplicated_parts: list[str] = []
+        for part in parts:
+            if not part or part in deduplicated_parts:
+                continue
+            deduplicated_parts.append(part)
+        return "；".join(deduplicated_parts)
+
+    @classmethod
+    def _format_special_effect_summary(cls, special_effect) -> str:
+        static_effect = get_static_config().equipment.get_special_effect(special_effect.effect_id)
+        parts: list[str] = []
+        if static_effect is not None and static_effect.summary:
+            parts.append(str(static_effect.summary))
+        parts.append(f"触发：{cls._format_trigger_event(special_effect.trigger_event)}")
+        payload_parts = cls._format_special_effect_payload_parts(special_effect.payload)
+        if payload_parts:
+            parts.append("参数：" + "、".join(payload_parts))
+        return "；".join(part for part in parts if part)
+
+    @classmethod
+    def _format_special_effect_payload_parts(cls, payload) -> tuple[str, ...]:
+        if not isinstance(payload, dict) or not payload:
+            return ()
+        ordered_keys = (
+            ("trigger_rate_permille", "触发率"),
+            ("suppression_permille", "压制幅度"),
+            ("dot_ratio_permille", "持续伤害系数"),
+            ("guard_ratio_permille", "护盾系数"),
+            ("damage_ratio_permille", "伤害转化系数"),
+            ("attack_ratio_permille", "攻力系数"),
+            ("hp_threshold_permille", "气血阈值"),
+            ("duration_rounds", "持续回合"),
+            ("cooldown_rounds", "冷却回合"),
+            ("max_stacks", "最多层数"),
+            ("max_triggers_per_round", "每回合触发上限"),
+            ("max_triggers_per_battle", "每场触发上限"),
+            ("requires_damage_resolved", "需造成伤害"),
+            ("require_empty_shield", "需当前无护盾"),
+        )
+        parts: list[str] = []
+        consumed_keys: set[str] = set()
+        for key, label in ordered_keys:
+            if key not in payload:
+                continue
+            consumed_keys.add(key)
+            value = payload.get(key)
+            formatted_value = cls._format_effect_payload_value(key=key, value=value)
+            parts.append(f"{label} {formatted_value}" if formatted_value else label)
+        for key in sorted(str(raw_key) for raw_key in payload.keys() if str(raw_key) not in consumed_keys):
+            parts.append(f"{key}={payload[key]}")
+        return tuple(parts)
+
+    @classmethod
+    def _format_effect_payload_value(cls, *, key: str, value) -> str:
+        if isinstance(value, bool):
+            return "是" if value else "否"
+        if isinstance(value, int):
+            if key.endswith("_permille"):
+                return f"{value / 10:.1f}%"
+            if key.endswith("_rounds"):
+                return f"{value} 回合"
+            if key == "max_stacks":
+                return f"{value} 层"
+            if key.startswith("max_triggers_per_"):
+                return f"{value} 次"
+            return str(value)
+        return str(value)
+
+    @staticmethod
+    def _format_trigger_event(trigger_event: str) -> str:
+        return {
+            "battle_start": "战斗开始时",
+            "round_start": "回合开始时",
+            "turn_start": "行动开始时",
+            "before_action": "出手前",
+            "after_action": "出手后",
+            "damage_resolved": "造成伤害后",
+            "damage_taken": "受到伤害后",
+            "turn_end": "行动结束时",
+            "round_end": "回合结束时",
+            "battle_end": "战斗结束时",
+        }.get(trigger_event, trigger_event)
 
     @staticmethod
     def _format_stat_name(stat_id: str) -> str:
@@ -302,6 +406,64 @@ class ForgePanelPresenter:
             parts.append(f"{position}. {cls._format_affix_line(affix)}")
         return "｜".join(parts)
 
+    @staticmethod
+    def _truncate_lines(lines: tuple[str, ...], *, limit: int) -> str:
+        if not lines:
+            return "无"
+        result: list[str] = []
+        current_length = 0
+        for index, line in enumerate(lines):
+            projected_length = current_length + len(line) + (1 if result else 0)
+            if projected_length > limit:
+                remaining = len(lines) - index
+                if remaining > 0:
+                    result.append(f"…其余 {remaining} 项请使用下拉框查看")
+                break
+            result.append(line)
+            current_length = projected_length
+        return "\n".join(result)
+
+
+class ForgeFilterSelect(discord.ui.Select):
+    """锻造筛选选择器。"""
+
+    def __init__(self, *, selected_filter_id: ForgeFilterId) -> None:
+        options = [
+            discord.SelectOption(
+                label=_FILTER_LABEL_BY_ID[filter_id],
+                value=filter_id.value,
+                default=filter_id is selected_filter_id,
+            )
+            for filter_id in (
+                ForgeFilterId.ALL,
+                ForgeFilterId.WEAPON,
+                ForgeFilterId.ARMOR,
+                ForgeFilterId.ACCESSORY,
+                ForgeFilterId.ARTIFACT,
+                ForgeFilterId.SKILL,
+            )
+        ]
+        super().__init__(
+            placeholder="选择锻造筛选",
+            min_values=1,
+            max_values=1,
+            options=options,
+            row=0,
+        )
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        view = self.view
+        if not isinstance(view, ForgePanelView):
+            await interaction.response.defer()
+            return
+        await view.controller.change_filter(
+            interaction,
+            character_id=view.character_id,
+            owner_user_id=view.owner_user_id,
+            current_state=view.state,
+            filter_id=ForgeFilterId(self.values[0]),
+        )
+
 
 class ForgeTargetSelect(discord.ui.Select):
     """锻造目标选择器。"""
@@ -309,19 +471,19 @@ class ForgeTargetSelect(discord.ui.Select):
     def __init__(self, *, snapshot: ForgePanelSnapshot, state: ForgePanelState) -> None:
         options = [
             discord.SelectOption(
-                label=target.slot_name[:100],
-                value=target.slot_id,
+                label=target.display_name[:100],
+                value=target.target_id,
                 description=_build_target_option_description(target=target)[:100],
-                default=target.slot_id == state.selected_slot_id,
+                default=target.target_id == state.selected_target_id,
             )
             for target in snapshot.targets[:_MAX_SELECT_OPTIONS]
         ]
         super().__init__(
-            placeholder="选择锻造目标",
+            placeholder="选择当前页培养目标",
             min_values=1,
             max_values=1,
             options=options,
-            row=0,
+            row=1,
         )
 
     async def callback(self, interaction: discord.Interaction) -> None:
@@ -334,7 +496,7 @@ class ForgeTargetSelect(discord.ui.Select):
             character_id=view.character_id,
             owner_user_id=view.owner_user_id,
             current_state=view.state,
-            slot_id=self.values[0],
+            target_id=self.values[0],
         )
 
 
@@ -363,7 +525,7 @@ class ForgeWashAffixSelect(discord.ui.Select):
             min_values=0,
             max_values=len(options),
             options=options,
-            row=3,
+            row=4,
         )
 
     async def callback(self, interaction: discord.Interaction) -> None:
@@ -398,18 +560,29 @@ class ForgePanelView(discord.ui.View):
         self.character_id = snapshot.character_id
         self.snapshot = snapshot
         self.state = state
-        self.add_item(ForgeTargetSelect(snapshot=snapshot, state=state))
+        self.add_item(ForgeFilterSelect(selected_filter_id=state.filter_id))
+        if snapshot.targets:
+            self.add_item(ForgeTargetSelect(snapshot=snapshot, state=state))
         selected_target = self._selected_target()
+        show_nurture_button = (
+            selected_target is not None
+            and selected_target.target_kind is ForgeTargetKind.EQUIPMENT
+            and selected_target.equipment_item is not None
+            and ForgeOperationId.NURTURE in selected_target.supported_operations
+            and state.pending_action is not ForgePendingAction.WASH
+        )
+        if not show_nurture_button:
+            self.remove_item(self.nurture_target)
         if (
             selected_target is not None
             and selected_target.target_kind is ForgeTargetKind.EQUIPMENT
-            and selected_target.equipped_item is not None
+            and selected_target.equipment_item is not None
             and state.pending_action is ForgePendingAction.WASH
-            and selected_target.equipped_item.affixes
+            and selected_target.equipment_item.affixes
         ):
             self.add_item(
                 ForgeWashAffixSelect(
-                    item=selected_target.equipped_item,
+                    item=selected_target.equipment_item,
                     selected_locked_positions=state.selected_locked_affix_positions,
                 )
             )
@@ -422,23 +595,25 @@ class ForgePanelView(discord.ui.View):
         return False
 
     def _selected_target(self) -> ForgeTargetSnapshot | None:
-        return _resolve_selected_target(snapshot=self.snapshot, selected_slot_id=self.state.selected_slot_id)
+        return _resolve_selected_target(snapshot=self.snapshot, selected_target_id=self.state.selected_target_id)
 
     def _sync_component_state(self) -> None:
         selected_target = self._selected_target()
-        has_equipped_target = (
+        has_equipment_target = (
             selected_target is not None
             and selected_target.target_kind is ForgeTargetKind.EQUIPMENT
-            and selected_target.equipped_item is not None
+            and selected_target.equipment_item is not None
         )
-        can_enhance = has_equipped_target and ForgeOperationId.ENHANCE in selected_target.supported_operations
-        can_wash = has_equipped_target and ForgeOperationId.WASH in selected_target.supported_operations
-        can_reforge = has_equipped_target and ForgeOperationId.REFORGE in selected_target.supported_operations
-        can_dismantle = has_equipped_target and ForgeOperationId.DISMANTLE in selected_target.supported_operations
-        can_nurture = has_equipped_target and ForgeOperationId.NURTURE in selected_target.supported_operations
-        can_unequip = has_equipped_target and ForgeOperationId.UNEQUIP in selected_target.supported_operations
+        can_enhance = has_equipment_target and ForgeOperationId.ENHANCE in selected_target.supported_operations
+        can_wash = has_equipment_target and ForgeOperationId.WASH in selected_target.supported_operations
+        can_reforge = has_equipment_target and ForgeOperationId.REFORGE in selected_target.supported_operations
+        can_dismantle = has_equipment_target and ForgeOperationId.DISMANTLE in selected_target.supported_operations
+        can_nurture = has_equipment_target and ForgeOperationId.NURTURE in selected_target.supported_operations
+        can_unequip = has_equipment_target and ForgeOperationId.UNEQUIP in selected_target.supported_operations
         has_pending_action = self.state.pending_action is not ForgePendingAction.NONE
 
+        self.previous_page.disabled = self.snapshot.page <= 1
+        self.next_page.disabled = self.snapshot.page >= self.snapshot.total_pages or self.snapshot.total_items <= 0
         self.enhance_target.disabled = not (can_enhance and not has_pending_action)
         self.wash_target.disabled = not (
             can_wash
@@ -455,8 +630,8 @@ class ForgePanelView(discord.ui.View):
                 or self.state.pending_action is ForgePendingAction.DISMANTLE
             )
         )
-        self.nurture_target.disabled = not (can_nurture and not has_pending_action)
         self.unequip_target.disabled = not (can_unequip and not has_pending_action)
+        self.nurture_target.disabled = not (can_nurture and not has_pending_action)
 
         self.wash_target.label = "执行洗炼" if self.state.pending_action is ForgePendingAction.WASH else "洗炼"
         self.wash_target.style = (
@@ -477,7 +652,37 @@ class ForgePanelView(discord.ui.View):
             else discord.ButtonStyle.secondary
         )
 
-    @discord.ui.button(label="刷新", style=discord.ButtonStyle.primary, row=1)
+    @discord.ui.button(label="上一页", style=discord.ButtonStyle.secondary, row=2)
+    async def previous_page(  # type: ignore[override]
+        self,
+        interaction: discord.Interaction,
+        button: discord.ui.Button,
+    ) -> None:
+        del button
+        await self.controller.change_page(
+            interaction,
+            character_id=self.character_id,
+            owner_user_id=self.owner_user_id,
+            current_state=self.state,
+            page_delta=-1,
+        )
+
+    @discord.ui.button(label="下一页", style=discord.ButtonStyle.secondary, row=2)
+    async def next_page(  # type: ignore[override]
+        self,
+        interaction: discord.Interaction,
+        button: discord.ui.Button,
+    ) -> None:
+        del button
+        await self.controller.change_page(
+            interaction,
+            character_id=self.character_id,
+            owner_user_id=self.owner_user_id,
+            current_state=self.state,
+            page_delta=1,
+        )
+
+    @discord.ui.button(label="刷新", style=discord.ButtonStyle.primary, row=2)
     async def refresh_panel(  # type: ignore[override]
         self,
         interaction: discord.Interaction,
@@ -491,7 +696,7 @@ class ForgePanelView(discord.ui.View):
             current_state=self.state,
         )
 
-    @discord.ui.button(label="强化", style=discord.ButtonStyle.primary, row=1)
+    @discord.ui.button(label="强化", style=discord.ButtonStyle.primary, row=3)
     async def enhance_target(  # type: ignore[override]
         self,
         interaction: discord.Interaction,
@@ -505,7 +710,7 @@ class ForgePanelView(discord.ui.View):
             current_state=self.state,
         )
 
-    @discord.ui.button(label="洗炼", style=discord.ButtonStyle.secondary, row=1)
+    @discord.ui.button(label="洗炼", style=discord.ButtonStyle.secondary, row=3)
     async def wash_target(  # type: ignore[override]
         self,
         interaction: discord.Interaction,
@@ -519,7 +724,7 @@ class ForgePanelView(discord.ui.View):
             current_state=self.state,
         )
 
-    @discord.ui.button(label="重铸", style=discord.ButtonStyle.secondary, row=1)
+    @discord.ui.button(label="重铸", style=discord.ButtonStyle.secondary, row=3)
     async def reforge_target(  # type: ignore[override]
         self,
         interaction: discord.Interaction,
@@ -533,7 +738,7 @@ class ForgePanelView(discord.ui.View):
             current_state=self.state,
         )
 
-    @discord.ui.button(label="分解", style=discord.ButtonStyle.danger, row=1)
+    @discord.ui.button(label="分解", style=discord.ButtonStyle.danger, row=3)
     async def dismantle_target(  # type: ignore[override]
         self,
         interaction: discord.Interaction,
@@ -547,21 +752,7 @@ class ForgePanelView(discord.ui.View):
             current_state=self.state,
         )
 
-    @discord.ui.button(label="法宝培养", style=discord.ButtonStyle.primary, row=2)
-    async def nurture_target(  # type: ignore[override]
-        self,
-        interaction: discord.Interaction,
-        button: discord.ui.Button,
-    ) -> None:
-        del button
-        await self.controller.nurture_target(
-            interaction,
-            character_id=self.character_id,
-            owner_user_id=self.owner_user_id,
-            current_state=self.state,
-        )
-
-    @discord.ui.button(label="卸下装备", style=discord.ButtonStyle.secondary, row=2)
+    @discord.ui.button(label="卸下装备", style=discord.ButtonStyle.secondary, row=3)
     async def unequip_target(  # type: ignore[override]
         self,
         interaction: discord.Interaction,
@@ -569,6 +760,20 @@ class ForgePanelView(discord.ui.View):
     ) -> None:
         del button
         await self.controller.unequip_target(
+            interaction,
+            character_id=self.character_id,
+            owner_user_id=self.owner_user_id,
+            current_state=self.state,
+        )
+
+    @discord.ui.button(label="法宝培养", style=discord.ButtonStyle.primary, row=4)
+    async def nurture_target(  # type: ignore[override]
+        self,
+        interaction: discord.Interaction,
+        button: discord.ui.Button,
+    ) -> None:
+        del button
+        await self.controller.nurture_target(
             interaction,
             character_id=self.character_id,
             owner_user_id=self.owner_user_id,
@@ -597,7 +802,7 @@ class ForgePanelController:
         initial_state = ForgePanelState()
         try:
             character_id = self._load_character_id_by_discord_user_id(discord_user_id=str(interaction.user.id))
-            snapshot = self._load_snapshot(character_id=character_id)
+            snapshot = self._load_snapshot(character_id=character_id, state=initial_state)
         except (CharacterPanelQueryServiceError, ForgePanelQueryServiceError) as exc:
             await self.responder.send_private_error(interaction, message=str(exc))
             return
@@ -619,7 +824,7 @@ class ForgePanelController:
         """按角色标识打开锻造面板。"""
         initial_state = ForgePanelState()
         try:
-            snapshot = self._load_snapshot(character_id=character_id)
+            snapshot = self._load_snapshot(character_id=character_id, state=initial_state)
         except ForgePanelQueryServiceError as exc:
             await self.responder.send_private_error(interaction, message=str(exc))
             return
@@ -634,6 +839,55 @@ class ForgePanelController:
             return
         await self.responder.edit_message(interaction, payload=payload)
 
+    async def change_filter(
+        self,
+        interaction: discord.Interaction,
+        *,
+        character_id: int,
+        owner_user_id: int,
+        current_state: ForgePanelState,
+        filter_id: ForgeFilterId,
+    ) -> None:
+        next_state = replace(
+            current_state,
+            filter_id=filter_id,
+            page=1,
+            selected_target_id=None,
+            pending_action=ForgePendingAction.NONE,
+            selected_locked_affix_positions=(),
+            action_note=None,
+        )
+        await self._refresh_and_edit(
+            interaction,
+            character_id=character_id,
+            owner_user_id=owner_user_id,
+            state=next_state,
+        )
+
+    async def change_page(
+        self,
+        interaction: discord.Interaction,
+        *,
+        character_id: int,
+        owner_user_id: int,
+        current_state: ForgePanelState,
+        page_delta: int,
+    ) -> None:
+        next_state = replace(
+            current_state,
+            page=max(1, current_state.page + page_delta),
+            selected_target_id=None,
+            pending_action=ForgePendingAction.NONE,
+            selected_locked_affix_positions=(),
+            action_note=None,
+        )
+        await self._refresh_and_edit(
+            interaction,
+            character_id=character_id,
+            owner_user_id=owner_user_id,
+            state=next_state,
+        )
+
     async def select_target(
         self,
         interaction: discord.Interaction,
@@ -641,11 +895,11 @@ class ForgePanelController:
         character_id: int,
         owner_user_id: int,
         current_state: ForgePanelState,
-        slot_id: str,
+        target_id: str,
     ) -> None:
         next_state = replace(
             current_state,
-            selected_slot_id=slot_id,
+            selected_target_id=target_id,
             pending_action=ForgePendingAction.NONE,
             selected_locked_affix_positions=(),
             action_note=None,
@@ -682,7 +936,7 @@ class ForgePanelController:
         locked_affix_positions: tuple[int, ...],
     ) -> None:
         try:
-            snapshot = self._load_snapshot(character_id=character_id)
+            snapshot = self._load_snapshot(character_id=character_id, state=current_state)
         except ForgePanelQueryServiceError as exc:
             await self.responder.send_private_error(interaction, message=str(exc))
             return
@@ -718,7 +972,7 @@ class ForgePanelController:
         current_state: ForgePanelState,
     ) -> None:
         try:
-            snapshot = self._load_snapshot(character_id=character_id)
+            snapshot = self._load_snapshot(character_id=character_id, state=current_state)
             normalized_state = self._normalize_state(state=current_state, snapshot=snapshot)
             target = self._require_equipment_target(snapshot=snapshot, state=normalized_state)
             item = self._require_equipped_item(target=target)
@@ -748,7 +1002,7 @@ class ForgePanelController:
         current_state: ForgePanelState,
     ) -> None:
         try:
-            snapshot = self._load_snapshot(character_id=character_id)
+            snapshot = self._load_snapshot(character_id=character_id, state=current_state)
             normalized_state = self._normalize_state(state=current_state, snapshot=snapshot)
             target = self._require_equipment_target(snapshot=snapshot, state=normalized_state)
             item = self._require_equipped_item(target=target)
@@ -814,7 +1068,7 @@ class ForgePanelController:
         current_state: ForgePanelState,
     ) -> None:
         try:
-            snapshot = self._load_snapshot(character_id=character_id)
+            snapshot = self._load_snapshot(character_id=character_id, state=current_state)
             normalized_state = self._normalize_state(state=current_state, snapshot=snapshot)
             target = self._require_equipment_target(snapshot=snapshot, state=normalized_state)
             item = self._require_equipped_item(target=target)
@@ -869,7 +1123,7 @@ class ForgePanelController:
         current_state: ForgePanelState,
     ) -> None:
         try:
-            snapshot = self._load_snapshot(character_id=character_id)
+            snapshot = self._load_snapshot(character_id=character_id, state=current_state)
             normalized_state = self._normalize_state(state=current_state, snapshot=snapshot)
             target = self._require_equipment_target(snapshot=snapshot, state=normalized_state)
             item = self._require_equipped_item(target=target)
@@ -924,11 +1178,11 @@ class ForgePanelController:
         current_state: ForgePanelState,
     ) -> None:
         try:
-            snapshot = self._load_snapshot(character_id=character_id)
+            snapshot = self._load_snapshot(character_id=character_id, state=current_state)
             normalized_state = self._normalize_state(state=current_state, snapshot=snapshot)
             target = self._require_equipment_target(snapshot=snapshot, state=normalized_state)
             item = self._require_equipped_item(target=target)
-            if not item.is_artifact or target.slot_id != "artifact":
+            if not item.is_artifact:
                 raise ForgePanelQueryServiceError("当前目标不是可培养法宝。")
             result = self._nurture_artifact(character_id=character_id, equipment_item_id=item.item_id)
         except (ForgePanelQueryServiceError, EquipmentServiceError) as exc:
@@ -956,11 +1210,13 @@ class ForgePanelController:
         current_state: ForgePanelState,
     ) -> None:
         try:
-            snapshot = self._load_snapshot(character_id=character_id)
+            snapshot = self._load_snapshot(character_id=character_id, state=current_state)
             normalized_state = self._normalize_state(state=current_state, snapshot=snapshot)
             target = self._require_equipment_target(snapshot=snapshot, state=normalized_state)
-            self._require_equipped_item(target=target)
-            result = self._unequip_item(character_id=character_id, equipped_slot_id=target.slot_id)
+            item = self._require_equipped_item(target=target)
+            if ForgeOperationId.UNEQUIP not in target.supported_operations or not target.equipped:
+                raise ForgePanelQueryServiceError("当前目标未处于已装备状态，无法卸下。")
+            result = self._unequip_item(character_id=character_id, equipped_slot_id=item.slot_id)
         except (ForgePanelQueryServiceError, EquipmentServiceError) as exc:
             await self.responder.send_private_error(interaction, message=str(exc))
             return
@@ -986,7 +1242,7 @@ class ForgePanelController:
         state: ForgePanelState,
     ) -> None:
         try:
-            snapshot = self._load_snapshot(character_id=character_id)
+            snapshot = self._load_snapshot(character_id=character_id, state=state)
         except ForgePanelQueryServiceError as exc:
             await self.responder.send_private_error(interaction, message=str(exc))
             return
@@ -1000,26 +1256,31 @@ class ForgePanelController:
 
     @staticmethod
     def _normalize_state(*, state: ForgePanelState, snapshot: ForgePanelSnapshot) -> ForgePanelState:
-        valid_slot_ids = {target.slot_id for target in snapshot.targets}
-        selected_slot_id = state.selected_slot_id if state.selected_slot_id in valid_slot_ids else _resolve_default_slot_id(snapshot=snapshot)
-        selected_target = _resolve_selected_target(snapshot=snapshot, selected_slot_id=selected_slot_id)
+        selected_target_id = state.selected_target_id
+        valid_target_ids = {target.target_id for target in snapshot.targets}
+        if selected_target_id not in valid_target_ids:
+            selected_target_id = _resolve_default_target_id(snapshot=snapshot)
+        selected_target = _resolve_selected_target(snapshot=snapshot, selected_target_id=selected_target_id)
         pending_action = state.pending_action
         selected_locked_affix_positions = state.selected_locked_affix_positions
         action_note = state.action_note
         if (
             selected_target is None
             or selected_target.target_kind is ForgeTargetKind.SKILL
-            or selected_target.equipped_item is None
+            or selected_target.equipment_item is None
         ):
             pending_action = ForgePendingAction.NONE
             selected_locked_affix_positions = ()
-        if state.selected_slot_id != selected_slot_id and pending_action is ForgePendingAction.NONE:
-            action_note = state.action_note
-        if state.selected_slot_id != selected_slot_id and state.pending_action is not ForgePendingAction.NONE:
-            action_note = None
+        if state.selected_target_id != selected_target_id:
+            selected_locked_affix_positions = ()
+            if state.pending_action is not ForgePendingAction.NONE:
+                pending_action = ForgePendingAction.NONE
+                action_note = None
         return replace(
             state,
-            selected_slot_id=selected_slot_id,
+            filter_id=snapshot.filter_id,
+            page=snapshot.page,
+            selected_target_id=selected_target_id,
             pending_action=pending_action,
             selected_locked_affix_positions=selected_locked_affix_positions,
             action_note=action_note,
@@ -1033,10 +1294,15 @@ class ForgePanelController:
             )
             return overview.character_id
 
-    def _load_snapshot(self, *, character_id: int) -> ForgePanelSnapshot:
+    def _load_snapshot(self, *, character_id: int, state: ForgePanelState) -> ForgePanelSnapshot:
         with session_scope(self._session_factory) as session:
             services = self._service_bundle_factory(session)
-            return services.forge_panel_query_service.get_panel_snapshot(character_id=character_id)
+            return services.forge_panel_query_service.get_panel_snapshot(
+                character_id=character_id,
+                filter_id=state.filter_id,
+                page=state.page,
+                selected_target_id=state.selected_target_id,
+            )
 
     def _enhance_equipment(
         self,
@@ -1120,18 +1386,18 @@ class ForgePanelController:
 
     @staticmethod
     def _require_equipment_target(*, snapshot: ForgePanelSnapshot, state: ForgePanelState) -> ForgeTargetSnapshot:
-        target = _resolve_selected_target(snapshot=snapshot, selected_slot_id=state.selected_slot_id)
+        target = _resolve_selected_target(snapshot=snapshot, selected_target_id=state.selected_target_id)
         if target is None:
             raise ForgePanelQueryServiceError("当前没有可操作的锻造目标。")
         if target.target_kind is ForgeTargetKind.SKILL:
-            raise ForgePanelQueryServiceError(target.action_status_text)
+            raise ForgePanelQueryServiceError(_SKILL_ACTION_DISABLED_TEXT)
         return target
 
     @staticmethod
     def _require_equipped_item(*, target: ForgeTargetSnapshot) -> EquipmentItemSnapshot:
-        if target.equipped_item is None:
-            raise ForgePanelQueryServiceError(target.action_status_text)
-        return target.equipped_item
+        if target.equipment_item is None:
+            raise ForgePanelQueryServiceError("当前选中目标已失效，请重新选择。")
+        return target.equipment_item
 
     @staticmethod
     def _build_wash_prepare_note(
@@ -1139,9 +1405,9 @@ class ForgePanelController:
         item: EquipmentItemSnapshot,
         locked_affix_positions: tuple[int, ...],
     ) -> ForgeActionNote:
-        lines = [f"当前装备：{ForgePanelPresenter._format_equipment_head(item)}"]
+        lines = [f"当前目标：{ForgePanelPresenter._format_equipment_head(item)}"]
         if not item.affixes:
-            lines.append("当前装备没有可锁定词条。")
+            lines.append("当前目标没有可锁定词条。")
             lines.append("再次点击“执行洗炼”后，将直接洗炼。")
             return ForgeActionNote(title="洗炼准备", lines=tuple(lines))
         lines.append(
@@ -1341,32 +1607,46 @@ class ForgePanelController:
         return PanelMessagePayload(embed=embed, view=view)
 
 
-def _resolve_default_slot_id(*, snapshot: ForgePanelSnapshot) -> str | None:
-    for target in snapshot.targets:
-        if target.target_kind is ForgeTargetKind.EQUIPMENT and target.equipped_item is not None:
-            return target.slot_id
+def _resolve_default_target_id(*, snapshot: ForgePanelSnapshot) -> str | None:
+    if snapshot.selected_target is not None:
+        return snapshot.selected_target.target_id
     if not snapshot.targets:
         return None
-    return snapshot.targets[0].slot_id
+    return snapshot.targets[0].target_id
 
 
-def _resolve_selected_target(*, snapshot: ForgePanelSnapshot, selected_slot_id: str | None) -> ForgeTargetSnapshot | None:
-    if selected_slot_id is None:
-        return None
+def _resolve_selected_target(*, snapshot: ForgePanelSnapshot, selected_target_id: str | None) -> ForgeTargetSnapshot | None:
+    if selected_target_id is None:
+        return snapshot.selected_target
     for target in snapshot.targets:
-        if target.slot_id == selected_slot_id:
+        if target.target_id == selected_target_id:
             return target
-    return None
+    return snapshot.selected_target
 
 
 def _build_target_option_description(*, target: ForgeTargetSnapshot) -> str:
     if target.target_kind is ForgeTargetKind.EQUIPMENT:
-        if target.equipped_item is None:
-            return "暂无已装备目标"
-        return f"{target.equipped_item.display_name}｜强化 +{target.equipped_item.enhancement_level}"
+        source_tag = "已装备" if target.equipped else "背包"
+        return f"{source_tag}｜{target.summary_line}"
     if target.equipped_skill is None:
         return "功法目标未就绪"
-    return f"{target.equipped_skill.skill_name}｜未开放培养"
+    return f"{target.equipped_skill.skill_name}｜{target.equipped_skill.path_name}"
+
+
+def _format_patch_name(patch_id: str) -> str:
+    normalized_patch_id = patch_id.strip()
+    if not normalized_patch_id:
+        return "未命名流派修正"
+    patch = get_static_config().skill_generation.get_patch(normalized_patch_id)
+    if patch is not None:
+        return str(patch.name)
+    if _looks_like_internal_identifier(normalized_patch_id):
+        return "未命名流派修正"
+    return normalized_patch_id
+
+
+def _looks_like_internal_identifier(value: str) -> bool:
+    return all(character.islower() or character.isdigit() or character == "_" for character in value)
 
 
 def _format_resource_name(resource_id: str) -> str:

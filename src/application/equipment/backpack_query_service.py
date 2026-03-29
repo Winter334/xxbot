@@ -257,10 +257,22 @@ class BackpackPanelQueryService:
 
     def _build_equipment_entry_summary(self, *, item: EquipmentItemSnapshot) -> BackpackEntrySummarySnapshot:
         is_equipped = item.equipped_slot_id == item.slot_id
+        affix_count = len(item.affixes)
+        special_affix_count = sum(
+            1
+            for affix in item.affixes
+            if affix.affix_kind == "special_effect" or affix.special_effect is not None
+        )
         if item.is_artifact or item.slot_id == BackpackFilterId.ARTIFACT.value:
-            summary_line = f"{item.quality_name}｜{item.rank_name}｜祭炼 {item.artifact_nurture_level}"
+            summary_line = (
+                f"{item.quality_name}｜{item.rank_name}｜祭炼 {item.artifact_nurture_level}"
+                f"｜{affix_count}词条/{special_affix_count}特效"
+            )
         else:
-            summary_line = f"{item.quality_name}｜{item.rank_name}｜强化 +{item.enhancement_level}"
+            summary_line = (
+                f"{item.quality_name}｜{item.rank_name}｜强化 +{item.enhancement_level}"
+                f"｜{affix_count}词条/{special_affix_count}特效"
+            )
         return BackpackEntrySummarySnapshot(
             entry_key=BackpackEntryKey(entry_kind=BackpackEntryKind.EQUIPMENT, item_id=item.item_id),
             entry_kind=BackpackEntryKind.EQUIPMENT,
@@ -278,6 +290,7 @@ class BackpackPanelQueryService:
     @staticmethod
     def _build_skill_entry_summary(*, skill_item: SkillPanelSkillSlotSnapshot) -> BackpackEntrySummarySnapshot:
         is_equipped = skill_item.equipped_slot_id == skill_item.slot_id
+        patch_count = len(skill_item.resolved_patch_ids)
         return BackpackEntrySummarySnapshot(
             entry_key=BackpackEntryKey(entry_kind=BackpackEntryKind.SKILL, item_id=skill_item.item_id),
             entry_kind=BackpackEntryKind.SKILL,
@@ -289,7 +302,7 @@ class BackpackPanelQueryService:
             rank_name=skill_item.rank_name,
             equipped=is_equipped,
             is_artifact=False,
-            summary_line=f"{skill_item.slot_name}｜{skill_item.rank_name}｜{skill_item.quality_name}",
+            summary_line=f"{skill_item.slot_name}｜{skill_item.rank_name}｜{skill_item.quality_name}｜流派加成 {patch_count}",
         )
 
     def _build_all_entry_sort_key(
