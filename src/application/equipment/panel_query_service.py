@@ -60,6 +60,35 @@ _ENDLESS_REWARD_NAME_BY_KEY = {
     "artifact_score": "法宝分",
     "dao_pattern_score": "道纹分",
 }
+_STAT_NAME_BY_ID = {
+    "max_hp": "气血",
+    "attack_power": "攻力",
+    "guard_power": "护体",
+    "speed": "迅捷",
+    "crit_rate_permille": "暴击",
+    "crit_damage_bonus_permille": "暴伤",
+    "hit_rate_permille": "命中",
+    "dodge_rate_permille": "闪避",
+    "damage_bonus_permille": "增伤",
+    "damage_reduction_permille": "减伤",
+    "counter_rate_permille": "反击",
+    "control_bonus_permille": "控势",
+    "control_resist_permille": "定心",
+    "healing_power_permille": "疗愈",
+    "shield_power_permille": "护盾",
+    "penetration_permille": "穿透",
+}
+
+
+@dataclass(frozen=True, slots=True)
+class EquipmentCardSnapshot:
+    """可直接渲染的装备卡片快照。"""
+
+    name: str
+    badge_line: str
+    growth_line: str | None
+    stat_lines: tuple[str, ...]
+    keyword_lines: tuple[str, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -71,6 +100,8 @@ class EquipmentSlotPanelSnapshot:
     core_role: str
     equipped_item: EquipmentItemSnapshot | None
     candidate_items: tuple[EquipmentItemSnapshot, ...]
+    equipped_card: EquipmentCardSnapshot | None = None
+    candidate_cards: tuple[EquipmentCardSnapshot, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -172,9 +203,49 @@ class EquipmentPanelQueryService:
                 core_role=slot.core_role,
                 equipped_item=equipped_by_slot.get(slot.slot_id),
                 candidate_items=tuple(active_by_slot.get(slot.slot_id, [])),
+                equipped_card=(
+                    None
+                    if equipped_by_slot.get(slot.slot_id) is None
+                    else self._build_item_card(equipped_by_slot[slot.slot_id])
+                ),
+                candidate_cards=tuple(self._build_item_card(item) for item in active_by_slot.get(slot.slot_id, [])),
             )
             for slot in self._slot_definitions
         )
+
+    def _build_item_card(self, item: EquipmentItemSnapshot) -> EquipmentCardSnapshot:
+        stats = item.resolved_stats if item.resolved_stats else item.base_attributes
+        stat_lines = tuple(
+            f"{self._format_stat_name(stat.stat_id)} {self._format_stat_value(stat.stat_id, stat.value)}"
+            for stat in stats[:4]
+        )
+        keyword_lines = tuple(self._format_affix_keyword(affix) for affix in item.affixes[:3])
+        growth_parts = [f"强化 +{item.enhancement_level}"]
+        if item.is_artifact:
+            growth_parts.append(f"祭炼 {item.artifact_nurture_level}")
+        return EquipmentCardSnapshot(
+            name=item.display_name,
+            badge_line=f"{'法宝' if item.is_artifact else item.slot_name}｜{item.rank_name}｜{item.quality_name}",
+            growth_line="｜".join(growth_parts),
+            stat_lines=stat_lines or ("暂无关键属性",),
+            keyword_lines=keyword_lines,
+        )
+
+    @staticmethod
+    def _format_affix_keyword(affix) -> str:
+        if affix.affix_kind == "special_effect" or affix.special_effect is not None or not affix.stat_id.strip():
+            return affix.affix_name
+        return f"{affix.affix_name} {EquipmentPanelQueryService._format_stat_value(affix.stat_id, affix.value)}"
+
+    @staticmethod
+    def _format_stat_name(stat_id: str) -> str:
+        return _STAT_NAME_BY_ID.get(stat_id, stat_id)
+
+    @staticmethod
+    def _format_stat_value(stat_id: str, value: int) -> str:
+        if stat_id.endswith("_permille"):
+            return f"{value / 10:.1f}%"
+        return str(value)
 
     def _load_latest_drop_summary(self, *, character_id: int) -> EquipmentDropSummary | None:
         records = self._battle_record_repository.list_drop_records(character_id)
@@ -356,6 +427,7 @@ def _normalize_int_mapping(value: object) -> dict[str, int]:
 
 
 __all__ = [
+    "EquipmentCardSnapshot",
     "EquipmentDropSummary",
     "EquipmentPanelQueryService",
     "EquipmentPanelQueryServiceError",

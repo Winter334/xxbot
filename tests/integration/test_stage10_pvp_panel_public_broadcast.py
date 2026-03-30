@@ -15,7 +15,15 @@ from application.character.panel_query_service import (
     CharacterPanelOverview,
     CharacterPanelSkillDisplay,
 )
-from application.pvp.panel_service import PvpBattleReportDigest, PvpPanelSnapshot, PvpRecentSettlementSnapshot
+from application.pvp.panel_service import (
+    PvpBattleReportDigest,
+    PvpOpponentCard,
+    PvpPanelSnapshot,
+    PvpRecentResultCard,
+    PvpRecentSettlementSnapshot,
+    PvpRewardCard,
+    PvpStatusCard,
+)
 from application.pvp.pvp_service import PvpChallengeResult, PvpHubSnapshot, PvpTargetListSnapshot
 import infrastructure.discord.pvp_panel as pvp_panel_module
 from infrastructure.discord.pvp_panel import PvpDisplayMode, PvpPanelController, PvpPublicSettlementPresenter
@@ -207,6 +215,54 @@ def _build_recent_settlement(
     battle_report_digest: PvpBattleReportDigest | None = None,
     defender_summary: dict[str, object] | None = None,
 ) -> PvpRecentSettlementSnapshot:
+    summary = defender_summary or {
+        "character_name": "寒川",
+        "character_title": "逐月客",
+        "realm_name": "凡体",
+        "stage_name": "中期",
+        "main_path_name": "寒泉诀",
+        "public_power_score": 4280,
+        "display_summary": "剑气内敛",
+        "snapshot_version": 3,
+    }
+    reward_card = PvpRewardCard(
+        tier_name="青铜二阶",
+        summary="青铜二阶奖励",
+        honor_coin_on_win=12,
+        honor_coin_on_loss=4,
+        visible_reward_lines=tuple(
+            f"徽记｜{reward.get('name')}"
+            for reward in display_rewards
+            if reward.get("reward_type") == "badge"
+        ),
+    )
+    opponent_card = PvpOpponentCard(
+        character_id=2002,
+        character_name=str(summary.get("character_name") or "寒川"),
+        character_title=None if summary.get("character_title") is None else str(summary.get("character_title")),
+        rank_position=rank_before_defender,
+        realm_name=None if summary.get("realm_name") is None else str(summary.get("realm_name")),
+        stage_name=None if summary.get("stage_name") is None else str(summary.get("stage_name")),
+        main_path_name=(
+            None
+            if summary.get("main_path_name") is None
+            else str(summary.get("main_path_name"))
+        ),
+        public_power_score=int(summary.get("public_power_score") or 4280),
+        hidden_pvp_score=98640,
+        rank_gap=rank_before_defender - rank_before_attacker,
+        display_summary=None if summary.get("display_summary") is None else str(summary.get("display_summary")),
+        reward_card=reward_card,
+    )
+    recent_result_card = PvpRecentResultCard(
+        opponent_name=opponent_card.character_name,
+        outcome=battle_outcome,
+        occurred_at=_NOW,
+        rank_before=rank_before_attacker,
+        rank_after=rank_after_attacker,
+        rank_shift=rank_before_attacker - rank_after_attacker,
+        honor_coin_delta=honor_coin_delta,
+    )
     return PvpRecentSettlementSnapshot(
         challenge_record_id=301,
         occurred_at=_NOW,
@@ -227,6 +283,9 @@ def _build_recent_settlement(
         anti_abuse_flags=anti_abuse_flags,
         reward_preview={"summary": "青铜二阶奖励"},
         display_rewards=display_rewards,
+        reward_card=reward_card,
+        opponent_card=opponent_card,
+        recent_result_card=recent_result_card,
         settlement_payload=settlement_payload
         or {
             "honor_coin": {
@@ -246,17 +305,7 @@ def _build_recent_settlement(
             "private_note": "仅私有结算可见",
         },
         battle_report_digest=battle_report_digest or _build_battle_report_digest(),
-        defender_summary=defender_summary
-        or {
-            "character_name": "寒川",
-            "character_title": "逐月客",
-            "realm_name": "凡体",
-            "stage_name": "中期",
-            "main_path_name": "寒泉诀",
-            "public_power_score": 4280,
-            "display_summary": "剑气内敛",
-            "snapshot_version": 3,
-        },
+        defender_summary=summary,
     )
 
 
@@ -278,6 +327,20 @@ def _build_snapshot(
         current_entry_summary={"public_power_score": 4321},
         daily_challenge_limit=5,
         repeat_target_limit=2,
+        status_card=PvpStatusCard(
+            rank_position=20,
+            best_rank=18,
+            remaining_challenge_count=3,
+            daily_challenge_limit=5,
+            used_challenge_count=2,
+            honor_coin_balance=120,
+            public_power_score=4321,
+            hidden_pvp_score=current_hidden_pvp_score,
+            reward_tier_name=current_reward_tier_name,
+            protected_until=None,
+        ),
+        target_cards=() if recent_settlement is None else (recent_settlement.opponent_card,),
+        recent_result_card=None if recent_settlement is None else recent_settlement.recent_result_card,
         recent_settlement=recent_settlement,
     )
 

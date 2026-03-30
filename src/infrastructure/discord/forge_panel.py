@@ -24,8 +24,11 @@ from application.equipment.equipment_service import (
     EquipmentWashApplicationResult,
 )
 from application.equipment.forge_query_service import (
+    ForgeCardSnapshot,
     ForgeFilterId,
+    ForgeOperationCostSnapshot,
     ForgeOperationId,
+    ForgeOperationPreviewSnapshot,
     ForgePanelQueryService,
     ForgePanelQueryServiceError,
     ForgePanelSnapshot,
@@ -131,97 +134,71 @@ class ForgePanelPresenter:
             description="仅操作者可见",
             color=discord.Color.dark_gold(),
         )
-        embed.add_field(name="培养资源", value=cls._build_resource_block(snapshot=snapshot), inline=False)
-        embed.add_field(name="当前页目标", value=cls._build_target_list_block(snapshot=snapshot), inline=False)
-        embed.add_field(name="当前选中目标", value=cls._build_target_detail_block(target=snapshot.selected_target), inline=False)
+        embed.add_field(name="⚒ 当前目标列表", value=cls._build_target_list_block(snapshot=snapshot), inline=False)
+        embed.add_field(name="✨ 目标卡", value=cls._build_target_detail_block(snapshot=snapshot), inline=False)
+        embed.add_field(name="💰 本次消耗", value=cls._build_operation_cost_block(snapshot=snapshot), inline=False)
+        embed.add_field(name="🧪 结果预览", value=cls._build_operation_preview_block(snapshot=snapshot), inline=False)
         if state.action_note is not None and state.action_note.lines:
             embed.add_field(name=state.action_note.title, value="\n".join(state.action_note.lines), inline=False)
-        embed.set_footer(text="锻造仅负责目标筛选、分页、培养与分解；背包负责浏览与装配")
+        embed.set_footer(text="锻造：目标、消耗、预览")
         return embed
 
     @staticmethod
-    def _build_resource_block(*, snapshot: ForgePanelSnapshot) -> str:
-        if not snapshot.resources.entries:
-            return "当前没有可显示的锻造资源。"
-        lines: list[str] = []
-        row_parts: list[str] = []
-        for index, entry in enumerate(snapshot.resources.entries, start=1):
-            row_parts.append(f"{entry.resource_name}：{entry.quantity}")
-            if index % 4 == 0:
-                lines.append("｜".join(row_parts))
-                row_parts = []
-        if row_parts:
-            lines.append("｜".join(row_parts))
-        return "\n".join(lines)
+    def _build_operation_cost_block(*, snapshot: ForgePanelSnapshot) -> str:
+        if not snapshot.operation_costs:
+            return "当前操作无需消耗资源。"
+        lines = [
+            f"{entry.resource_name} {entry.required_quantity} / 持有 {entry.owned_quantity}"
+            for entry in snapshot.operation_costs
+        ]
+        return "```\n" + "\n".join(lines) + "\n```"
 
     @classmethod
     def _build_target_list_block(cls, *, snapshot: ForgePanelSnapshot) -> str:
         if not snapshot.targets:
             return "当前没有可培养目标。"
-        lines: list[str] = []
+        lines = [f"第 {snapshot.page}/{snapshot.total_pages} 页｜共 {snapshot.total_items} 个目标"]
         selected_target_id = None if snapshot.selected_target is None else snapshot.selected_target.target_id
-        for target in snapshot.targets:
-            prefix = "👉" if target.target_id == selected_target_id else "•"
+        for index, target in enumerate(snapshot.targets, start=1 + (snapshot.page - 1) * snapshot.page_size):
+            prefix = ">" if target.target_id == selected_target_id else " "
             if target.target_kind is ForgeTargetKind.SKILL:
                 kind_tag = "功法"
-                location_tag = "【已装配】" if target.equipped else ""
+                location_tag = " 已装"
             else:
                 item = target.equipment_item
                 kind_tag = "法宝" if item is not None and item.is_artifact else target.slot_name
-                location_tag = "【已装备】" if target.equipped else "【背包】"
-            lines.append(f"{prefix} {kind_tag}{location_tag}：{target.display_name}｜{target.summary_line}")
-        return cls._truncate_lines(tuple(lines), limit=950)
+                location_tag = " 已装" if target.equipped else " 背包"
+            lines.append(f"{prefix}{index:02d}. {kind_tag}{location_tag} {target.display_name}")
+            lines.append(f"   {target.summary_line}")
+        return "```\n" + cls._truncate_lines(tuple(lines), limit=900) + "\n```"
 
     @classmethod
-    def _build_target_detail_block(cls, *, target: ForgeTargetSnapshot | None) -> str:
-        if target is None:
+    def _build_target_detail_block(cls, *, snapshot: ForgePanelSnapshot) -> str:
+        if snapshot.selected_target_card is None:
             return "当前没有可选锻造目标。"
-        if target.target_kind is ForgeTargetKind.SKILL:
-            return cls._build_skill_detail_block(target=target)
-        return cls._build_equipment_detail_block(target=target)
+        return cls._format_card(snapshot.selected_target_card)
 
     @classmethod
-    def _build_equipment_detail_block(cls, *, target: ForgeTargetSnapshot) -> str:
-        item = target.equipment_item
-        if item is None:
-            return "选中目标已失效。"
-        lines = [
-            f"名称：{cls._format_equipment_head(item)}",
-            f"来源：{'已装备' if target.equipped else '背包中'}",
-            f"部位：{item.slot_name}",
-            f"{'法宝器胚' if item.is_artifact else '底材'}：{item.template_name}",
-            f"阶数 / 品质：{item.rank_name}｜{item.quality_name}",
-            f"强化：+{item.enhancement_level}",
-            f"主要属性：{cls._format_primary_stat_lines(item, limit=4)}",
-        ]
-        if item.is_artifact:
-            lines.append(f"祭炼：{item.artifact_nurture_level}")
-            lines.append(f"共鸣：{item.resonance_name or '无'}")
-        affix_lines = cls._format_affix_detail_lines(item.affixes)
-        if affix_lines:
-            lines.append("词条明细：")
-            lines.extend(affix_lines)
-        else:
-            lines.append("词条：无")
+    def _build_operation_preview_block(cls, *, snapshot: ForgePanelSnapshot) -> str:
+        preview = snapshot.operation_preview
+        if preview is None:
+            return "当前没有可展示的结果预览。"
+        lines = [preview.title, "```"]
+        lines.extend(preview.lines)
+        lines.append("```")
         return cls._truncate_lines(tuple(lines), limit=1000)
 
     @classmethod
-    def _build_skill_detail_block(cls, *, target: ForgeTargetSnapshot) -> str:
-        skill = target.equipped_skill
-        if skill is None:
-            return "选中功法目标已失效。"
-        lines = [
-            f"功法：{skill.skill_name}",
-            f"槽位：{skill.slot_name}",
-            f"定位：{target.core_role}",
-            f"流派：{skill.path_name}",
-            f"阶数 / 品质：{skill.rank_name}｜{skill.quality_name}",
-        ]
-        if skill.resolved_patch_ids:
-            lines.append("流派加成：" + "｜".join(_format_patch_name(patch_id) for patch_id in skill.resolved_patch_ids[:5]))
+    def _format_card(cls, card: ForgeCardSnapshot) -> str:
+        lines = [card.name, f"```\n{card.badge_line}"]
+        if card.growth_line:
+            lines.append(card.growth_line)
+        lines.extend(card.stat_lines[:4])
+        lines.append("```")
+        if card.keyword_lines:
+            lines.append("词条：" + "｜".join(card.keyword_lines[:3]))
         else:
-            lines.append("流派加成：无")
-        lines.append(_SKILL_ACTION_DISABLED_TEXT)
+            lines.append("词条：无")
         return cls._truncate_lines(tuple(lines), limit=1000)
 
     @staticmethod
@@ -1302,6 +1279,8 @@ class ForgePanelController:
                 filter_id=state.filter_id,
                 page=state.page,
                 selected_target_id=state.selected_target_id,
+                pending_action=(None if state.pending_action is ForgePendingAction.NONE else state.pending_action.value),
+                locked_affix_positions=state.selected_locked_affix_positions,
             )
 
     def _enhance_equipment(
@@ -1405,38 +1384,14 @@ class ForgePanelController:
         item: EquipmentItemSnapshot,
         locked_affix_positions: tuple[int, ...],
     ) -> ForgeActionNote:
-        lines = [f"当前目标：{ForgePanelPresenter._format_equipment_head(item)}"]
-        if not item.affixes:
-            lines.append("当前目标没有可锁定词条。")
-            lines.append("再次点击“执行洗炼”后，将直接洗炼。")
-            return ForgeActionNote(title="洗炼准备", lines=tuple(lines))
-        lines.append(
-            "可锁定词条："
-            + "｜".join(
-                f"{affix.position or index}. {ForgePanelPresenter._format_affix_line(affix)}"
-                for index, affix in enumerate(item.affixes[:4], start=1)
-            )
-        )
-        lines.append(
-            "当前锁定："
-            + ForgePanelPresenter._build_locked_affix_summary(
-                item=item,
-                locked_affix_positions=locked_affix_positions,
-            )
-        )
-        lines.append("请在下方选择保留词条，再点击“执行洗炼”。")
-        return ForgeActionNote(title="洗炼准备", lines=tuple(lines))
+        lines = [f"目标：{item.display_name}"]
+        if item.affixes:
+            lines.append("锁定：" + ForgePanelPresenter._build_locked_affix_summary(item=item, locked_affix_positions=locked_affix_positions))
+        return ForgeActionNote(title="洗炼", lines=tuple(lines))
 
     @staticmethod
     def _build_confirmation_note(*, title: str, item: EquipmentItemSnapshot, confirm_label: str) -> ForgeActionNote:
-        return ForgeActionNote(
-            title=title,
-            lines=(
-                f"当前目标：{ForgePanelPresenter._format_equipment_head(item)}",
-                f"再次点击“{confirm_label}”后执行。",
-                "刷新或切换目标可取消当前确认。",
-            ),
-        )
+        return ForgeActionNote(title=title, lines=(f"目标：{item.display_name}", f"再次点击“{confirm_label}”后执行。"))
 
     @staticmethod
     def _normalize_locked_affix_indices(
@@ -1460,12 +1415,12 @@ class ForgePanelController:
         result: EquipmentEnhancementApplicationResult,
     ) -> tuple[str, ...]:
         lines = [
-            f"当前装备：{result.item.display_name}",
-            f"强化等级：+{result.previous_level} → +{result.target_level}",
-            f"结果：{'成功' if result.success else '失败'}｜成功率：{float(result.success_rate) * 100:.1f}%",
+            f"{result.item.display_name}",
+            f"强化 +{result.previous_level} → +{result.target_level}",
+            f"{'成功' if result.success else '失败'}｜{float(result.success_rate) * 100:.1f}%",
         ]
         if result.added_affixes:
-            lines.append("新增词条：" + "｜".join(cls._format_affix_brief(affix) for affix in result.added_affixes[:3]))
+            lines.append("新增：" + "｜".join(cls._format_affix_brief(affix) for affix in result.added_affixes[:3]))
         lines.extend(cls._build_resource_change_lines(resource_changes=result.resource_changes))
         return tuple(lines)
 
@@ -1478,17 +1433,17 @@ class ForgePanelController:
         result: EquipmentWashApplicationResult,
     ) -> tuple[str, ...]:
         lines = [
-            f"当前装备：{result.item.display_name}",
-            "保留词条："
+            f"{result.item.display_name}",
+            "锁定："
             + ForgePanelPresenter._build_locked_affix_summary(
                 item=item,
                 locked_affix_positions=locked_affix_positions,
             ),
         ]
         if result.rerolled_affixes:
-            lines.append("重洗词条：" + "｜".join(cls._format_affix_brief(affix) for affix in result.rerolled_affixes[:3]))
+            lines.append("新词条：" + "｜".join(cls._format_affix_brief(affix) for affix in result.rerolled_affixes[:3]))
         else:
-            lines.append("重洗词条：本次没有新的词条变化。")
+            lines.append("新词条：无变化")
         lines.extend(cls._build_resource_change_lines(resource_changes=result.resource_changes))
         return tuple(lines)
 
@@ -1499,12 +1454,11 @@ class ForgePanelController:
         result: EquipmentReforgeApplicationResult,
     ) -> tuple[str, ...]:
         lines = [
-            f"当前装备：{result.item.display_name}",
-            f"重铸前底材：{result.previous_template_id}",
-            f"重铸后底材：{result.item.template_name}",
+            f"{result.item.display_name}",
+            f"底材：{result.previous_template_id} → {result.item.template_name}",
         ]
         if result.previous_affixes:
-            lines.append("重铸前词条：" + "｜".join(cls._format_affix_brief(affix) for affix in result.previous_affixes[:3]))
+            lines.append("旧词条：" + "｜".join(cls._format_affix_brief(affix) for affix in result.previous_affixes[:3]))
         lines.extend(cls._build_resource_change_lines(resource_changes=result.resource_changes))
         return tuple(lines)
 
@@ -1515,8 +1469,8 @@ class ForgePanelController:
         result: ArtifactNurtureApplicationResult,
     ) -> tuple[str, ...]:
         lines = [
-            f"当前法宝：{result.item.display_name}",
-            f"培养等级：{result.previous_level} → {result.target_level}",
+            f"{result.item.display_name}",
+            f"祭炼 {result.previous_level} → {result.target_level}",
         ]
         lines.extend(cls._build_resource_change_lines(resource_changes=result.resource_changes))
         return tuple(lines)
@@ -1529,7 +1483,7 @@ class ForgePanelController:
     ) -> tuple[str, ...]:
         lines = [
             f"已分解：{result.item.display_name}",
-            f"结算时间：{cls._format_datetime(result.settled_at)}",
+            f"时间：{cls._format_datetime(result.settled_at)}",
         ]
         lines.extend(cls._build_resource_change_lines(resource_changes=result.resource_changes))
         return tuple(lines)
@@ -1553,10 +1507,8 @@ class ForgePanelController:
         formatted = []
         for entry in resource_changes[:4]:
             sign = "-" if entry.change_type == "consume" else "+"
-            formatted.append(
-                f"{_format_resource_name(entry.resource_id)} {sign}{entry.quantity}（{entry.before_quantity}→{entry.after_quantity}）"
-            )
-        return ("资源变化：" + "｜".join(formatted),)
+            formatted.append(f"{_format_resource_name(entry.resource_id)} {sign}{entry.quantity}")
+        return ("消耗：" + "｜".join(formatted),)
 
     @staticmethod
     def _format_affix_brief(affix) -> str:

@@ -21,6 +21,15 @@ from application.character.profile_panel_query_service import (
 )
 from application.character.skill_drop_service import SkillDropService
 from application.character.skill_loadout_service import SkillLoadoutService
+from application.equipment.backpack_query_service import (
+    BackpackCardSnapshot,
+    BackpackEntryKey,
+    BackpackEntryKind,
+    BackpackEntrySummarySnapshot,
+    BackpackFilterId,
+    BackpackPanelSnapshot,
+    BackpackSelectedDetailSnapshot,
+)
 from application.equipment.equipment_service import (
     EquipmentAffixSnapshot,
     EquipmentAttributeSnapshot,
@@ -31,7 +40,21 @@ from application.equipment.equipment_service import (
     EquipmentService,
     EquipmentUnequipTargetNotFoundError,
 )
+from application.equipment.forge_query_service import (
+    ForgeCardSnapshot,
+    ForgeFilterId,
+    ForgeOperationCostSnapshot,
+    ForgeOperationId,
+    ForgeOperationPreviewSnapshot,
+    ForgePanelQueryService,
+    ForgePanelSnapshot,
+    ForgeResourceEntrySnapshot,
+    ForgeResourceSnapshot,
+    ForgeTargetKind,
+    ForgeTargetSnapshot,
+)
 from application.equipment.panel_query_service import (
+    EquipmentCardSnapshot,
     EquipmentDropSummary,
     EquipmentPanelQueryService,
     EquipmentPanelSnapshot,
@@ -60,6 +83,7 @@ from infrastructure.db.repositories import (
     SqlAlchemyStateRepository,
 )
 from infrastructure.db.session import create_session_factory, session_scope
+from infrastructure.discord.backpack_panel import BackpackPanelPresenter, BackpackPanelState
 from infrastructure.discord.character_panel import PanelMessagePayload
 from infrastructure.discord.endless_panel import EndlessPanelPresenter
 from infrastructure.discord.equipment_panel import (
@@ -68,6 +92,7 @@ from infrastructure.discord.equipment_panel import (
     EquipmentPanelPresenter,
     EquipmentPanelView,
 )
+from infrastructure.discord.forge_panel import ForgePanelPresenter, ForgePanelState
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
@@ -162,6 +187,12 @@ def _create_services(session, *, static_config):
         static_config=static_config,
         naming_batch_service=naming_batch_service,
     )
+    forge_panel_query_service = ForgePanelQueryService(
+        equipment_service=equipment_service,
+        inventory_repository=inventory_repository,
+        profile_panel_query_service=profile_panel_query_service,
+        static_config=static_config,
+    )
     return SimpleNamespace(
         player_repository=player_repository,
         character_repository=character_repository,
@@ -175,6 +206,7 @@ def _create_services(session, *, static_config):
         equipment_service=equipment_service,
         profile_panel_query_service=profile_panel_query_service,
         equipment_panel_query_service=equipment_panel_query_service,
+        forge_panel_query_service=forge_panel_query_service,
         naming_batch_service=naming_batch_service,
         skill_loadout_service=skill_loadout_service,
     )
@@ -294,6 +326,8 @@ def _build_test_snapshot(*, include_artifact: bool, weapon_equipped: bool, skill
         elif slot.slot_id == "artifact":
             equipped_item = artifact_item if include_artifact else None
             candidate_items = (artifact_item,) if include_artifact else ()
+        equipped_card = None if equipped_item is None else _build_equipment_card_snapshot(equipped_item)
+        candidate_cards = tuple(_build_equipment_card_snapshot(item) for item in candidate_items)
         slot_panels.append(
             EquipmentSlotPanelSnapshot(
                 slot_id=slot.slot_id,
@@ -301,6 +335,8 @@ def _build_test_snapshot(*, include_artifact: bool, weapon_equipped: bool, skill
                 core_role=slot.core_role,
                 equipped_item=equipped_item,
                 candidate_items=candidate_items,
+                equipped_card=equipped_card,
+                candidate_cards=candidate_cards,
             )
         )
 
@@ -577,6 +613,167 @@ def _build_item_snapshot(
 
 
 
+def _build_equipment_card_snapshot(item: EquipmentItemSnapshot) -> EquipmentCardSnapshot:
+    growth_line = f"强化 +{item.enhancement_level}"
+    if item.is_artifact:
+        growth_line += f"｜祭炼 {item.artifact_nurture_level}"
+    return EquipmentCardSnapshot(
+        name=item.display_name,
+        badge_line=f"{'法宝' if item.is_artifact else item.slot_name}｜{item.rank_name}｜{item.quality_name}",
+        growth_line=growth_line,
+        stat_lines=("攻力 100",),
+        keyword_lines=("锋锐 12",),
+    )
+
+
+
+def _build_backpack_snapshot() -> BackpackPanelSnapshot:
+    selected_equipment = _build_item_snapshot(
+        item_id=5101,
+        slot_id="weapon",
+        slot_name="武器",
+        display_name="照霜剑",
+        quality_name="史诗",
+        equipped_slot_id=None,
+    )
+    equipped_equipment = _build_item_snapshot(
+        item_id=5102,
+        slot_id="weapon",
+        slot_name="武器",
+        display_name="破军刃",
+        quality_name="稀有",
+        equipped_slot_id="weapon",
+    )
+    page_entries = (
+        BackpackEntrySummarySnapshot(
+            entry_key=BackpackEntryKey(entry_kind=BackpackEntryKind.EQUIPMENT, item_id=5101),
+            entry_kind=BackpackEntryKind.EQUIPMENT,
+            item_id=5101,
+            slot_id="weapon",
+            slot_name="武器",
+            display_name="照霜剑",
+            quality_name="史诗",
+            rank_name="一阶",
+            equipped=False,
+            is_artifact=False,
+            summary_line="一阶｜史诗｜强化 +1｜1词条/0特效",
+        ),
+    )
+    selected_detail = BackpackSelectedDetailSnapshot(
+        entry_key=page_entries[0].entry_key,
+        entry_kind=BackpackEntryKind.EQUIPMENT,
+        equipment_item=selected_equipment,
+        selected_card=BackpackCardSnapshot(
+            name="照霜剑",
+            badge_line="武器｜一阶｜史诗",
+            growth_line="强化 +1",
+            stat_lines=("攻力 100", "暴击 5.0%"),
+            keyword_lines=("锋锐 12", "破甲 4.0%"),
+        ),
+        equip_action_enabled=True,
+        equip_action_label="装配",
+        same_type_equipped_entry_key=BackpackEntryKey(entry_kind=BackpackEntryKind.EQUIPMENT, item_id=5102),
+        same_type_equipped_equipment_item=equipped_equipment,
+        equipped_card=BackpackCardSnapshot(
+            name="破军刃",
+            badge_line="武器｜一阶｜稀有",
+            growth_line="强化 +1",
+            stat_lines=("攻力 88", "命中 3.0%"),
+            keyword_lines=("锋锐 10",),
+        ),
+        is_same_as_equipped=False,
+    )
+    return BackpackPanelSnapshot(
+        character_id=77,
+        character_name="顾长明",
+        filter_id=BackpackFilterId.ALL,
+        page=1,
+        page_size=25,
+        total_items=1,
+        total_pages=1,
+        page_entries=page_entries,
+        selected_detail=selected_detail,
+    )
+
+
+
+def _build_forge_snapshot() -> ForgePanelSnapshot:
+    item = _build_item_snapshot(
+        item_id=6201,
+        slot_id="artifact",
+        slot_name="法宝",
+        display_name="天火镜",
+        quality_name="史诗",
+        equipped_slot_id="artifact",
+        is_artifact=True,
+        artifact_nurture_level=2,
+    )
+    target = ForgeTargetSnapshot(
+        target_id="equipment:6201",
+        target_kind=ForgeTargetKind.EQUIPMENT,
+        slot_id="artifact",
+        slot_name="法宝",
+        core_role="法宝位",
+        display_name="天火镜",
+        summary_line="一阶｜史诗｜祭炼 2｜1词条/0特效",
+        equipped=True,
+        equipment_item=item,
+        supported_operations=(ForgeOperationId.NURTURE, ForgeOperationId.WASH, ForgeOperationId.REFORGE),
+    )
+    return ForgePanelSnapshot(
+        character_id=77,
+        character_name="顾长明",
+        resources=ForgeResourceSnapshot(
+            spirit_stone=6000,
+            enhancement_stone=0,
+            enhancement_shard=0,
+            wash_dust=4,
+            spirit_sand=0,
+            spirit_pattern_stone=3,
+            soul_binding_jade=2,
+            artifact_essence=10,
+            entries=(
+                ForgeResourceEntrySnapshot(resource_id="spirit_stone", resource_name="灵石", quantity=6000),
+                ForgeResourceEntrySnapshot(resource_id="artifact_essence", resource_name="法宝精粹", quantity=10),
+            ),
+        ),
+        filter_id=ForgeFilterId.ALL,
+        page=1,
+        page_size=25,
+        total_items=1,
+        total_pages=1,
+        targets=(target,),
+        selected_target=target,
+        selected_target_card=ForgeCardSnapshot(
+            name="天火镜",
+            badge_line="法宝｜一阶｜史诗",
+            growth_line="强化 +1｜祭炼 2",
+            stat_lines=("攻力 100", "气血 120"),
+            keyword_lines=("锋锐 12",),
+        ),
+        current_operation_name="法宝培养",
+        operation_costs=(
+            ForgeOperationCostSnapshot(
+                resource_id="spirit_stone",
+                resource_name="灵石",
+                required_quantity=1200,
+                owned_quantity=6000,
+            ),
+            ForgeOperationCostSnapshot(
+                resource_id="artifact_essence",
+                resource_name="法宝精粹",
+                required_quantity=3,
+                owned_quantity=10,
+            ),
+        ),
+        operation_preview=ForgeOperationPreviewSnapshot(
+            title="法宝培养",
+            lines=("祭炼 2 → 3", "基础属性 +6.0%", "词条成长 +4.0%"),
+        ),
+    )
+
+
+
 def _build_controller_for_view(snapshot: EquipmentPanelSnapshot) -> EquipmentPanelController:
     controller = EquipmentPanelController(
         session_factory=_DummySessionFactory(),
@@ -597,6 +794,79 @@ def _build_interaction(*, user_id: int = 50001) -> SimpleNamespace:
         user=SimpleNamespace(id=user_id),
         response=response,
     )
+
+
+
+def test_backpack_embed_compacts_selected_and_equipped_cards_without_compare_block() -> None:
+    snapshot = _build_backpack_snapshot()
+    embed = BackpackPanelPresenter.build_embed(snapshot=snapshot, state=BackpackPanelState(selected_entry_key=snapshot.page_entries[0].entry_key))
+
+    field_names = [field.name for field in embed.fields]
+    assert field_names[:3] == ["🎒 当前页", "✨ 选中卡", "🛡 当前已装同槽卡"]
+    assert "必要对比" not in field_names
+    selected_field = next(field for field in embed.fields if field.name == "✨ 选中卡")
+    equipped_field = next(field for field in embed.fields if field.name == "🛡 当前已装同槽卡")
+    assert "```" in selected_field.value
+    assert "词条：锋锐 12｜破甲 4.0%" in selected_field.value
+    assert "```" in equipped_field.value
+    assert "词条：锋锐 10" in equipped_field.value
+
+
+
+def test_equipment_hub_embed_only_keeps_equipped_slot_list() -> None:
+    snapshot = _build_test_snapshot(include_artifact=True, weapon_equipped=True)
+    embed = EquipmentPanelPresenter.build_embed(
+        snapshot=snapshot,
+        display_mode=EquipmentPanelDisplayMode.HUB,
+        selected_slot_id=None,
+        selected_candidate_item_id=None,
+        action_note=None,
+    )
+
+    field_names = [field.name for field in embed.fields]
+    assert field_names == ["🛡 已装备部位列表"]
+    assert "```" in embed.fields[0].value
+    assert "武器｜星陨剑 +1｜候选 1" in embed.fields[0].value
+    assert "法宝｜天火镜 祭2｜候选 0" in embed.fields[0].value
+
+
+
+def test_equipment_slot_detail_embed_uses_three_compact_blocks() -> None:
+    snapshot = _build_test_snapshot(include_artifact=True, weapon_equipped=True)
+    embed = EquipmentPanelPresenter.build_embed(
+        snapshot=snapshot,
+        display_mode=EquipmentPanelDisplayMode.SLOT_DETAIL,
+        selected_slot_id="weapon",
+        selected_candidate_item_id=1002,
+        action_note=None,
+    )
+
+    field_names = [field.name for field in embed.fields]
+    assert field_names[:3] == ["🛡 当前装备", "🎒 候选列表", "✨ 选中候选"]
+    assert "部位说明" not in field_names
+    current_field = next(field for field in embed.fields if field.name == "🛡 当前装备")
+    candidate_list_field = next(field for field in embed.fields if field.name == "🎒 候选列表")
+    selected_candidate_field = next(field for field in embed.fields if field.name == "✨ 选中候选")
+    assert "```" in current_field.value
+    assert ">02. 试锋剑" in candidate_list_field.value
+    assert "```" in selected_candidate_field.value
+    assert "词条：锋锐 12" in selected_candidate_field.value
+
+
+
+def test_forge_embed_only_shows_current_operation_costs_and_preview() -> None:
+    snapshot = _build_forge_snapshot()
+    embed = ForgePanelPresenter.build_embed(snapshot=snapshot, state=ForgePanelState(selected_target_id="equipment:6201"))
+
+    field_names = [field.name for field in embed.fields]
+    assert field_names[:4] == ["⚒ 当前目标列表", "✨ 目标卡", "💰 本次消耗", "🧪 结果预览"]
+    assert "培养资源" not in field_names
+    cost_field = next(field for field in embed.fields if field.name == "💰 本次消耗")
+    preview_field = next(field for field in embed.fields if field.name == "🧪 结果预览")
+    assert "灵石 1200 / 持有 6000" in cost_field.value
+    assert "法宝精粹 3 / 持有 10" in cost_field.value
+    assert "祭炼 2 → 3" in preview_field.value
+    assert "基础属性 +6.0%" in preview_field.value
 
 
 
@@ -744,8 +1014,8 @@ async def test_artifact_slot_detail_shows_nurture_action_for_equipped_artifact()
     labels = {child.label for child in view.children if isinstance(child, discord.ui.Button)}
     assert "法宝培养" in labels
     embed = view.build_embed()
-    current_equipped_field = next(field for field in embed.fields if field.name == "当前装备")
-    assert "法宝培养：2" in current_equipped_field.value
+    current_equipped_field = next(field for field in embed.fields if field.name == "🛡 当前装备")
+    assert "祭炼 2" in current_equipped_field.value
 
 
 
@@ -778,6 +1048,7 @@ async def test_skill_detail_only_keeps_skill_instance_entry_without_equipment_ac
     select_placeholders = {child.placeholder for child in view.children if isinstance(child, discord.ui.Select)}
     assert "选择要装配的功法实例" in select_placeholders
     assert "选择装备部位查看详情" not in select_placeholders
+
 
 
 def test_recent_drop_summary_and_embed_show_endless_instance_drops(
@@ -918,10 +1189,8 @@ def test_recent_drop_summary_and_embed_show_endless_instance_drops(
         selected_candidate_item_id=None,
         action_note=None,
     )
-    latest_drop_field = next(field for field in embed.fields if field.name == "最近一次相关获取")
-    assert f"装备实例：AI·裂风玄刃｜{weapon.quality_name}｜{weapon.rank_name}｜{weapon.slot_name}" in latest_drop_field.value
-    assert f"法宝实例：AI·曜火镜｜{artifact.quality_name}｜{artifact.rank_name}｜共鸣 {artifact.resonance_name}" in latest_drop_field.value
-    assert f"功法实例：AI·七杀剑诀｜{skill_item.rank_name}｜{skill_item.quality_name}" in latest_drop_field.value
+    assert [field.name for field in embed.fields] == ["🛡 已装备部位列表"]
+
 
 
 @pytest.mark.asyncio
@@ -952,6 +1221,7 @@ async def test_unequip_action_edits_private_panel_with_result_note() -> None:
     result_field = next(field for field in payload.embed.fields if field.name == "卸下结果")
     assert "已卸下部位：weapon" in result_field.value
     assert "物品已回到当前部位候选列表。" in result_field.value
+
 
 
 @pytest.mark.asyncio
@@ -987,6 +1257,7 @@ async def test_equip_skill_instance_edits_private_panel_with_action_note() -> No
     assert "所属流派：斩情剑道" in result_field.value
     assert "战斗流派：斩情剑道" in result_field.value
     assert "配置版本" not in result_field.value
+
 
 
 def test_skill_detail_embed_hides_internal_fields_and_uses_localized_names() -> None:
@@ -1026,6 +1297,7 @@ def test_skill_detail_embed_hides_internal_fields_and_uses_localized_names() -> 
     assert "神识：锁念剑心诀｜问心剑道｜一阶｜凡品｜流派加成 神识暴伤" in auxiliary_field.value
 
 
+
 def test_endless_skill_lines_localize_auxiliary_slot_names() -> None:
     """最近掉落与无尽摘要中的功法辅位应展示中文名。"""
     entry = {
@@ -1041,6 +1313,7 @@ def test_endless_skill_lines_localize_auxiliary_slot_names() -> None:
 
     assert query_line == "功法实例：锁念剑心诀｜一阶｜凡品｜辅位 神识"
     assert private_line == "功法实例：锁念剑心诀｜一阶｜凡品｜辅位 神识"
+
 
 
 def test_profile_panel_query_service_masks_unknown_internal_identifiers() -> None:
@@ -1069,6 +1342,7 @@ def test_profile_panel_query_service_masks_unknown_internal_identifiers() -> Non
 
     assert snapshot.slot_name == "未知槽位"
     assert snapshot.path_name == "未知流派"
+
 
 
 @pytest.mark.asyncio

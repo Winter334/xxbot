@@ -97,29 +97,32 @@ class PvpPanelPresenter:
         selected_target_character_id: int | None,
         action_note: PvpActionNote | None = None,
     ) -> discord.Embed:
+        del action_note
+        selected_target = cls._resolve_selected_target_card(
+            snapshot=snapshot,
+            selected_target_character_id=selected_target_character_id,
+        )
         embed = discord.Embed(
             title=f"{snapshot.overview.character_name}｜仙榜论道",
             description="仅操作者可见",
             color=discord.Color.dark_magenta(),
         )
-        embed.add_field(name="当前论道状态", value=cls._build_status_block(snapshot=snapshot), inline=False)
-        embed.add_field(name="次数与荣誉", value=cls._build_quota_block(snapshot=snapshot), inline=False)
-        embed.add_field(name="当前展示奖励", value=cls._build_current_reward_block(snapshot=snapshot), inline=False)
-        embed.add_field(name="防守摘要", value=cls._build_defense_block(snapshot=snapshot), inline=False)
+        embed.add_field(name="🏆 我方", value=cls._build_status_block(snapshot=snapshot), inline=False)
         embed.add_field(
-            name="可论道目标摘要",
-            value=cls._build_target_block(
-                snapshot=snapshot,
-                selected_target_character_id=selected_target_character_id,
+            name="🎯 当前对手",
+            value=cls._build_target_block(snapshot=snapshot, opponent_card=selected_target),
+            inline=False,
+        )
+        embed.add_field(
+            name="🎁 本场奖励",
+            value=cls._build_reward_block(
+                reward_card=None if selected_target is None else selected_target.reward_card,
+                anti_abuse_flags=(),
+                empty_message="待选择对手后显示本场奖励。",
             ),
             inline=False,
         )
-        rejected_block = cls._build_rejected_target_block(snapshot=snapshot)
-        if rejected_block:
-            embed.add_field(name="当前不可论道目标摘要", value=rejected_block, inline=False)
-        embed.add_field(name="最近一次结算摘要", value=cls._build_recent_settlement_summary(snapshot=snapshot), inline=False)
-        if action_note is not None and action_note.lines:
-            embed.add_field(name=action_note.title, value="\n".join(action_note.lines), inline=False)
+        embed.add_field(name="🏁 最近结果", value=cls._build_recent_result_block(snapshot.recent_result_card), inline=False)
         embed.set_footer(
             text=(
                 f"目标刷新：{_format_datetime(snapshot.hub.target_list.generated_at)}"
@@ -136,293 +139,147 @@ class PvpPanelPresenter:
         selected_target_character_id: int | None,
         action_note: PvpActionNote | None = None,
     ) -> discord.Embed:
+        del selected_target_character_id, action_note
         recent_settlement = snapshot.recent_settlement
         if recent_settlement is None:
             return cls.build_hub_embed(
                 snapshot=snapshot,
-                selected_target_character_id=selected_target_character_id,
-                action_note=action_note,
+                selected_target_character_id=None,
+                action_note=None,
             )
         embed = discord.Embed(
             title=f"{snapshot.overview.character_name}｜仙榜论道结算",
             description="仅操作者可见",
             color=discord.Color.purple(),
         )
+        embed.add_field(name="🏆 我方", value=cls._build_status_block(snapshot=snapshot), inline=False)
         embed.add_field(
-            name="挑战结果与名次变化",
-            value=cls._build_settlement_overview_block(snapshot=snapshot, recent_settlement=recent_settlement),
+            name="🎯 当前对手",
+            value=cls._build_target_block(snapshot=snapshot, opponent_card=recent_settlement.opponent_card),
             inline=False,
         )
         embed.add_field(
-            name="分数与荣誉变化",
-            value=cls._build_settlement_currency_block(snapshot=snapshot, recent_settlement=recent_settlement),
+            name="🎁 本场奖励",
+            value=cls._build_reward_block(
+                reward_card=recent_settlement.reward_card,
+                anti_abuse_flags=recent_settlement.anti_abuse_flags,
+                empty_message="本场没有可展示奖励。",
+            ),
             inline=False,
         )
         embed.add_field(
-            name="可见奖励与结算标记",
-            value=cls._build_settlement_reward_block(snapshot=snapshot, recent_settlement=recent_settlement),
+            name="🏁 最近结果",
+            value=cls._build_recent_result_block(recent_settlement.recent_result_card),
             inline=False,
         )
-        embed.add_field(
-            name="对手摘要",
-            value=cls._build_opponent_block(recent_settlement=recent_settlement),
-            inline=False,
-        )
-        embed.add_field(
-            name="关键战报摘要",
-            value=cls._build_battle_report_block(recent_settlement=recent_settlement),
-            inline=False,
-        )
-        if action_note is not None and action_note.lines:
-            embed.add_field(name=action_note.title, value="\n".join(action_note.lines), inline=False)
         embed.set_footer(text=f"最近结算时间：{_format_datetime(recent_settlement.occurred_at)}")
         return embed
 
     @classmethod
-    def _build_status_block(cls, *, snapshot: PvpPanelSnapshot) -> str:
-        protected_until = _format_optional_datetime(snapshot.hub.protected_until)
-        return "\n".join(
-            (
-                f"当前名次：第 {snapshot.hub.current_rank_position} 名",
-                f"历史最佳：第 {snapshot.hub.current_best_rank} 名",
-                f"当前奖励档位：{snapshot.current_reward_tier_name or snapshot.current_challenge_tier or '-'}",
-                f"当前论道分：{snapshot.current_hidden_pvp_score}",
-                f"公开战力：{snapshot.current_public_power_score}",
-                f"新入榜保护：{protected_until or '无'}",
-            )
-        )
-
-    @classmethod
-    def _build_quota_block(cls, *, snapshot: PvpPanelSnapshot) -> str:
-        used_count = max(0, snapshot.daily_challenge_limit - snapshot.hub.remaining_challenge_count)
-        reward_preview = snapshot.hub.reward_preview
-        return "\n".join(
-            (
-                f"今日已用：{used_count}/{snapshot.daily_challenge_limit}",
-                f"今日剩余：{snapshot.hub.remaining_challenge_count}",
-                f"荣誉币余额：{snapshot.hub.honor_coin_balance}",
-                f"当前奖励档位：{reward_preview.get('summary') or '无'}",
-                f"胜利预计：+{_read_int(reward_preview.get('honor_coin_on_win'))} 荣誉币",
-                f"失败保底：+{_read_int(reward_preview.get('honor_coin_on_loss'))} 荣誉币",
-            )
-        )
-
-    @classmethod
-    def _build_current_reward_block(cls, *, snapshot: PvpPanelSnapshot) -> str:
-        reward_lines = cls._format_visible_rewards(_normalize_mapping_sequence(snapshot.hub.reward_preview.get("display_items")))
-        if not reward_lines:
-            return "当前名次没有可公开展示的称号或徽记。"
-        return "\n".join(reward_lines)
-
-    @classmethod
-    def _build_defense_block(cls, *, snapshot: PvpPanelSnapshot) -> str:
-        summary = snapshot.hub.defense_snapshot_summary
-        if not isinstance(summary, dict) or not summary:
-            return "暂无有效防守快照，进入论道时会按现有规则自动补齐。"
-        lines = [
-            f"境界：{summary.get('realm_name') or '-'}·{summary.get('stage_name') or '-'}",
-            f"主修：{summary.get('main_skill_name') or summary.get('main_path_name') or '未定功法'}",
-            f"公开战力：{_read_int(summary.get('public_power_score'))}",
-            f"展示摘要：{summary.get('display_summary') or '-'}",
-        ]
-        lock_expires_at = _format_optional_datetime(summary.get("lock_expires_at"))
-        if lock_expires_at:
-            lines.append(f"锁定截止：{lock_expires_at}")
-        return "\n".join(lines)
-
-    @classmethod
-    def _build_target_block(
+    def _resolve_selected_target_card(
         cls,
         *,
         snapshot: PvpPanelSnapshot,
         selected_target_character_id: int | None,
-    ) -> str:
-        targets = snapshot.hub.target_list.targets
-        if not targets:
-            return "当前没有可论道目标，请稍后再尝试刷新仙榜目标。"
-        selected_target = _find_target(snapshot=snapshot, character_id=selected_target_character_id)
-        resolved_target = selected_target or targets[0]
-        summary = resolved_target.summary
+    ):
+        if not snapshot.target_cards:
+            return None
+        if selected_target_character_id is None:
+            return snapshot.target_cards[0]
+        for target_card in snapshot.target_cards:
+            if target_card.character_id == selected_target_character_id:
+                return target_card
+        return snapshot.target_cards[0]
+
+    @classmethod
+    def _build_status_block(cls, *, snapshot: PvpPanelSnapshot) -> str:
+        status_card = snapshot.status_card
+        main_skill_name = snapshot.overview.main_skill.skill_name or snapshot.overview.main_path_name or "未定功法"
         lines = [
-            f"当前选择：第 {resolved_target.rank_position} 名｜{summary.get('character_name') or resolved_target.display_summary}",
-            f"境界：{summary.get('realm_name') or '-'}·{summary.get('stage_name') or '-'}",
-            f"主修：{summary.get('main_skill_name') or summary.get('main_path_name') or '未定功法'}",
-            f"公开战力：{resolved_target.public_power_score}｜论道分：{resolved_target.hidden_pvp_score}",
-            f"名次差：{resolved_target.rank_gap}｜奖励档位：{resolved_target.challenge_tier or '-'}",
-            (
-                f"奖励预估：胜利 +{_read_nested_int(resolved_target.reward_preview, 'honor_coin_on_win')}"
-                f"｜失败 +{_read_nested_int(resolved_target.reward_preview, 'honor_coin_on_loss')}"
-            ),
+            f"{snapshot.overview.character_name}｜{snapshot.overview.realm_name}·{snapshot.overview.stage_name}",
+            f"主修：{main_skill_name}",
+            "```text\n"
+            f"排名  #{status_card.rank_position}    历史  #{status_card.best_rank}\n"
+            f"次数  {status_card.remaining_challenge_count}/{status_card.daily_challenge_limit}   荣誉  {status_card.honor_coin_balance}\n"
+            f"战力  {status_card.public_power_score}   论道  {status_card.hidden_pvp_score}\n"
+            "```",
         ]
-        other_lines: list[str] = []
-        for target in targets:
-            if target.character_id == resolved_target.character_id:
-                continue
-            current_summary = target.summary
-            other_lines.append(
-                f"第 {target.rank_position} 名｜{current_summary.get('character_name') or target.display_summary}"
-                f"｜战力 {target.public_power_score}"
-            )
-            if len(other_lines) >= 2:
-                break
-        if other_lines:
-            lines.append("其他候选：")
-            lines.extend(f"- {line}" for line in other_lines)
-        if snapshot.hub.target_list.fallback_triggered:
-            steps = "、".join(snapshot.hub.target_list.expansion_steps_applied) or "已触发"
-            lines.append(f"候选扩窗：{steps}")
+        if status_card.reward_tier_name:
+            lines.append(f"档位：{status_card.reward_tier_name}")
+        protected_until = _format_optional_datetime(status_card.protected_until)
+        if protected_until:
+            lines.append(f"保护：{protected_until}")
         return "\n".join(lines)
 
     @classmethod
-    def _build_rejected_target_block(cls, *, snapshot: PvpPanelSnapshot) -> str:
-        rejected_targets = snapshot.hub.target_list.rejected_targets
-        if not rejected_targets:
-            return ""
-        lines = []
-        for target in rejected_targets[:3]:
-            summary = target.summary
-            reason_names = [
-                _REJECTION_REASON_NAME_BY_VALUE.get(reason, reason)
-                for reason in target.rejection_reasons[:2]
-            ]
-            lines.append(
-                f"第 {target.rank_position} 名｜{summary.get('character_name') or target.display_summary}｜"
-                f"{('；'.join(reason_names) or '当前不可论道')}"
-            )
-        if len(rejected_targets) > 3:
-            lines.append(f"其余 {len(rejected_targets) - 3} 个目标仍在当前私有目标池中隐藏显示。")
-        return "\n".join(lines)
-
-    @classmethod
-    def _build_recent_settlement_summary(cls, *, snapshot: PvpPanelSnapshot) -> str:
-        recent_settlement = snapshot.recent_settlement
-        if recent_settlement is None:
-            return "暂无最近一次论道结算。"
-        rank_shift = recent_settlement.rank_before_attacker - recent_settlement.rank_after_attacker
+    def _build_target_block(cls, *, snapshot: PvpPanelSnapshot, opponent_card) -> str:
+        if opponent_card is None:
+            return "暂无可挑战对手。"
+        power_diff = opponent_card.public_power_score - snapshot.status_card.public_power_score
+        title = opponent_card.character_name
+        if opponent_card.character_title:
+            title = f"{title}｜{opponent_card.character_title}"
+        realm_stage = f"{opponent_card.realm_name or '-'}·{opponent_card.stage_name or '-'}"
+        if opponent_card.main_path_name:
+            realm_stage = f"{realm_stage}｜{opponent_card.main_path_name}"
         lines = [
-            f"结果：{_OUTCOME_NAME_BY_VALUE.get(recent_settlement.battle_outcome, recent_settlement.battle_outcome)}",
-            f"名次：第 {recent_settlement.rank_before_attacker} 名 → 第 {recent_settlement.rank_after_attacker} 名",
-            f"名次变化：{_format_signed(rank_shift, suffix=' 名')}",
-            f"荣誉币：{_format_signed(recent_settlement.honor_coin_delta)}",
-            f"结算时间：{_format_datetime(recent_settlement.occurred_at)}",
+            title,
+            realm_stage,
+            "```text\n"
+            f"排名  #{opponent_card.rank_position}    名差  {_format_signed(opponent_card.rank_gap)}\n"
+            f"战力  {opponent_card.public_power_score}   差值  {_format_signed(power_diff)}\n"
+            "```",
         ]
+        if opponent_card.display_summary:
+            lines.append(f"印象：{opponent_card.display_summary}")
         return "\n".join(lines)
 
     @classmethod
-    def _build_settlement_overview_block(
+    def _build_reward_block(
         cls,
         *,
-        snapshot: PvpPanelSnapshot,
-        recent_settlement: PvpRecentSettlementSnapshot,
+        reward_card,
+        anti_abuse_flags: Sequence[str],
+        empty_message: str,
     ) -> str:
-        rank_shift = recent_settlement.rank_before_attacker - recent_settlement.rank_after_attacker
-        lines = [
-            f"挑战结果：{_OUTCOME_NAME_BY_VALUE.get(recent_settlement.battle_outcome, recent_settlement.battle_outcome)}",
-            f"攻击方名次：第 {recent_settlement.rank_before_attacker} 名 → 第 {recent_settlement.rank_after_attacker} 名",
-            f"防守方名次：第 {recent_settlement.rank_before_defender} 名 → 第 {recent_settlement.rank_after_defender} 名",
-            f"名次效果：{'已生效' if recent_settlement.rank_effect_applied else '未生效'}",
-            f"名次变化：{_format_signed(rank_shift, suffix=' 名')}",
-            f"当前奖励档位：{snapshot.current_reward_tier_name or snapshot.current_challenge_tier or '-'}",
-        ]
-        return "\n".join(lines)
-
-    @classmethod
-    def _build_settlement_currency_block(
-        cls,
-        *,
-        snapshot: PvpPanelSnapshot,
-        recent_settlement: PvpRecentSettlementSnapshot,
-    ) -> str:
-        lines = [
-            f"当前论道分：{snapshot.current_hidden_pvp_score}（本次挑战不直接改写评分）",
-            f"荣誉币变化：{_format_signed(recent_settlement.honor_coin_delta)}",
-            (
-                f"荣誉币余额：{recent_settlement.honor_coin_balance_after}"
-                if recent_settlement.honor_coin_balance_after is not None
-                else "荣誉币余额：以当前账本为准"
-            ),
-        ]
-        honor_coin_payload = _normalize_optional_mapping(recent_settlement.settlement_payload.get("honor_coin")) or {}
-        component_lines = cls._build_honor_component_lines(honor_coin_payload=honor_coin_payload)
-        if component_lines:
-            lines.append("荣誉币构成：")
-            lines.extend(f"- {line}" for line in component_lines)
-        return "\n".join(lines)
-
-    @classmethod
-    def _build_settlement_reward_block(
-        cls,
-        *,
-        snapshot: PvpPanelSnapshot,
-        recent_settlement: PvpRecentSettlementSnapshot,
-    ) -> str:
-        reward_preview = recent_settlement.reward_preview or {}
-        lines = [
-            f"当前奖励档位：{reward_preview.get('summary') or snapshot.current_reward_tier_name or '-'}",
-        ]
-        reward_lines = cls._format_visible_rewards(recent_settlement.display_rewards)
-        if reward_lines:
-            lines.append("当前可展示奖励：")
-            lines.extend(f"- {line}" for line in reward_lines)
+        if reward_card is None:
+            return empty_message
+        lines: list[str] = []
+        tier_name = reward_card.tier_name or reward_card.summary
+        if tier_name:
+            lines.append(f"档位：{tier_name}")
+        lines.append(
+            "```text\n"
+            f"胜利  +{reward_card.honor_coin_on_win} 荣誉币\n"
+            f"失败  +{reward_card.honor_coin_on_loss} 荣誉币\n"
+            "```"
+        )
+        if reward_card.visible_reward_lines:
+            lines.append("展示：")
+            lines.extend(f"- {line}" for line in reward_card.visible_reward_lines[:3])
         else:
-            lines.append("当前可展示奖励：无新增可展示称号或徽记")
-        flag_lines = cls._format_flag_lines(recent_settlement.anti_abuse_flags)
+            lines.append("展示：无")
+        flag_lines = cls._format_flag_lines(anti_abuse_flags)
         if flag_lines:
-            lines.append("结算标记：")
-            lines.extend(f"- {line}" for line in flag_lines)
+            lines.append("标记：" + "｜".join(flag_lines))
         return "\n".join(lines)
 
     @classmethod
-    def _build_opponent_block(cls, *, recent_settlement: PvpRecentSettlementSnapshot) -> str:
-        summary = recent_settlement.defender_summary
-        if not summary:
-            return f"对手角色：#{recent_settlement.defender_character_id}"
-        lines = [
-            f"对手：{summary.get('character_name') or recent_settlement.defender_character_id}",
-            f"称号：{summary.get('character_title') or '无'}",
-            f"境界：{summary.get('realm_name') or '-'}·{summary.get('stage_name') or '-'}",
-            f"主修：{summary.get('main_skill_name') or summary.get('main_path_name') or '未定功法'}",
-            f"公开战力：{_read_int(summary.get('public_power_score'))}",
-            f"展示摘要：{summary.get('display_summary') or '-'}",
-        ]
-        return "\n".join(lines)
-
-    @classmethod
-    def _build_battle_report_block(cls, *, recent_settlement: PvpRecentSettlementSnapshot) -> str:
-        digest = recent_settlement.battle_report_digest
-        if digest is None:
-            return "本次结算没有可展示的持久化战报摘要。"
+    def _build_recent_result_block(cls, recent_result_card) -> str:
+        if recent_result_card is None:
+            return "暂无最近结果。"
         return "\n".join(
             (
-                f"聚焦角色：{digest.focus_unit_name}",
-                f"战斗结果：{digest.result}｜回合数：{digest.completed_rounds}",
-                (
-                    "终局血蓝："
-                    f"生命 {cls._format_ratio(digest.final_hp_ratio)}｜灵力 {cls._format_ratio(digest.final_mp_ratio)}"
-                ),
-                (
-                    "输出承伤："
-                    f"造成 {digest.ally_damage_dealt}｜承受 {digest.ally_damage_taken}｜治疗 {digest.ally_healing_done}"
-                ),
-                (
-                    "关键触发："
-                    f"命中 {digest.successful_hits}｜暴击 {digest.critical_hits}｜被控跳过 {digest.control_skips}"
-                ),
+                f"对手：{recent_result_card.opponent_name}",
+                "```text\n"
+                f"结果  {_OUTCOME_NAME_BY_VALUE.get(recent_result_card.outcome, recent_result_card.outcome)}\n"
+                f"名次  #{recent_result_card.rank_before} → #{recent_result_card.rank_after}\n"
+                f"变化  {_format_signed(recent_result_card.rank_shift, suffix=' 名')}\n"
+                f"荣誉  {_format_signed(recent_result_card.honor_coin_delta)}\n"
+                "```",
+                f"时间：{_format_datetime(recent_result_card.occurred_at)}",
             )
         )
-
-    @classmethod
-    def _build_honor_component_lines(cls, *, honor_coin_payload: Mapping[str, Any]) -> list[str]:
-        components = _normalize_mapping_sequence(honor_coin_payload.get("components"))
-        lines: list[str] = []
-        for component in components:
-            if not bool(component.get("triggered", True)):
-                continue
-            lines.append(
-                f"{component.get('summary') or component.get('component_id') or '组件'}："
-                f"+{_read_int(component.get('applied_delta'))}"
-            )
-        return lines
 
     @classmethod
     def _format_visible_rewards(cls, rewards: Sequence[Mapping[str, Any]]) -> list[str]:

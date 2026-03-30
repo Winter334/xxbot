@@ -16,6 +16,7 @@ from application.character.skill_loadout_service import (
     SkillSlotEquipApplicationResult,
 )
 from application.equipment.backpack_query_service import (
+    BackpackCardSnapshot,
     BackpackEntryKey,
     BackpackEntryKind,
     BackpackFilterId,
@@ -109,14 +110,12 @@ class BackpackPanelPresenter:
             description="仅操作者可见",
             color=discord.Color.dark_gold(),
         )
-        embed.add_field(name="当前页条目", value=cls._build_page_entries_block(snapshot=snapshot), inline=False)
-        if snapshot.selected_detail is not None:
-            embed.add_field(name="当前选中实例", value=cls._build_selected_detail_block(snapshot=snapshot), inline=False)
-            embed.add_field(name="已装备同类实例", value=cls._build_equipped_detail_block(snapshot=snapshot), inline=False)
-            embed.add_field(name="必要对比", value=cls._build_compare_block(snapshot=snapshot), inline=False)
+        embed.add_field(name="🎒 当前页", value=cls._build_page_entries_block(snapshot=snapshot), inline=False)
+        embed.add_field(name="✨ 选中卡", value=cls._build_selected_detail_block(snapshot=snapshot), inline=False)
+        embed.add_field(name="🛡 当前已装同槽卡", value=cls._build_equipped_detail_block(snapshot=snapshot), inline=False)
         if state.action_note is not None and state.action_note.lines:
             embed.add_field(name=state.action_note.title, value="\n".join(state.action_note.lines), inline=False)
-        embed.set_footer(text="背包仅负责实例浏览、选中详情、同类对比与装配")
+        embed.set_footer(text="背包：浏览当前页与装配所选实例")
         return embed
 
     @classmethod
@@ -139,37 +138,30 @@ class BackpackPanelPresenter:
             if snapshot.total_items <= 0:
                 return "当前背包为空。"
             return "当前筛选下本页无实例。"
-        lines: list[str] = []
-        for entry in snapshot.page_entries:
-            prefix = "👉" if snapshot.selected_detail is not None and entry.entry_key == snapshot.selected_detail.entry_key else "•"
-            equipped_tag = "【已装配】" if entry.equipped else ""
+        lines = [f"第 {snapshot.page}/{snapshot.total_pages} 页｜共 {snapshot.total_items} 件"]
+        for index, entry in enumerate(snapshot.page_entries, start=1 + (snapshot.page - 1) * snapshot.page_size):
+            prefix = ">" if snapshot.selected_detail is not None and entry.entry_key == snapshot.selected_detail.entry_key else " "
+            equipped_tag = " 已装" if entry.equipped else ""
             kind_tag = "功法" if entry.entry_kind is BackpackEntryKind.SKILL else ("法宝" if entry.is_artifact else entry.slot_name)
-            lines.append(f"{prefix} {kind_tag}{equipped_tag}：{entry.display_name}｜{entry.rank_name}｜{entry.quality_name}")
-        return cls._truncate_lines(tuple(lines), limit=950)
+            lines.append(f"{prefix}{index:02d}. {kind_tag}{equipped_tag} {entry.display_name}")
+            lines.append(f"   {entry.summary_line}")
+        return f"```\n{cls._truncate_lines(tuple(lines), limit=900)}\n```"
 
     @classmethod
     def _build_selected_detail_block(cls, *, snapshot: BackpackPanelSnapshot) -> str:
         detail = snapshot.selected_detail
-        if detail is None:
+        if detail is None or detail.selected_card is None:
             return "尚未选中实例。"
-        if detail.entry_kind is BackpackEntryKind.EQUIPMENT and detail.equipment_item is not None:
-            return cls._format_equipment_detail(detail.equipment_item)
-        if detail.entry_kind is BackpackEntryKind.SKILL and detail.skill_item is not None:
-            return cls._format_skill_detail(detail.skill_item)
-        return "选中实例已失效。"
+        return cls._format_card(detail.selected_card)
 
     @classmethod
     def _build_equipped_detail_block(cls, *, snapshot: BackpackPanelSnapshot) -> str:
         detail = snapshot.selected_detail
         if detail is None:
             return "尚未选中实例。"
-        if detail.entry_kind is BackpackEntryKind.EQUIPMENT:
-            if detail.same_type_equipped_equipment_item is None:
-                return "当前没有已装备同类实例。"
-            return cls._format_equipment_detail(detail.same_type_equipped_equipment_item)
-        if detail.same_type_equipped_skill_item is None:
-            return "当前没有已装配同类功法实例。"
-        return cls._format_skill_detail(detail.same_type_equipped_skill_item)
+        if detail.equipped_card is None:
+            return "当前槽位没有已装实例。"
+        return cls._format_card(detail.equipped_card)
 
     @classmethod
     def _build_compare_block(cls, *, snapshot: BackpackPanelSnapshot) -> str:
@@ -233,6 +225,19 @@ class BackpackPanelPresenter:
         if detail.entry_kind is BackpackEntryKind.SKILL and detail.skill_item is not None:
             return detail.skill_item.skill_name
         return "无"
+
+    @classmethod
+    def _format_card(cls, card: BackpackCardSnapshot) -> str:
+        lines = [card.name, f"```\n{card.badge_line}"]
+        if card.growth_line:
+            lines.append(card.growth_line)
+        lines.extend(card.stat_lines[:4])
+        lines.append("```")
+        if card.keyword_lines:
+            lines.append("词条：" + "｜".join(card.keyword_lines[:3]))
+        else:
+            lines.append("词条：无")
+        return cls._truncate_lines(tuple(lines), limit=1000)
 
     @classmethod
     def _format_equipment_detail(cls, item: EquipmentItemSnapshot) -> str:

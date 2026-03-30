@@ -16,6 +16,7 @@ from application.breakthrough.panel_service import (
     BreakthroughPanelServiceError,
     BreakthroughPanelSnapshot,
     BreakthroughRecentSettlementSnapshot,
+    BreakthroughTrialCard,
 )
 from application.character import (
     BreakthroughExecutionResult,
@@ -23,6 +24,7 @@ from application.character import (
     CharacterProgressionServiceError,
 )
 from application.character.panel_query_service import CharacterPanelQueryService, CharacterPanelQueryServiceError
+from infrastructure.config.static import get_static_config
 from infrastructure.db.session import session_scope
 from infrastructure.discord.character_panel import (
     DiscordInteractionVisibilityResponder,
@@ -70,6 +72,9 @@ _RESOURCE_NAME_BY_ID = {
     "great_vehicle_golden_leaf": "大乘金叶",
     "tribulation_guiding_talisman": "引劫符",
 }
+_REALM_NAME_BY_ID = {
+    realm.realm_id: realm.name for realm in get_static_config().realm_progression.realms
+}
 
 
 class BreakthroughDisplayMode(StrEnum):
@@ -107,24 +112,21 @@ class BreakthroughPanelPresenter:
         selected_mapping_id: str | None,
         action_note: BreakthroughActionNote | None = None,
     ) -> discord.Embed:
+        selected_trial_card = cls._resolve_selected_trial_card(
+            snapshot=snapshot,
+            selected_mapping_id=selected_mapping_id,
+        )
         embed = discord.Embed(
             title=f"{snapshot.overview.character_name}｜突破秘境",
-            description="仅操作者可见",
+            description=cls._build_description(action_note=action_note),
             color=discord.Color.dark_blue(),
         )
-        embed.add_field(name="当前突破状态", value=cls._build_status_block(snapshot=snapshot), inline=False)
-        embed.add_field(name="突破资格与前置", value=cls._build_precheck_block(snapshot=snapshot), inline=False)
-        embed.add_field(
-            name="当前试炼",
-            value=cls._build_selected_trial_block(snapshot=snapshot, selected_mapping_id=selected_mapping_id),
-            inline=False,
-        )
-        embed.add_field(name="分组概览", value=cls._build_group_overview_block(snapshot=snapshot), inline=False)
-        embed.add_field(name="最近一次结算摘要", value=cls._build_recent_settlement_summary(snapshot=snapshot), inline=False)
-        if action_note is not None and action_note.lines:
-            embed.add_field(name=action_note.title, value="\n".join(action_note.lines), inline=False)
-        footer_text = _build_trial_footer(snapshot=snapshot, selected_mapping_id=selected_mapping_id)
-        embed.set_footer(text=footer_text)
+        embed.add_field(name="🌠 目标突破", value=cls._build_goal_block(snapshot.goal_card), inline=False)
+        embed.add_field(name="⚔ 当前试炼", value=cls._build_trial_block(selected_trial_card), inline=False)
+        embed.add_field(name="🧍 我方状态", value=cls._build_status_block(snapshot.status_card), inline=False)
+        embed.add_field(name="📌 缺口", value=cls._build_gap_block(snapshot.gap_card), inline=False)
+        embed.add_field(name="🏁 最近结果", value=cls._build_recent_result_block(snapshot.recent_result_card), inline=False)
+        embed.set_footer(text=_build_trial_footer(snapshot=snapshot, selected_mapping_id=selected_mapping_id))
         return embed
 
     @classmethod
@@ -142,265 +144,140 @@ class BreakthroughPanelPresenter:
                 selected_mapping_id=selected_mapping_id,
                 action_note=action_note,
             )
+        selected_trial_card = cls._resolve_selected_trial_card(
+            snapshot=snapshot,
+            selected_mapping_id=selected_mapping_id,
+            fallback_trial_card=recent_settlement.trial_card,
+        )
         embed = discord.Embed(
             title=f"{snapshot.overview.character_name}｜突破试炼结算",
-            description="仅操作者可见",
+            description=cls._build_description(action_note=action_note),
             color=discord.Color.dark_purple(),
         )
+        embed.add_field(name="🌠 目标突破", value=cls._build_goal_block(recent_settlement.goal_card), inline=False)
+        embed.add_field(name="⚔ 当前试炼", value=cls._build_trial_block(selected_trial_card), inline=False)
+        embed.add_field(name="🧍 我方状态", value=cls._build_status_block(recent_settlement.status_card), inline=False)
+        embed.add_field(name="📌 缺口", value=cls._build_gap_block(recent_settlement.gap_card), inline=False)
         embed.add_field(
-            name="结算概览",
-            value=cls._build_settlement_overview_block(recent_settlement=recent_settlement),
+            name="🏁 最近结果",
+            value=cls._build_recent_result_block(recent_settlement.recent_result_card),
             inline=False,
         )
-        embed.add_field(
-            name="资格与前置检查",
-            value=cls._build_settlement_requirement_block(snapshot=snapshot, recent_settlement=recent_settlement),
-            inline=False,
+        embed.set_footer(
+            text="｜".join(
+                (
+                    _build_trial_footer(snapshot=snapshot, selected_mapping_id=selected_mapping_id),
+                    f"最近结算时间：{_format_datetime(recent_settlement.occurred_at)}",
+                )
+            )
         )
-        embed.add_field(
-            name="奖励与资源变化",
-            value=cls._build_settlement_reward_block(recent_settlement=recent_settlement),
-            inline=False,
-        )
-        embed.add_field(
-            name="当前状态变化",
-            value=cls._build_settlement_status_block(snapshot=snapshot, recent_settlement=recent_settlement),
-            inline=False,
-        )
-        embed.add_field(
-            name="关键战报摘要",
-            value=cls._build_battle_report_block(recent_settlement=recent_settlement),
-            inline=False,
-        )
-        if action_note is not None and action_note.lines:
-            embed.add_field(name=action_note.title, value="\n".join(action_note.lines), inline=False)
-        footer_text = f"最近结算时间：{_format_datetime(recent_settlement.occurred_at)}｜{_build_trial_footer(snapshot=snapshot, selected_mapping_id=selected_mapping_id)}"
-        embed.set_footer(text=footer_text)
         return embed
 
-    @classmethod
-    def _build_status_block(cls, *, snapshot: BreakthroughPanelSnapshot) -> str:
-        hub = snapshot.hub
-        lines = [
-            f"境界：{snapshot.overview.realm_name}·{snapshot.overview.stage_name}",
-            f"生命：{cls._format_ratio(hub.current_hp_ratio)}",
-            f"灵力：{cls._format_ratio(hub.current_mp_ratio)}",
-            f"突破资格：{'已获得' if hub.qualification_obtained else '未获得'}",
-        ]
-        current_trial = hub.current_trial
-        if current_trial is None:
-            lines.append("当前关卡：无可推进的新关卡")
-        else:
-            lines.extend(
-                (
-                    f"当前关卡：{current_trial.trial_name}",
-                    f"关卡状态：{'可挑战' if current_trial.can_challenge else '暂不可挑战'}",
-                )
-            )
-        lines.append(f"已通关关卡数：{len(hub.cleared_mapping_ids)}")
-        return "\n".join(lines)
-
-    @classmethod
-    def _build_precheck_block(cls, *, snapshot: BreakthroughPanelSnapshot) -> str:
-        precheck = snapshot.precheck
-        lines = [
-            f"目标境界：{precheck.target_realm_name or '当前已到开放上限'}",
-            f"当前判定：{'已满足全部前置' if precheck.passed else '仍有未满足前置'}",
-            (
-                "修为："
-                f"{precheck.current_cultivation_value}/"
-                f"{precheck.required_cultivation_value if precheck.required_cultivation_value is not None else '-'}"
-            ),
-            (
-                "感悟："
-                f"{precheck.current_comprehension_value}/"
-                f"{precheck.required_comprehension_value if precheck.required_comprehension_value is not None else '-'}"
-            ),
-            f"资格状态：{'已具备' if precheck.qualification_obtained else '尚未具备'}",
-        ]
-        gap_lines = cls._build_gap_lines(snapshot=snapshot)
-        if gap_lines:
-            lines.append("缺口：" + "；".join(gap_lines))
-        return "\n".join(lines)
-
-    @classmethod
-    def _build_selected_trial_block(cls, *, snapshot: BreakthroughPanelSnapshot, selected_mapping_id: str | None) -> str:
-        trial_snapshot = _find_trial_snapshot(snapshot=snapshot, mapping_id=selected_mapping_id)
-        if trial_snapshot is None:
-            return "当前没有可挑战或可复读的突破试炼。"
-        group_name = _resolve_group_name(snapshot=snapshot, group_id=trial_snapshot.group_id)
-        lines = [
-            f"名称：{trial_snapshot.trial_name}",
-            f"分组：{group_name}",
-            f"境界：{snapshot.overview.realm_name} → {snapshot.precheck.target_realm_name or trial_snapshot.to_realm_id}",
-            f"试炼景象：{trial_snapshot.environment_rule}",
-            f"重复奖励方向：{_REWARD_DIRECTION_NAME_BY_VALUE.get(trial_snapshot.repeat_reward_direction, trial_snapshot.repeat_reward_direction)}",
-            f"首通资格：{'是' if trial_snapshot.first_clear_grants_qualification else '否'}",
-            f"当前可挑战：{'是' if trial_snapshot.can_challenge else '否'}",
-            f"历史状态：{_build_trial_history_status(trial_snapshot=trial_snapshot)}",
-            f"尝试次数：{trial_snapshot.attempt_count}｜通关次数：{trial_snapshot.cleared_count}",
-        ]
-        if trial_snapshot.last_cleared_at is not None:
-            lines.append(f"最近通关：{trial_snapshot.last_cleared_at}")
-        return "\n".join(lines)
-
-    @classmethod
-    def _build_group_overview_block(cls, *, snapshot: BreakthroughPanelSnapshot) -> str:
-        lines: list[str] = []
-        for group in snapshot.hub.groups:
-            challengeable_count = sum(1 for trial in group.trials if trial.can_challenge)
-            cleared_count = sum(1 for trial in group.trials if trial.is_cleared)
-            current_trial = next((trial for trial in group.trials if trial.is_current_trial), None)
-            current_trial_name = current_trial.trial_name if current_trial is not None else "无"
-            lines.append(
-                (
-                    f"{group.group_name}：可挑战 {challengeable_count}｜已通关 {cleared_count}/{len(group.trials)}\n"
-                    f"主题：{group.theme_summary}\n"
-                    f"奖励方向：{group.reward_focus_summary}\n"
-                    f"当前关卡：{current_trial_name}"
-                )
-            )
-        if not lines:
-            return "当前没有可展示的突破分组。"
-        return "\n\n".join(lines)
-
-    @classmethod
-    def _build_recent_settlement_summary(cls, *, snapshot: BreakthroughPanelSnapshot) -> str:
-        recent_settlement = snapshot.recent_settlement
-        if recent_settlement is None:
-            return "暂无最近一次突破试炼结算。"
-        settlement = recent_settlement.settlement
-        lines = [
-            f"关卡：{recent_settlement.trial_name}",
-            f"结果：{'胜利' if settlement.victory else '失败'}｜{_SETTLEMENT_NAME_BY_VALUE.get(settlement.settlement_type, settlement.settlement_type)}",
-            f"资格变化：{'本次获得突破资格' if settlement.qualification_granted else '本次未获得新资格'}",
-            f"资源摘要：{cls._build_compact_reward_summary(settlement=settlement)}",
-            f"结算时间：{_format_datetime(recent_settlement.occurred_at)}",
-        ]
-        return "\n".join(lines)
-
-    @classmethod
-    def _build_settlement_overview_block(cls, *, recent_settlement: BreakthroughRecentSettlementSnapshot) -> str:
-        settlement = recent_settlement.settlement
-        lines = [
-            f"关卡：{recent_settlement.trial_name}",
-            f"分组：{recent_settlement.group_name}",
-            f"结果：{'胜利' if settlement.victory else '失败'}",
-            f"结算类型：{_SETTLEMENT_NAME_BY_VALUE.get(settlement.settlement_type, settlement.settlement_type)}",
-            f"突破资格变化：{'已获得' if settlement.qualification_granted else '无新增'}",
-        ]
-        return "\n".join(lines)
-
-    @classmethod
-    def _build_settlement_requirement_block(
-        cls,
-        *,
-        snapshot: BreakthroughPanelSnapshot,
-        recent_settlement: BreakthroughRecentSettlementSnapshot,
-    ) -> str:
-        precheck = snapshot.precheck
-        settlement = recent_settlement.settlement
-        lines = [
-            f"当前资格：{'已具备' if snapshot.hub.qualification_obtained else '尚未具备'}",
-            f"本次资格变化：{'获得突破资格' if settlement.qualification_granted else '无新增资格'}",
-            f"前置判定：{'已满足全部前置' if precheck.passed else '仍有缺口'}",
-        ]
-        gap_lines = cls._build_gap_lines(snapshot=snapshot)
-        if gap_lines:
-            lines.append("剩余缺口：" + "；".join(gap_lines))
-        else:
-            lines.append("剩余缺口：无")
-        return "\n".join(lines)
-
-    @classmethod
-    def _build_settlement_reward_block(cls, *, recent_settlement: BreakthroughRecentSettlementSnapshot) -> str:
-        settlement = recent_settlement.settlement
-        lines: list[str] = []
-        reward_lines = cls._build_reward_package_lines(settlement=settlement)
-        if reward_lines:
-            lines.append("奖励包：")
-            lines.extend(f"- {line}" for line in reward_lines)
-        else:
-            lines.append("奖励包：无")
-        currency_lines = cls._format_currency_changes(settlement.currency_changes)
-        lines.append("货币变化：" + ("｜".join(currency_lines) if currency_lines else "无"))
-        item_lines = cls._format_item_changes(settlement.item_changes)
-        lines.append("物品变化：" + ("｜".join(item_lines) if item_lines else "无"))
-        soft_limit_lines = cls._build_soft_limit_lines(settlement=settlement)
-        if soft_limit_lines:
-            lines.append("软限制：")
-            lines.extend(f"- {line}" for line in soft_limit_lines)
-        return "\n".join(lines)
-
-    @classmethod
-    def _build_settlement_status_block(
-        cls,
-        *,
-        snapshot: BreakthroughPanelSnapshot,
-        recent_settlement: BreakthroughRecentSettlementSnapshot,
-    ) -> str:
-        settlement = recent_settlement.settlement
-        latest_trial = _find_trial_snapshot(snapshot=snapshot, mapping_id=recent_settlement.mapping_id)
-        lines = [
-            f"生命：{cls._format_ratio(snapshot.hub.current_hp_ratio)}",
-            f"灵力：{cls._format_ratio(snapshot.hub.current_mp_ratio)}",
-            f"进度状态：{_PROGRESS_STATUS_NAME_BY_VALUE.get(settlement.progress_status, settlement.progress_status or '无记录')}",
-            f"累计尝试：{settlement.attempt_count}｜累计通关：{settlement.cleared_count}",
-            f"当前资格持有：{'是' if snapshot.hub.qualification_obtained else '否'}",
-        ]
-        if latest_trial is not None:
-            lines.append(f"当前关卡可挑战：{'是' if latest_trial.can_challenge else '否'}")
-            lines.append(
-                "当前重复奖励方向："
-                f"{_REWARD_DIRECTION_NAME_BY_VALUE.get(latest_trial.repeat_reward_direction, latest_trial.repeat_reward_direction)}"
-            )
-        return "\n".join(lines)
-
-    @classmethod
-    def _build_battle_report_block(cls, *, recent_settlement: BreakthroughRecentSettlementSnapshot) -> str:
-        battle_report_digest = recent_settlement.battle_report_digest
-        if battle_report_digest is None:
-            return "本次结算没有可展示的持久化战报摘要。"
+    @staticmethod
+    def _build_description(*, action_note: BreakthroughActionNote | None) -> str:
+        if action_note is None or not action_note.lines:
+            return "仅操作者可见"
         return "\n".join(
             (
-                f"聚焦角色：{battle_report_digest.focus_unit_name}",
-                f"战斗结果：{battle_report_digest.result}｜回合数：{battle_report_digest.completed_rounds}",
-                (
-                    "终局血蓝："
-                    f"生命 {cls._format_ratio(battle_report_digest.final_hp_ratio)}｜"
-                    f"灵力 {cls._format_ratio(battle_report_digest.final_mp_ratio)}"
-                ),
-                (
-                    "输出承伤："
-                    f"造成 {battle_report_digest.ally_damage_dealt}｜"
-                    f"承受 {battle_report_digest.ally_damage_taken}｜"
-                    f"治疗 {battle_report_digest.ally_healing_done}"
-                ),
-                (
-                    "关键触发："
-                    f"命中 {battle_report_digest.successful_hits}｜"
-                    f"暴击 {battle_report_digest.critical_hits}｜"
-                    f"被控跳过 {battle_report_digest.control_skips}"
-                ),
+                "仅操作者可见",
+                f"【{action_note.title}】",
+                *(f"• {line}" for line in action_note.lines),
+            )
+        )
+
+    @staticmethod
+    def _resolve_selected_trial_card(
+        *,
+        snapshot: BreakthroughPanelSnapshot,
+        selected_mapping_id: str | None,
+        fallback_trial_card: BreakthroughTrialCard | None = None,
+    ) -> BreakthroughTrialCard | None:
+        selected_trial = _find_trial_snapshot(snapshot=snapshot, mapping_id=selected_mapping_id)
+        if selected_trial is not None:
+            return BreakthroughTrialCard(
+                mapping_id=selected_trial.mapping_id,
+                trial_name=selected_trial.trial_name,
+                group_name=_resolve_group_name(snapshot=snapshot, group_id=selected_trial.group_id),
+                target_realm_name=_REALM_NAME_BY_ID.get(selected_trial.to_realm_id, selected_trial.to_realm_id),
+                environment_rule=selected_trial.environment_rule,
+                can_challenge=selected_trial.can_challenge,
+                is_cleared=selected_trial.is_cleared,
+                attempt_count=selected_trial.attempt_count,
+                cleared_count=selected_trial.cleared_count,
+            )
+        if fallback_trial_card is not None and (selected_mapping_id is None or fallback_trial_card.mapping_id == selected_mapping_id):
+            return fallback_trial_card
+        if snapshot.current_trial_card is not None:
+            return snapshot.current_trial_card
+        return fallback_trial_card
+
+    @classmethod
+    def _build_goal_block(cls, goal_card) -> str:
+        return "\n".join(
+            (
+                f"当前：{goal_card.current_realm_name}·{goal_card.current_stage_name}",
+                f"目标：{goal_card.target_realm_name}",
+                "```text\n"
+                f"资格  {'已获得' if goal_card.qualification_obtained else '未获得'}\n"
+                f"突破  {'可执行' if goal_card.can_breakthrough else '暂不可执行'}\n"
+                "```",
             )
         )
 
     @classmethod
-    def _build_gap_lines(cls, *, snapshot: BreakthroughPanelSnapshot) -> list[str]:
-        gap_lines: list[str] = []
-        for gap in snapshot.precheck.gaps:
-            if gap.gap_type == "open_limit":
-                gap_lines.append("当前已到开放上限")
-            elif gap.gap_type == "cultivation_insufficient":
-                gap_lines.append(f"修为还差 {gap.missing_value}")
-            elif gap.gap_type == "comprehension_insufficient":
-                gap_lines.append(f"感悟还差 {gap.missing_value}")
-            elif gap.gap_type == "qualification_missing":
-                gap_lines.append("缺少突破资格")
-            elif gap.gap_type == "material_insufficient":
-                item_name = _RESOURCE_NAME_BY_ID.get(gap.item_id or "", gap.item_id or "材料")
-                gap_lines.append(f"{item_name} 还差 {gap.missing_value}")
-        return gap_lines
+    def _build_trial_block(cls, trial_card) -> str:
+        if trial_card is None:
+            return "当前没有可挑战或可复读的突破试炼。"
+        return "\n".join(
+            (
+                f"{trial_card.trial_name}｜{trial_card.group_name}",
+                f"目标境界：{trial_card.target_realm_name}",
+                f"试炼景象：{trial_card.environment_rule}",
+                "```text\n"
+                f"状态  {'可挑战' if trial_card.can_challenge else '暂不可挑战'}\n"
+                f"通关  {'已通关' if trial_card.is_cleared else '未通关'}\n"
+                f"尝试  {trial_card.attempt_count}    通关  {trial_card.cleared_count}\n"
+                "```",
+            )
+        )
+
+    @classmethod
+    def _build_status_block(cls, status_card) -> str:
+        return "\n".join(
+            (
+                f"境界：{status_card.current_realm_name}·{status_card.current_stage_name}",
+                "```text\n"
+                f"生命  {cls._format_ratio(status_card.current_hp_ratio)}\n"
+                f"灵力  {cls._format_ratio(status_card.current_mp_ratio)}\n"
+                f"资格  {'已获得' if status_card.qualification_obtained else '未获得'}\n"
+                f"修为  {status_card.current_cultivation_value}/{status_card.required_cultivation_value if status_card.required_cultivation_value is not None else '-'}\n"
+                f"感悟  {status_card.current_comprehension_value}/{status_card.required_comprehension_value if status_card.required_comprehension_value is not None else '-'}\n"
+                "```",
+            )
+        )
+
+    @staticmethod
+    def _build_gap_block(gap_card) -> str:
+        if gap_card.passed:
+            return "已满足"
+        return "\n".join(f"- {line}" for line in gap_card.lines)
+
+    @classmethod
+    def _build_recent_result_block(cls, recent_result_card) -> str:
+        if recent_result_card is None:
+            return "暂无最近结果。"
+        qualification_line = "获得突破资格" if recent_result_card.qualification_changed else "资格无新增"
+        return "\n".join(
+            (
+                f"关卡：{recent_result_card.trial_name}",
+                "```text\n"
+                f"结果  {recent_result_card.result_label}\n"
+                f"资格  {qualification_line}\n"
+                f"掉落  {recent_result_card.reward_summary}\n"
+                "```",
+                f"时间：{_format_datetime(recent_result_card.occurred_at)}",
+            )
+        )
 
     @classmethod
     def _build_reward_package_lines(cls, *, settlement) -> list[str]:
@@ -1137,6 +1014,7 @@ class BreakthroughPanelController:
         lines = [
             f"境界：{result.from_realm_name} → {result.to_realm_name}",
             f"新阶段：{result.new_stage_name}",
+            f"当前结论：已踏入 {result.to_realm_name}·{result.new_stage_name}",
             f"修为：{result.previous_cultivation_value} → {result.new_cultivation_value}",
             (
                 "感悟："
@@ -1184,15 +1062,13 @@ def _resolve_group_name(*, snapshot: BreakthroughPanelSnapshot, group_id: str) -
 
 
 def _build_precheck_note(*, snapshot: BreakthroughPanelSnapshot) -> tuple[str, ...]:
-    precheck = snapshot.precheck
     lines = [
-        f"目标境界：{precheck.target_realm_name or '当前已到开放上限'}",
-        f"前置判定：{'已满足全部前置' if precheck.passed else '仍有缺口'}",
-        f"突破资格：{'已具备' if precheck.qualification_obtained else '尚未具备'}",
+        f"目标境界：{snapshot.goal_card.target_realm_name}",
+        f"前置判定：{'已满足全部前置' if snapshot.gap_card.passed else '仍有缺口'}",
+        f"突破资格：{'已具备' if snapshot.goal_card.qualification_obtained else '尚未具备'}",
     ]
-    gap_lines = BreakthroughPanelPresenter._build_gap_lines(snapshot=snapshot)
-    if gap_lines:
-        lines.append("缺口：" + "；".join(gap_lines))
+    if not snapshot.gap_card.passed:
+        lines.append("缺口：" + "；".join(snapshot.gap_card.lines))
     return tuple(lines)
 
 
@@ -1215,9 +1091,24 @@ def _build_trial_history_status(*, trial_snapshot) -> str:
 
 def _build_trial_footer(*, snapshot: BreakthroughPanelSnapshot, selected_mapping_id: str | None) -> str:
     trial_snapshot = _find_trial_snapshot(snapshot=snapshot, mapping_id=selected_mapping_id)
-    if trial_snapshot is None:
-        return "当前未选择试炼"
-    return f"当前试炼：{trial_snapshot.trial_name}"
+    if trial_snapshot is not None:
+        state_parts = [_build_trial_history_status(trial_snapshot=trial_snapshot)]
+        if trial_snapshot.is_current_trial:
+            state_parts.append("当前关卡")
+        if trial_snapshot.can_challenge:
+            state_parts.append("可挑战")
+        return (
+            f"当前查看：{trial_snapshot.trial_name}"
+            f"｜{_resolve_group_name(snapshot=snapshot, group_id=trial_snapshot.group_id)}"
+            f"｜{'｜'.join(state_parts)}"
+        )
+    if snapshot.recent_settlement is not None and snapshot.recent_settlement.mapping_id == selected_mapping_id:
+        return f"当前查看：{snapshot.recent_settlement.trial_name}｜{snapshot.recent_settlement.group_name}"
+    if snapshot.current_trial_card is not None:
+        return f"当前查看：{snapshot.current_trial_card.trial_name}｜{snapshot.current_trial_card.group_name}"
+    if snapshot.recent_settlement is not None:
+        return f"当前查看：{snapshot.recent_settlement.trial_name}｜{snapshot.recent_settlement.group_name}"
+    return "当前未选择试炼"
 
 
 

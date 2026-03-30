@@ -30,6 +30,7 @@ from application.equipment.equipment_service import (
     EquipmentWashApplicationResult,
 )
 from application.equipment.panel_query_service import (
+    EquipmentCardSnapshot,
     EquipmentPanelQueryService,
     EquipmentPanelQueryServiceError,
     EquipmentPanelSnapshot,
@@ -155,18 +156,14 @@ class EquipmentPanelPresenter:
         action_note: EquipmentActionNote | None,
     ) -> discord.Embed:
         embed = discord.Embed(
-            title=f"{snapshot.skill_snapshot.character_name}｜装备 / 法宝 / 功法",
+            title=f"{snapshot.skill_snapshot.character_name}｜装备",
             description="仅操作者可见",
             color=discord.Color.dark_gold(),
         )
-        embed.add_field(name="已装备部位", value=cls._build_equipped_block(snapshot=snapshot), inline=False)
-        embed.add_field(name="法宝概况", value=cls._build_artifact_block(snapshot=snapshot), inline=False)
-        embed.add_field(name="功法概况", value=cls._build_skill_brief_block(snapshot=snapshot), inline=False)
-        embed.add_field(name="候选装备摘要", value=cls._build_candidate_summary(snapshot=snapshot), inline=False)
-        embed.add_field(name="最近一次相关获取", value=cls._build_latest_drop_block(snapshot=snapshot), inline=False)
+        embed.add_field(name="🛡 已装备部位列表", value=cls._build_equipped_block(snapshot=snapshot), inline=False)
         if action_note is not None and action_note.lines:
             embed.add_field(name=action_note.title, value="\n".join(action_note.lines), inline=False)
-        embed.set_footer(text="默认私有面板；可查看部位详情、法宝详情、功法详情，并尝试装备候选装备")
+        embed.set_footer(text="主面板仅保留部位总览")
         return embed
 
     @classmethod
@@ -183,26 +180,17 @@ class EquipmentPanelPresenter:
             selected_candidate_item_id=selected_candidate_item_id,
         )
         embed = discord.Embed(
-            title=f"{snapshot.skill_snapshot.character_name}｜{slot_panel.slot_name}详情",
+            title=f"{snapshot.skill_snapshot.character_name}｜{slot_panel.slot_name}",
             description="仅操作者可见",
             color=discord.Color.orange(),
         )
         embed.add_field(
-            name="部位说明",
-            value=(
-                f"部位：{slot_panel.slot_name}\n"
-                f"核心定位：{slot_panel.core_role}\n"
-                f"候选数量：{len(slot_panel.candidate_items)}"
-            ),
-            inline=False,
-        )
-        embed.add_field(
-            name="当前装备",
+            name="🛡 当前装备",
             value=cls._format_current_equipped_item(slot_panel=slot_panel),
             inline=False,
         )
         embed.add_field(
-            name="候选列表",
+            name="🎒 候选列表",
             value=cls._format_candidate_list(
                 slot_panel=slot_panel,
                 selected_candidate_item_id=None if selected_candidate is None else selected_candidate.item_id,
@@ -210,13 +198,13 @@ class EquipmentPanelPresenter:
             inline=False,
         )
         embed.add_field(
-            name="候选详情",
-            value=cls._format_candidate_detail(selected_candidate=selected_candidate),
+            name="✨ 选中候选",
+            value=cls._format_candidate_detail(slot_panel=slot_panel, selected_candidate=selected_candidate),
             inline=False,
         )
         if action_note is not None and action_note.lines:
             embed.add_field(name=action_note.title, value="\n".join(action_note.lines), inline=False)
-        embed.set_footer(text="选择候选装备后可尝试装备到该部位")
+        embed.set_footer(text=f"{slot_panel.slot_name}详情")
         return embed
 
     @classmethod
@@ -263,11 +251,16 @@ class EquipmentPanelPresenter:
     def _build_equipped_block(cls, *, snapshot: EquipmentPanelSnapshot) -> str:
         lines: list[str] = []
         for slot_panel in snapshot.slot_panels:
+            extra_candidates = cls._count_extra_candidates(slot_panel=slot_panel)
             if slot_panel.equipped_item is None:
-                lines.append(f"{slot_panel.slot_name}：未装备")
+                lines.append(f"{slot_panel.slot_name}｜未装备｜候选 {extra_candidates}")
                 continue
-            lines.append(f"{slot_panel.slot_name}：{cls._format_item_head(slot_panel.equipped_item)}")
-        return "\n".join(lines) if lines else "暂无装备"
+            item = slot_panel.equipped_item
+            growth = f"祭{item.artifact_nurture_level}" if item.is_artifact else f"+{item.enhancement_level}"
+            lines.append(f"{slot_panel.slot_name}｜{item.display_name} {growth}｜候选 {extra_candidates}")
+        if not lines:
+            return "暂无装备"
+        return "```\n" + "\n".join(lines) + "\n```"
 
     @classmethod
     def _build_artifact_block(cls, *, snapshot: EquipmentPanelSnapshot) -> str:
@@ -365,20 +358,9 @@ class EquipmentPanelPresenter:
 
     @classmethod
     def _format_current_equipped_item(cls, *, slot_panel: EquipmentSlotPanelSnapshot) -> str:
-        item = slot_panel.equipped_item
-        if item is None:
+        if slot_panel.equipped_card is None:
             return "当前未装备。"
-        lines = [
-            f"名称：{cls._format_item_head(item)}",
-            f"{'法宝器胚' if item.is_artifact else '底材'}：{item.template_name}",
-            f"关键属性：{cls._format_primary_stat_lines(item, limit=3)}",
-        ]
-        if item.affixes:
-            lines.append("词条：" + "｜".join(cls._format_affix_line(affix) for affix in item.affixes[:3]))
-        if item.is_artifact:
-            lines.append(f"法宝培养：{item.artifact_nurture_level}")
-            lines.append(f"共鸣：{item.resonance_name or '无'}")
-        return "\n".join(lines)
+        return cls._format_card(slot_panel.equipped_card)
 
     @classmethod
     def _format_candidate_list(
@@ -391,27 +373,43 @@ class EquipmentPanelPresenter:
             return "当前没有可尝试装备的候选。"
         lines: list[str] = []
         for index, item in enumerate(slot_panel.candidate_items[:8], start=1):
-            prefix = "👉" if item.item_id == selected_candidate_item_id else f"{index}."
-            lines.append(f"{prefix} {cls._format_item_head(item)}")
-        return "\n".join(lines)
+            prefix = ">" if item.item_id == selected_candidate_item_id else " "
+            badge_line = (
+                slot_panel.candidate_cards[index - 1].badge_line
+                if index - 1 < len(slot_panel.candidate_cards)
+                else f"{item.rank_name}｜{item.quality_name}"
+            )
+            lines.append(f"{prefix}{index:02d}. {item.display_name}")
+            lines.append(f"   {badge_line}")
+        return "```\n" + "\n".join(lines) + "\n```"
 
     @classmethod
-    def _format_candidate_detail(cls, *, selected_candidate: EquipmentItemSnapshot | None) -> str:
+    def _format_candidate_detail(
+        cls,
+        *,
+        slot_panel: EquipmentSlotPanelSnapshot,
+        selected_candidate: EquipmentItemSnapshot | None,
+    ) -> str:
         if selected_candidate is None:
             return "尚未选择候选装备。"
-        lines = [
-            f"名称：{cls._format_item_head(selected_candidate)}",
-            f"{'法宝器胚' if selected_candidate.is_artifact else '底材'}：{selected_candidate.template_name}",
-            f"主要属性：{cls._format_primary_stat_lines(selected_candidate, limit=3)}",
-        ]
-        if selected_candidate.affixes:
-            lines.append(
-                "关键词条：" + "｜".join(cls._format_affix_line(affix) for affix in selected_candidate.affixes[:3])
-            )
-        if selected_candidate.is_artifact:
-            lines.append(f"法宝培养：{selected_candidate.artifact_nurture_level}")
-            lines.append(f"共鸣：{selected_candidate.resonance_name or '无'}")
-        return "\n".join(lines)
+        card = cls._resolve_selected_candidate_card(
+            slot_panel=slot_panel,
+            selected_candidate_item_id=selected_candidate.item_id,
+        )
+        if card is not None:
+            return cls._format_card(card)
+        fallback_card = EquipmentCardSnapshot(
+            name=selected_candidate.display_name,
+            badge_line=f"{selected_candidate.slot_name}｜{selected_candidate.rank_name}｜{selected_candidate.quality_name}",
+            growth_line=(
+                f"强化 +{selected_candidate.enhancement_level}"
+                if not selected_candidate.is_artifact
+                else f"强化 +{selected_candidate.enhancement_level}｜祭炼 {selected_candidate.artifact_nurture_level}"
+            ),
+            stat_lines=(cls._format_primary_stat_lines(selected_candidate, limit=3),),
+            keyword_lines=tuple(cls._format_affix_line(affix) for affix in selected_candidate.affixes[:3]),
+        )
+        return cls._format_card(fallback_card)
 
     @classmethod
     def _resolve_selected_candidate(
@@ -428,6 +426,45 @@ class EquipmentPanelPresenter:
             if item.item_id == selected_candidate_item_id:
                 return item
         return slot_panel.candidate_items[0]
+
+    @classmethod
+    def _resolve_selected_candidate_card(
+        cls,
+        *,
+        slot_panel: EquipmentSlotPanelSnapshot,
+        selected_candidate_item_id: int | None,
+    ) -> EquipmentCardSnapshot | None:
+        if not slot_panel.candidate_cards:
+            return None
+        selected_candidate = cls._resolve_selected_candidate(
+            slot_panel=slot_panel,
+            selected_candidate_item_id=selected_candidate_item_id,
+        )
+        if selected_candidate is None:
+            return None
+        for index, item in enumerate(slot_panel.candidate_items):
+            if item.item_id == selected_candidate.item_id and index < len(slot_panel.candidate_cards):
+                return slot_panel.candidate_cards[index]
+        return slot_panel.candidate_cards[0]
+
+    @staticmethod
+    def _count_extra_candidates(*, slot_panel: EquipmentSlotPanelSnapshot) -> int:
+        if slot_panel.equipped_item is None:
+            return len(slot_panel.candidate_items)
+        return sum(1 for item in slot_panel.candidate_items if item.item_id != slot_panel.equipped_item.item_id)
+
+    @classmethod
+    def _format_card(cls, card: EquipmentCardSnapshot) -> str:
+        lines = [card.name, f"```\n{card.badge_line}"]
+        if card.growth_line:
+            lines.append(card.growth_line)
+        lines.extend(card.stat_lines[:4])
+        lines.append("```")
+        if card.keyword_lines:
+            lines.append("词条：" + "｜".join(card.keyword_lines[:3]))
+        else:
+            lines.append("词条：无")
+        return "\n".join(lines)
 
     @staticmethod
     def _format_item_head(item: EquipmentItemSnapshot) -> str:

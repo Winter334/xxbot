@@ -32,6 +32,24 @@ _SKILL_SLOT_ORDER = {
     "movement": 2,
     "spirit": 3,
 }
+_STAT_NAME_BY_ID = {
+    "max_hp": "气血",
+    "attack_power": "攻力",
+    "guard_power": "护体",
+    "speed": "迅捷",
+    "crit_rate_permille": "暴击",
+    "crit_damage_bonus_permille": "暴伤",
+    "hit_rate_permille": "命中",
+    "dodge_rate_permille": "闪避",
+    "damage_bonus_permille": "增伤",
+    "damage_reduction_permille": "减伤",
+    "counter_rate_permille": "反击",
+    "control_bonus_permille": "控势",
+    "control_resist_permille": "定心",
+    "healing_power_permille": "疗愈",
+    "shield_power_permille": "护盾",
+    "penetration_permille": "穿透",
+}
 
 
 class BackpackEntryKind(StrEnum):
@@ -106,6 +124,17 @@ class BackpackEntrySummarySnapshot:
 
 
 @dataclass(frozen=True, slots=True)
+class BackpackCardSnapshot:
+    """可直接渲染的背包卡片快照。"""
+
+    name: str
+    badge_line: str
+    growth_line: str | None
+    stat_lines: tuple[str, ...]
+    keyword_lines: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
 class BackpackSelectedDetailSnapshot:
     """当前选中实例详情与同类对比对象。"""
 
@@ -113,11 +142,13 @@ class BackpackSelectedDetailSnapshot:
     entry_kind: BackpackEntryKind
     equipment_item: EquipmentItemSnapshot | None = None
     skill_item: SkillPanelSkillSlotSnapshot | None = None
+    selected_card: BackpackCardSnapshot | None = None
     equip_action_enabled: bool = False
     equip_action_label: str = "装配"
     same_type_equipped_entry_key: BackpackEntryKey | None = None
     same_type_equipped_equipment_item: EquipmentItemSnapshot | None = None
     same_type_equipped_skill_item: SkillPanelSkillSlotSnapshot | None = None
+    equipped_card: BackpackCardSnapshot | None = None
     is_same_as_equipped: bool = False
 
 
@@ -265,12 +296,12 @@ class BackpackPanelQueryService:
         )
         if item.is_artifact or item.slot_id == BackpackFilterId.ARTIFACT.value:
             summary_line = (
-                f"{item.quality_name}｜{item.rank_name}｜祭炼 {item.artifact_nurture_level}"
+                f"{item.rank_name}｜{item.quality_name}｜祭炼 {item.artifact_nurture_level}"
                 f"｜{affix_count}词条/{special_affix_count}特效"
             )
         else:
             summary_line = (
-                f"{item.quality_name}｜{item.rank_name}｜强化 +{item.enhancement_level}"
+                f"{item.rank_name}｜{item.quality_name}｜强化 +{item.enhancement_level}"
                 f"｜{affix_count}词条/{special_affix_count}特效"
             )
         return BackpackEntrySummarySnapshot(
@@ -302,7 +333,7 @@ class BackpackPanelQueryService:
             rank_name=skill_item.rank_name,
             equipped=is_equipped,
             is_artifact=False,
-            summary_line=f"{skill_item.slot_name}｜{skill_item.rank_name}｜{skill_item.quality_name}｜流派加成 {patch_count}",
+            summary_line=f"{skill_item.path_name}｜{skill_item.rank_name}｜{skill_item.quality_name}｜加成 {patch_count}",
         )
 
     def _build_all_entry_sort_key(
@@ -385,6 +416,7 @@ class BackpackPanelQueryService:
                 entry_key=selected_entry.entry_key,
                 entry_kind=selected_entry.entry_kind,
                 equipment_item=equipment_item,
+                selected_card=self._build_equipment_card(item=equipment_item),
                 equip_action_enabled=not is_same_as_equipped,
                 equip_action_label="已装备" if is_same_as_equipped else "装配",
                 same_type_equipped_entry_key=(
@@ -396,6 +428,9 @@ class BackpackPanelQueryService:
                     )
                 ),
                 same_type_equipped_equipment_item=same_type_equipped_item,
+                equipped_card=(
+                    None if same_type_equipped_item is None else self._build_equipment_card(item=same_type_equipped_item)
+                ),
                 is_same_as_equipped=is_same_as_equipped,
             )
 
@@ -411,6 +446,7 @@ class BackpackPanelQueryService:
             entry_key=selected_entry.entry_key,
             entry_kind=selected_entry.entry_kind,
             skill_item=skill_item,
+            selected_card=self._build_skill_card(skill_item=skill_item),
             equip_action_enabled=not is_same_as_equipped,
             equip_action_label="已装配" if is_same_as_equipped else "装配",
             same_type_equipped_entry_key=(
@@ -422,8 +458,66 @@ class BackpackPanelQueryService:
                 )
             ),
             same_type_equipped_skill_item=same_type_equipped_skill,
+            equipped_card=None if same_type_equipped_skill is None else self._build_skill_card(skill_item=same_type_equipped_skill),
             is_same_as_equipped=is_same_as_equipped,
         )
+
+    def _build_equipment_card(self, *, item: EquipmentItemSnapshot) -> BackpackCardSnapshot:
+        stats = item.resolved_stats if item.resolved_stats else item.base_attributes
+        stat_lines = tuple(
+            f"{self._format_stat_name(stat.stat_id)} {self._format_stat_value(stat.stat_id, stat.value)}"
+            for stat in stats[:4]
+        )
+        keyword_lines = tuple(self._format_affix_keyword(affix) for affix in item.affixes[:3])
+        growth_parts = [f"强化 +{item.enhancement_level}"]
+        if item.is_artifact:
+            growth_parts.append(f"祭炼 {item.artifact_nurture_level}")
+        return BackpackCardSnapshot(
+            name=item.display_name,
+            badge_line=f"{'法宝' if item.is_artifact else item.slot_name}｜{item.rank_name}｜{item.quality_name}",
+            growth_line="｜".join(growth_parts),
+            stat_lines=stat_lines or ("暂无关键属性",),
+            keyword_lines=keyword_lines,
+        )
+
+    def _build_skill_card(self, *, skill_item: SkillPanelSkillSlotSnapshot) -> BackpackCardSnapshot:
+        return BackpackCardSnapshot(
+            name=skill_item.skill_name,
+            badge_line=f"{skill_item.slot_name}｜{skill_item.rank_name}｜{skill_item.quality_name}",
+            growth_line=f"流派 {skill_item.path_name}",
+            stat_lines=(
+                f"类型 {'主修' if skill_item.skill_type == 'main' else '辅修'}",
+                f"预算 {skill_item.total_budget}",
+                f"加成 {len(skill_item.resolved_patch_ids)}",
+            ),
+            keyword_lines=tuple(self._format_patch_name(patch_id) for patch_id in skill_item.resolved_patch_ids[:3]),
+        )
+
+    @staticmethod
+    def _format_stat_name(stat_id: str) -> str:
+        return _STAT_NAME_BY_ID.get(stat_id, stat_id)
+
+    @staticmethod
+    def _format_stat_value(stat_id: str, value: int) -> str:
+        if stat_id.endswith("_permille"):
+            return f"{value / 10:.1f}%"
+        return str(value)
+
+    def _format_affix_keyword(self, affix) -> str:
+        if affix.affix_kind == "special_effect" or affix.special_effect is not None or not affix.stat_id.strip():
+            return affix.affix_name
+        return f"{affix.affix_name} {self._format_stat_value(affix.stat_id, affix.value)}"
+
+    def _format_patch_name(self, patch_id: str) -> str:
+        normalized_patch_id = patch_id.strip()
+        if not normalized_patch_id:
+            return "未命名流派修正"
+        patch = self._static_config.skill_generation.get_patch(normalized_patch_id)
+        if patch is not None:
+            return str(patch.name)
+        if _looks_like_internal_identifier(normalized_patch_id):
+            return "未命名流派修正"
+        return normalized_patch_id
 
     @staticmethod
     def _resolve_same_slot_equipped_equipment(
@@ -450,7 +544,12 @@ class BackpackPanelQueryService:
         return None
 
 
+def _looks_like_internal_identifier(value: str) -> bool:
+    return all(character.islower() or character.isdigit() or character == "_" for character in value)
+
+
 __all__ = [
+    "BackpackCardSnapshot",
     "BackpackEntryKey",
     "BackpackEntryKind",
     "BackpackEntrySummarySnapshot",

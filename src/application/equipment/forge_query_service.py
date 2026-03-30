@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections import defaultdict
 from dataclasses import dataclass
 from enum import StrEnum
 
@@ -24,6 +25,9 @@ _RESOURCE_NAME_BY_ID = {
     "spirit_stone": "灵石",
     "enhancement_stone": "强化石",
     "enhancement_shard": "强化碎晶",
+    "wash_jade": "洗炼玉",
+    "seal_talisman": "封缄符",
+    "reforge_crystal": "重铸晶",
     "wash_dust": "洗炼尘",
     "spirit_sand": "灵砂",
     "spirit_pattern_stone": "灵纹石",
@@ -43,10 +47,36 @@ _SKILL_SLOT_ORDER = {
     "spirit": 3,
 }
 _SKILL_CORE_ROLE_BY_SLOT_ID = {
-    "main": "主修功法槽位，当前纳入统一锻造目标选择。",
-    "guard": "护体功法槽位，当前纳入统一锻造目标选择。",
-    "movement": "身法功法槽位，当前纳入统一锻造目标选择。",
-    "spirit": "神识功法槽位，当前纳入统一锻造目标选择。",
+    "main": "主修功法",
+    "guard": "护体功法",
+    "movement": "身法功法",
+    "spirit": "神识功法",
+}
+_OPERATION_NAME_BY_ID = {
+    "enhance": "强化",
+    "wash": "洗炼",
+    "reforge": "重铸",
+    "nurture": "法宝培养",
+    "dismantle": "分解",
+    "unequip": "卸下装备",
+}
+_STAT_NAME_BY_ID = {
+    "max_hp": "气血",
+    "attack_power": "攻力",
+    "guard_power": "护体",
+    "speed": "迅捷",
+    "crit_rate_permille": "暴击",
+    "crit_damage_bonus_permille": "暴伤",
+    "hit_rate_permille": "命中",
+    "dodge_rate_permille": "闪避",
+    "damage_bonus_permille": "增伤",
+    "damage_reduction_permille": "减伤",
+    "counter_rate_permille": "反击",
+    "control_bonus_permille": "控势",
+    "control_resist_permille": "定心",
+    "healing_power_permille": "疗愈",
+    "shield_power_permille": "护盾",
+    "penetration_permille": "穿透",
 }
 
 
@@ -112,6 +142,35 @@ class ForgeResourceSnapshot:
 
 
 @dataclass(frozen=True, slots=True)
+class ForgeCardSnapshot:
+    """可直接渲染的锻造目标卡片。"""
+
+    name: str
+    badge_line: str
+    growth_line: str | None
+    stat_lines: tuple[str, ...]
+    keyword_lines: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class ForgeOperationCostSnapshot:
+    """当前操作消耗快照。"""
+
+    resource_id: str
+    resource_name: str
+    required_quantity: int
+    owned_quantity: int
+
+
+@dataclass(frozen=True, slots=True)
+class ForgeOperationPreviewSnapshot:
+    """当前操作结果预览。"""
+
+    title: str
+    lines: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
 class ForgeTargetSnapshot:
     """锻造当前可选目标。"""
 
@@ -142,6 +201,10 @@ class ForgePanelSnapshot:
     total_pages: int
     targets: tuple[ForgeTargetSnapshot, ...]
     selected_target: ForgeTargetSnapshot | None
+    selected_target_card: ForgeCardSnapshot | None
+    current_operation_name: str | None
+    operation_costs: tuple[ForgeOperationCostSnapshot, ...]
+    operation_preview: ForgeOperationPreviewSnapshot | None
 
 
 class ForgePanelQueryService:
@@ -175,6 +238,8 @@ class ForgePanelQueryService:
         filter_id: ForgeFilterId = ForgeFilterId.ALL,
         page: int = 1,
         selected_target_id: str | None = None,
+        pending_action: str | None = None,
+        locked_affix_positions: tuple[int, ...] = (),
     ) -> ForgePanelSnapshot:
         """读取锻造面板快照。"""
         normalized_filter = self._normalize_filter_id(filter_id)
@@ -203,10 +268,12 @@ class ForgePanelQueryService:
             selected_target_id=selected_target_id,
             page_targets=page_targets,
         )
+        material_quantity_by_id = self._build_material_quantity_map(material_items=material_items)
         resources = self._build_resource_snapshot(
             spirit_stone=collection.spirit_stone,
             material_items=material_items,
         )
+        operation_id = self._resolve_operation_id(target=selected_target, pending_action=pending_action)
         return ForgePanelSnapshot(
             character_id=character_id,
             character_name=skill_snapshot.character_name,
@@ -218,6 +285,20 @@ class ForgePanelQueryService:
             total_pages=total_pages,
             targets=page_targets,
             selected_target=selected_target,
+            selected_target_card=self._build_target_card(target=selected_target),
+            current_operation_name=None if operation_id is None else _OPERATION_NAME_BY_ID.get(operation_id.value),
+            operation_costs=self._build_operation_costs(
+                target=selected_target,
+                operation_id=operation_id,
+                spirit_stone=collection.spirit_stone,
+                material_quantity_by_id=material_quantity_by_id,
+                locked_affix_positions=locked_affix_positions,
+            ),
+            operation_preview=self._build_operation_preview(
+                target=selected_target,
+                operation_id=operation_id,
+                locked_affix_positions=locked_affix_positions,
+            ),
         )
 
     @staticmethod
@@ -230,13 +311,13 @@ class ForgePanelQueryService:
             raise ForgePanelStateError(f"未支持的锻造筛选：{filter_id}") from exc
 
     def _build_resource_snapshot(self, *, spirit_stone: int, material_items) -> ForgeResourceSnapshot:
-        material_quantity_by_id = {str(item.item_id): max(0, int(item.quantity)) for item in material_items}
+        material_quantity_by_id = self._build_material_quantity_map(material_items=material_items)
         enhancement_stone = material_quantity_by_id.get("enhancement_stone", 0)
         enhancement_shard = material_quantity_by_id.get("enhancement_shard", 0)
-        wash_dust = material_quantity_by_id.get("wash_dust", 0)
+        wash_dust = material_quantity_by_id.get("wash_dust", 0) + material_quantity_by_id.get("wash_jade", 0)
         spirit_sand = material_quantity_by_id.get("spirit_sand", 0)
-        spirit_pattern_stone = material_quantity_by_id.get("spirit_pattern_stone", 0)
-        soul_binding_jade = material_quantity_by_id.get("soul_binding_jade", 0)
+        spirit_pattern_stone = material_quantity_by_id.get("spirit_pattern_stone", 0) + material_quantity_by_id.get("seal_talisman", 0)
+        soul_binding_jade = material_quantity_by_id.get("soul_binding_jade", 0) + material_quantity_by_id.get("reforge_crystal", 0)
         artifact_essence = material_quantity_by_id.get("artifact_essence", 0)
         entries = tuple(
             ForgeResourceEntrySnapshot(
@@ -266,6 +347,262 @@ class ForgePanelQueryService:
             artifact_essence=artifact_essence,
             entries=entries,
         )
+
+    @staticmethod
+    def _build_material_quantity_map(*, material_items) -> dict[str, int]:
+        return {str(item.item_id): max(0, int(item.quantity)) for item in material_items}
+
+    def _build_target_card(self, *, target: ForgeTargetSnapshot | None) -> ForgeCardSnapshot | None:
+        if target is None:
+            return None
+        if target.target_kind is ForgeTargetKind.SKILL:
+            if target.equipped_skill is None:
+                return None
+            return self._build_skill_card(skill_item=target.equipped_skill)
+        if target.equipment_item is None:
+            return None
+        return self._build_equipment_card(item=target.equipment_item)
+
+    def _build_equipment_card(self, *, item: EquipmentItemSnapshot) -> ForgeCardSnapshot:
+        stats = item.resolved_stats if item.resolved_stats else item.base_attributes
+        stat_lines = tuple(
+            f"{self._format_stat_name(stat.stat_id)} {self._format_stat_value(stat.stat_id, stat.value)}"
+            for stat in stats[:4]
+        )
+        keyword_lines = tuple(self._format_affix_keyword(affix) for affix in item.affixes[:3])
+        growth_parts = [f"强化 +{item.enhancement_level}"]
+        if item.is_artifact:
+            growth_parts.append(f"祭炼 {item.artifact_nurture_level}")
+        return ForgeCardSnapshot(
+            name=item.display_name,
+            badge_line=f"{'法宝' if item.is_artifact else item.slot_name}｜{item.rank_name}｜{item.quality_name}",
+            growth_line="｜".join(growth_parts),
+            stat_lines=stat_lines or ("暂无关键属性",),
+            keyword_lines=keyword_lines,
+        )
+
+    def _build_skill_card(self, *, skill_item: SkillPanelSkillSlotSnapshot) -> ForgeCardSnapshot:
+        return ForgeCardSnapshot(
+            name=skill_item.skill_name,
+            badge_line=f"{skill_item.slot_name}｜{skill_item.rank_name}｜{skill_item.quality_name}",
+            growth_line=f"流派 {skill_item.path_name}",
+            stat_lines=(
+                f"类型 {'主修' if skill_item.skill_type == 'main' else '辅修'}",
+                f"预算 {skill_item.total_budget}",
+                f"加成 {len(skill_item.resolved_patch_ids)}",
+            ),
+            keyword_lines=tuple(self._format_patch_name(patch_id) for patch_id in skill_item.resolved_patch_ids[:3]),
+        )
+
+    def _resolve_operation_id(
+        self,
+        *,
+        target: ForgeTargetSnapshot | None,
+        pending_action: str | None,
+    ) -> ForgeOperationId | None:
+        if target is None or target.target_kind is ForgeTargetKind.SKILL or target.equipment_item is None:
+            return None
+        normalized_pending_action = str(pending_action or "").strip()
+        if normalized_pending_action:
+            try:
+                pending_operation = ForgeOperationId(normalized_pending_action)
+            except ValueError:
+                pending_operation = None
+            if pending_operation is not None and pending_operation in target.supported_operations:
+                return pending_operation
+        item = target.equipment_item
+        if item.is_artifact and ForgeOperationId.NURTURE in target.supported_operations:
+            return ForgeOperationId.NURTURE
+        if ForgeOperationId.ENHANCE in target.supported_operations:
+            return ForgeOperationId.ENHANCE
+        if ForgeOperationId.WASH in target.supported_operations:
+            return ForgeOperationId.WASH
+        if ForgeOperationId.REFORGE in target.supported_operations:
+            return ForgeOperationId.REFORGE
+        if ForgeOperationId.DISMANTLE in target.supported_operations:
+            return ForgeOperationId.DISMANTLE
+        return None
+
+    def _build_operation_costs(
+        self,
+        *,
+        target: ForgeTargetSnapshot | None,
+        operation_id: ForgeOperationId | None,
+        spirit_stone: int,
+        material_quantity_by_id: dict[str, int],
+        locked_affix_positions: tuple[int, ...],
+    ) -> tuple[ForgeOperationCostSnapshot, ...]:
+        if target is None or operation_id is None or target.equipment_item is None:
+            return ()
+        cost_mapping = self._resolve_operation_cost_mapping(
+            item=target.equipment_item,
+            operation_id=operation_id,
+            locked_affix_positions=locked_affix_positions,
+        )
+        return tuple(
+            ForgeOperationCostSnapshot(
+                resource_id=resource_id,
+                resource_name=_RESOURCE_NAME_BY_ID.get(resource_id, resource_id),
+                required_quantity=quantity,
+                owned_quantity=(max(0, int(spirit_stone)) if resource_id == "spirit_stone" else material_quantity_by_id.get(resource_id, 0)),
+            )
+            for resource_id, quantity in cost_mapping.items()
+            if quantity > 0
+        )
+
+    def _build_operation_preview(
+        self,
+        *,
+        target: ForgeTargetSnapshot | None,
+        operation_id: ForgeOperationId | None,
+        locked_affix_positions: tuple[int, ...],
+    ) -> ForgeOperationPreviewSnapshot | None:
+        if target is None:
+            return None
+        if target.target_kind is ForgeTargetKind.SKILL:
+            return ForgeOperationPreviewSnapshot(title="功法", lines=("当前功法暂无锻造操作。",))
+        item = target.equipment_item
+        if item is None or operation_id is None:
+            return ForgeOperationPreviewSnapshot(title="锻造", lines=("当前目标暂无可执行操作。",))
+        if operation_id is ForgeOperationId.ENHANCE:
+            target_level = item.enhancement_level + 1
+            level_rule = self._static_config.equipment.get_enhancement_level(target_level)
+            if level_rule is None:
+                return ForgeOperationPreviewSnapshot(title="强化", lines=("强化已到上限。",))
+            return ForgeOperationPreviewSnapshot(
+                title="强化",
+                lines=(
+                    f"强化 +{item.enhancement_level} → +{target_level}",
+                    f"成功率 {float(level_rule.success_rate) * 100:.1f}%",
+                    f"词条 {len(item.affixes)} → {len(item.affixes) + level_rule.bonus_affix_unlock_count}",
+                ),
+            )
+        if operation_id is ForgeOperationId.NURTURE:
+            target_level = item.artifact_nurture_level + 1
+            level_rule = self._static_config.equipment.get_artifact_nurture_level(target_level)
+            if level_rule is None:
+                return ForgeOperationPreviewSnapshot(title="法宝培养", lines=("祭炼已到上限。",))
+            return ForgeOperationPreviewSnapshot(
+                title="法宝培养",
+                lines=(
+                    f"祭炼 {item.artifact_nurture_level} → {target_level}",
+                    f"基础属性 +{float(level_rule.base_stat_bonus_ratio) * 100:.1f}%",
+                    f"词条成长 +{float(level_rule.affix_bonus_ratio) * 100:.1f}%",
+                ),
+            )
+        if operation_id is ForgeOperationId.WASH:
+            locked_summary = self._build_affix_transition_lines(item=item, locked_affix_positions=locked_affix_positions)
+            return ForgeOperationPreviewSnapshot(title="洗炼", lines=locked_summary or ("当前没有可洗炼词条。",))
+        if operation_id is ForgeOperationId.REFORGE:
+            return ForgeOperationPreviewSnapshot(
+                title="重铸",
+                lines=(
+                    f"底材 {item.template_name} → 随机同品质新底材",
+                    f"词条 {len(item.affixes)} 条 → 全部重铸",
+                    f"强化 +{item.enhancement_level} → +{item.enhancement_level}",
+                    (
+                        f"祭炼 {item.artifact_nurture_level} → {item.artifact_nurture_level}"
+                        if item.is_artifact
+                        else f"部位 {item.slot_name} 保持不变"
+                    ),
+                ),
+            )
+        if operation_id is ForgeOperationId.DISMANTLE:
+            returns = self._build_dismantle_return_lines(item=item)
+            return ForgeOperationPreviewSnapshot(title="分解", lines=returns or ("本次不会获得资源回收。",))
+        return ForgeOperationPreviewSnapshot(title="锻造", lines=("当前操作暂无预览。",))
+
+    def _resolve_operation_cost_mapping(
+        self,
+        *,
+        item: EquipmentItemSnapshot,
+        operation_id: ForgeOperationId,
+        locked_affix_positions: tuple[int, ...],
+    ) -> dict[str, int]:
+        if operation_id is ForgeOperationId.ENHANCE:
+            target_level = item.enhancement_level + 1
+            level_rule = self._static_config.equipment.get_enhancement_level(target_level)
+            if level_rule is None:
+                return {}
+            return {cost.resource_id: int(cost.quantity) for cost in level_rule.costs}
+        if operation_id is ForgeOperationId.NURTURE:
+            target_level = item.artifact_nurture_level + 1
+            level_rule = self._static_config.equipment.get_artifact_nurture_level(target_level)
+            if level_rule is None:
+                return {}
+            return {cost.resource_id: int(cost.quantity) for cost in level_rule.costs}
+        if operation_id is ForgeOperationId.WASH:
+            lock_count = len(set(locked_affix_positions))
+            cost_mapping: dict[str, int] = defaultdict(int)
+            for cost in self._static_config.equipment.wash.base_costs:
+                cost_mapping[cost.resource_id] += int(cost.quantity)
+            for cost in self._static_config.equipment.wash.lock_extra_costs:
+                cost_mapping[cost.resource_id] += int(cost.quantity) * lock_count
+            return dict(cost_mapping)
+        if operation_id is ForgeOperationId.REFORGE:
+            return {cost.resource_id: int(cost.quantity) for cost in self._static_config.equipment.reforge.costs}
+        return {}
+
+    def _build_affix_transition_lines(
+        self,
+        *,
+        item: EquipmentItemSnapshot,
+        locked_affix_positions: tuple[int, ...],
+    ) -> tuple[str, ...]:
+        locked_positions = set(locked_affix_positions)
+        lines: list[str] = [f"锁定 {len(locked_positions)} 条"]
+        for index, affix in enumerate(item.affixes[:4], start=1):
+            transition = "保留" if index in locked_positions else "重洗"
+            lines.append(f"{index}. {self._format_affix_keyword(affix)} → {transition}")
+        return tuple(lines)
+
+    def _build_dismantle_return_lines(self, *, item: EquipmentItemSnapshot) -> tuple[str, ...]:
+        rule = self._static_config.equipment.get_dismantle_rule(item.quality_id)
+        if rule is None:
+            return ()
+        returns: dict[str, int] = defaultdict(int)
+        for resource in rule.base_returns:
+            returns[resource.resource_id] += int(resource.quantity)
+        for resource in rule.enhancement_returns_per_level:
+            returns[resource.resource_id] += int(resource.quantity) * item.enhancement_level
+        for resource in rule.affix_returns_per_count:
+            returns[resource.resource_id] += int(resource.quantity) * len(item.affixes)
+        if item.is_artifact:
+            for resource in rule.artifact_bonus_returns:
+                returns[resource.resource_id] += int(resource.quantity)
+            for resource in rule.artifact_nurture_returns_per_level:
+                returns[resource.resource_id] += int(resource.quantity) * item.artifact_nurture_level
+        return tuple(
+            f"{_RESOURCE_NAME_BY_ID.get(resource_id, resource_id)} +{quantity}"
+            for resource_id, quantity in returns.items()
+            if quantity > 0
+        )
+
+    @staticmethod
+    def _format_stat_name(stat_id: str) -> str:
+        return _STAT_NAME_BY_ID.get(stat_id, stat_id)
+
+    @staticmethod
+    def _format_stat_value(stat_id: str, value: int) -> str:
+        if stat_id.endswith("_permille"):
+            return f"{value / 10:.1f}%"
+        return str(value)
+
+    def _format_affix_keyword(self, affix) -> str:
+        if affix.affix_kind == "special_effect" or affix.special_effect is not None or not affix.stat_id.strip():
+            return affix.affix_name
+        return f"{affix.affix_name} {self._format_stat_value(affix.stat_id, affix.value)}"
+
+    def _format_patch_name(self, patch_id: str) -> str:
+        normalized_patch_id = patch_id.strip()
+        if not normalized_patch_id:
+            return "未命名流派修正"
+        patch = self._static_config.skill_generation.get_patch(normalized_patch_id)
+        if patch is not None:
+            return str(patch.name)
+        if _looks_like_internal_identifier(normalized_patch_id):
+            return "未命名流派修正"
+        return normalized_patch_id
 
     def _build_filtered_targets(
         self,
@@ -419,9 +756,16 @@ class ForgePanelQueryService:
         return f"skill:{item_id}"
 
 
+def _looks_like_internal_identifier(value: str) -> bool:
+    return all(character.islower() or character.isdigit() or character == "_" for character in value)
+
+
 __all__ = [
+    "ForgeCardSnapshot",
     "ForgeFilterId",
+    "ForgeOperationCostSnapshot",
     "ForgeOperationId",
+    "ForgeOperationPreviewSnapshot",
     "ForgePanelQueryService",
     "ForgePanelQueryServiceError",
     "ForgePanelSnapshot",
