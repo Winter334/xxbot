@@ -594,6 +594,7 @@ class BattleReportBuilder:
                     "actions": tuple(
                         {
                             "action_id": action.action_id,
+                            "name": action.name,
                             "action_type": action.action_type.value,
                             "priority": action.priority,
                             "weight_permille": action.weight_permille,

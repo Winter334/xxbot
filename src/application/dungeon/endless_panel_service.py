@@ -89,6 +89,8 @@ class EndlessEnemyUnitDigest:
     guard_power: int
     speed: int
     behavior_template_id: str
+    current_hp: int = 0
+    is_alive: bool = True
 
 
 @dataclass(frozen=True, slots=True)
@@ -125,6 +127,7 @@ class EndlessFloorPanelSnapshot:
     current_hp_ratio: str | None
     current_mp_ratio: str | None
     battle_report_digest: EndlessBattleReportDigest | None
+    enemy_health_line: str | None = None
     enemy_scene_lines: tuple[str, ...] = ()
     battle_scene_lines: tuple[str, ...] = ()
     reward_scene_lines: tuple[str, ...] = ()
@@ -544,18 +547,10 @@ class EndlessPanelQueryService:
         template_entry = self._enemy_templates_by_id.get(template_id)
         battle_report = None if battle_report_id is None else battle_reports_by_id.get(battle_report_id)
         enemy_units_payload = _normalize_mapping_list(node_result.get("enemy_units"))
-        enemy_units = tuple(
-            EndlessEnemyUnitDigest(
-                unit_name=str(item.get("unit_name") or f"敌人 {index}"),
-                realm_id=str(item.get("realm_id") or ""),
-                stage_id=str(item.get("stage_id") or ""),
-                max_hp=_read_int(item.get("max_hp")),
-                attack_power=_read_int(item.get("attack_power")),
-                guard_power=_read_int(item.get("guard_power")),
-                speed=_read_int(item.get("speed")),
-                behavior_template_id=str(item.get("behavior_template_id") or ""),
-            )
-            for index, item in enumerate(enemy_units_payload, start=1)
+        enemy_units = self._build_enemy_unit_digests(
+            enemy_units_payload=enemy_units_payload,
+            battle_report=battle_report,
+            race_name=race_entry.name if race_entry is not None else (race_id or ""),
         )
         style_tags = tuple(
             item
@@ -571,6 +566,7 @@ class EndlessPanelQueryService:
         reward_granted = None if node_result.get("reward_granted") is None else bool(node_result.get("reward_granted"))
         battle_report_digest = None if battle_report is None else self._build_battle_report_digest(battle_report)
         drop_progress_gained = _read_int(pending_reward_summary.get("drop_progress"))
+        enemy_health_line = self._build_enemy_health_line(enemy_units=enemy_units)
         enemy_summary_lines = self._build_enemy_summary_lines(
             floor=floor,
             node_type=node_type,
@@ -580,6 +576,7 @@ class EndlessPanelQueryService:
             template_name=template_entry.name if template_entry is not None else (template_id or "未知模板"),
             enemy_count=_read_int(node_result.get("enemy_count")),
             enemy_units=enemy_units,
+            enemy_health_line=enemy_health_line,
         )
         battle_scene_lines = self._build_battle_scene_lines(
             battle_outcome=battle_outcome,
@@ -625,6 +622,7 @@ class EndlessPanelQueryService:
             current_hp_ratio=_read_optional_str(node_result.get("current_hp_ratio")),
             current_mp_ratio=_read_optional_str(node_result.get("current_mp_ratio")),
             battle_report_digest=battle_report_digest,
+            enemy_health_line=enemy_health_line,
             enemy_scene_lines=enemy_summary_lines,
             battle_scene_lines=battle_scene_lines,
             reward_scene_lines=reward_scene_lines,
@@ -641,21 +639,24 @@ class EndlessPanelQueryService:
         template_name: str,
         enemy_count: int,
         enemy_units: Sequence[EndlessEnemyUnitDigest],
+        enemy_health_line: str | None,
     ) -> tuple[str, ...]:
         enemy_title = "·".join(
             item
             for item in (race_name.strip(), template_name.strip())
-            if item and item not in {"未知敌类", "未知模板"}
+            if item and item not in {"未知敌类", "未知模板"} and not _looks_like_internal_identifier(item)
         )
         if not enemy_title:
-            enemy_title = "异样妖影"
+            enemy_title = race_name.strip() if race_name.strip() and race_name.strip() != "未知敌类" else "异样妖影"
         count_text = f"{max(1, enemy_count)} 名" if enemy_count > 1 else "1 名"
         lines = [f"第 {floor} 层有 {count_text}{enemy_title}拦路。"]
+        if enemy_health_line is not None:
+            lines.append(enemy_health_line)
         pressure_line = self._build_enemy_pressure_line(node_type=node_type, enemy_units=enemy_units)
         if pressure_line is not None:
             lines.append(pressure_line)
         region_line = self._build_region_pressure_line(region_name=region_name, region_theme=region_theme)
-        if region_line is not None:
+        if region_line is not None and len(lines) < 3:
             lines.append(region_line)
         return tuple(lines[:3])
 
@@ -689,6 +690,122 @@ class EndlessPanelQueryService:
         if not normalized_theme or normalized_theme == "-":
             return None
         return f"这段{region_name}气机紊乱，{normalized_theme}。"
+
+    def _build_enemy_unit_digests(
+        self,
+        *,
+        enemy_units_payload: Sequence[Mapping[str, Any]],
+        battle_report: BattleReport | None,
+        race_name: str,
+    ) -> tuple[EndlessEnemyUnitDigest, ...]:
+        final_enemy_states = self._extract_final_enemy_unit_states(battle_report=battle_report)
+        enemy_count = len(enemy_units_payload)
+        digests: list[EndlessEnemyUnitDigest] = []
+        for index, item in enumerate(enemy_units_payload, start=1):
+            unit_id = str(item.get("unit_id") or "")
+            max_hp = _read_int(item.get("max_hp"))
+            final_state = final_enemy_states.get(unit_id)
+            current_hp = max_hp if final_state is None else max(0, _read_int(final_state.get("current_hp"), default=max_hp))
+            is_alive = True if final_state is None else bool(final_state.get("is_alive", current_hp > 0))
+            digests.append(
+                EndlessEnemyUnitDigest(
+                    unit_name=self._build_enemy_display_name(
+                        raw_name=str(item.get("unit_name") or ""),
+                        unit_id=unit_id,
+                        index=index,
+                        total_count=enemy_count,
+                        race_name=race_name,
+                    ),
+                    realm_id=str(item.get("realm_id") or ""),
+                    stage_id=str(item.get("stage_id") or ""),
+                    max_hp=max_hp,
+                    attack_power=_read_int(item.get("attack_power")),
+                    guard_power=_read_int(item.get("guard_power")),
+                    speed=_read_int(item.get("speed")),
+                    behavior_template_id=str(item.get("behavior_template_id") or ""),
+                    current_hp=current_hp,
+                    is_alive=is_alive and current_hp > 0,
+                )
+            )
+        return tuple(digests)
+
+    @staticmethod
+    def _extract_final_enemy_unit_states(*, battle_report: BattleReport | None) -> dict[str, dict[str, Any]]:
+        if battle_report is None:
+            return {}
+        detail_payload = _normalize_optional_mapping(battle_report.detail_log_json) or {}
+        terminal_statistics = _normalize_optional_mapping(detail_payload.get("terminal_statistics")) or {}
+        final_units = _normalize_mapping_list(terminal_statistics.get("final_units"))
+        return {
+            str(item.get("unit_id") or ""): item
+            for item in final_units
+            if str(item.get("side") or "") == "enemy" and str(item.get("unit_id") or "")
+        }
+
+    @staticmethod
+    def _build_enemy_health_line(*, enemy_units: Sequence[EndlessEnemyUnitDigest]) -> str | None:
+        if not enemy_units:
+            return None
+        parts = [
+            f"{unit.unit_name} {EndlessPanelQueryService._format_enemy_health_state(unit=unit)}"
+            for unit in enemy_units[:3]
+        ]
+        if len(enemy_units) > 3:
+            alive_count = sum(1 for unit in enemy_units if unit.is_alive and unit.current_hp > 0)
+            parts.append(f"其余 {len(enemy_units) - 3} 名仍在缠斗 {alive_count}/{len(enemy_units)}")
+        return "｜".join(parts)
+
+    def _build_enemy_display_name(
+        self,
+        *,
+        raw_name: str,
+        unit_id: str,
+        index: int,
+        total_count: int,
+        race_name: str,
+    ) -> str:
+        del unit_id
+        noun = self._resolve_enemy_name_noun(raw_name=raw_name, race_name=race_name)
+        prefix = self._build_positional_enemy_prefix(index=index, total_count=total_count)
+        return f"{prefix}{noun}" if prefix else noun
+
+    @staticmethod
+    def _resolve_enemy_name_noun(*, raw_name: str, race_name: str) -> str:
+        normalized_raw_name = raw_name.strip()
+        numbered_stem = _extract_counter_stem(normalized_raw_name)
+        if numbered_stem is not None:
+            return numbered_stem
+        if normalized_raw_name and not _looks_like_internal_identifier(normalized_raw_name):
+            return normalized_raw_name
+        normalized_race_name = race_name.strip()
+        if normalized_race_name and normalized_race_name not in {"未知敌类", "-"}:
+            return normalized_race_name
+        return "妖影"
+
+    @staticmethod
+    def _build_positional_enemy_prefix(*, index: int, total_count: int) -> str:
+        if total_count <= 1:
+            return "守关"
+        if index == 1:
+            return "前排"
+        if index == 2:
+            return "后侧"
+        if index == 3:
+            return "尾阵"
+        return "余势"
+
+    @staticmethod
+    def _format_enemy_health_state(*, unit: EndlessEnemyUnitDigest) -> str:
+        if not unit.is_alive or unit.current_hp <= 0:
+            return "已击破"
+        if unit.max_hp <= 0:
+            return f"{unit.current_hp}"
+        hp_ratio = unit.current_hp / unit.max_hp
+        if hp_ratio <= 0.15:
+            return f"濒危 {unit.current_hp}/{unit.max_hp}"
+        if hp_ratio <= 0.4:
+            return f"受创 {unit.current_hp}/{unit.max_hp}"
+        return f"{unit.current_hp}/{unit.max_hp}"
 
     def _build_battle_scene_lines(
         self,
@@ -853,7 +970,9 @@ class EndlessPanelQueryService:
                 critical_hits=critical_hits,
                 control_skips=control_skips,
                 unit_defeated=unit_defeated,
+                ally_damage_dealt=ally_damage_dealt,
                 ally_damage_taken=ally_damage_taken,
+                ally_healing_done=ally_healing_done,
             ),
         )
 
@@ -890,6 +1009,7 @@ class EndlessPanelQueryService:
         if not event_sequence:
             return ()
         unit_name_by_id = self._build_unit_name_mapping(detail_payload=detail_payload)
+        unit_side_by_id = self._build_unit_side_mapping(detail_payload=detail_payload)
         action_label_by_id = self._build_action_label_mapping(detail_payload=detail_payload)
         events_by_round: dict[int, list[dict[str, Any]]] = defaultdict(list)
         for event in event_sequence:
@@ -897,59 +1017,113 @@ class EndlessPanelQueryService:
             if round_index <= 0:
                 continue
             events_by_round[round_index].append(event)
-        lines: list[str] = []
+        candidates: list[tuple[int, int, str]] = []
         for round_index in sorted(events_by_round):
             round_events = sorted(events_by_round[round_index], key=lambda item: _read_int(item.get("sequence")))
-            selected_actions: list[str] = []
+            defeated_targets = {
+                unit_name_by_id.get(str(event.get("target_unit_id") or ""), str(event.get("target_unit_id") or "敌影"))
+                for event in round_events
+                if str(event.get("event_type") or "") == "unit_defeated"
+            }
+            current_action_by_actor: dict[str, str] = {}
+            pending_critical_hits: dict[tuple[str, str, str], int] = defaultdict(int)
+            strongest_candidate: tuple[int, str] | None = None
             for event in round_events:
                 event_type = str(event.get("event_type") or "")
-                if event_type not in {"action_selected", "action_started"}:
-                    continue
-                action_id = str(event.get("action_id") or "")
+                detail = _normalize_optional_mapping(event.get("detail")) or {}
                 actor_id = str(event.get("actor_unit_id") or "")
-                actor_name = unit_name_by_id.get(actor_id, actor_id or "未知单位")
-                action_label = action_label_by_id.get(action_id, action_id or "普通攻击")
-                selected_actions.append(f"{actor_name}·{action_label}")
-            critical_hits = sum(
-                1
-                for event in round_events
-                if str(event.get("event_type") or "") == "crit_check"
-                and bool((_normalize_optional_mapping(event.get("detail")) or {}).get("success"))
-            )
-            control_skips = sum(
-                1
-                for event in round_events
-                if str(event.get("event_type") or "") == "turn_skipped_by_control"
-            )
-            status_changes = sum(
-                1
-                for event in round_events
-                if str(event.get("event_type") or "") in _ROUND_STATUS_EVENT_TYPES
-            )
-            defeated_targets = _deduplicate_preserve_order(
-                [
-                    unit_name_by_id.get(str(event.get("target_unit_id") or ""), str(event.get("target_unit_id") or "未知目标"))
-                    for event in round_events
-                    if str(event.get("event_type") or "") == "unit_defeated"
-                ]
-            )
-            parts: list[str] = []
-            if selected_actions:
-                parts.append("出手 " + "、".join(selected_actions[:2]))
-            if critical_hits > 0:
-                parts.append(f"暴击 {critical_hits}")
-            if control_skips > 0:
-                parts.append(f"控场 {control_skips}")
-            if defeated_targets:
-                parts.append("击破 " + "、".join(defeated_targets[:2]))
-            if status_changes > 0:
-                parts.append(f"状态变化 {status_changes}")
-            if not parts:
-                continue
-            lines.append(f"第 {round_index} 回合：" + "｜".join(parts))
-            if len(lines) >= 3:
-                break
-        return tuple(lines)
+                target_id = str(event.get("target_unit_id") or "")
+                action_id = str(event.get("action_id") or "")
+                if event_type in {"action_selected", "action_started"}:
+                    if actor_id:
+                        current_action_by_actor[actor_id] = action_label_by_id.get(action_id, "一式攻势")
+                    continue
+                if event_type == "crit_check" and actor_id and target_id and bool(detail.get("success")):
+                    pending_critical_hits[(actor_id, target_id, action_id)] += 1
+                    continue
+                if event_type == "damage_resolved":
+                    damage = _read_int(detail.get("final_damage"))
+                    if damage <= 0 or not actor_id or not target_id:
+                        continue
+                    actor_side = unit_side_by_id.get(actor_id, "")
+                    actor_name = unit_name_by_id.get(actor_id, actor_id or "未知单位")
+                    target_name = unit_name_by_id.get(target_id, target_id or "目标")
+                    action_label = current_action_by_actor.get(actor_id, action_label_by_id.get(action_id, "一式攻势"))
+                    crit_key = (actor_id, target_id, action_id)
+                    is_critical = pending_critical_hits.get(crit_key, 0) > 0
+                    if is_critical:
+                        pending_critical_hits[crit_key] -= 1
+                    if actor_side == "ally":
+                        if target_name in defeated_targets:
+                            crit_text = "暴击" if is_critical else ""
+                            line = f"你以{action_label}打出 {damage} 点{crit_text}伤害，{target_name}当场溃散。"
+                            score = damage + (4200 if is_critical else 2600)
+                        elif is_critical:
+                            line = f"你以{action_label}轰出 {damage} 点暴击伤害，逼得{target_name}气息大乱。"
+                            score = damage + 2200
+                        else:
+                            line = f"你以{action_label}斩出 {damage} 点伤害，压得{target_name}连连后退。"
+                            score = damage + 1200
+                    elif actor_side == "enemy":
+                        if is_critical:
+                            line = f"{actor_name}猛扑而上，打得你硬吃 {damage} 点暴击伤害。"
+                            score = damage + 2100
+                        else:
+                            line = f"{actor_name}反压一记，你硬吃 {damage} 点伤害。"
+                            score = damage + 900
+                    else:
+                        line = f"{actor_name}打出 {damage} 点伤害，场面骤然一紧。"
+                        score = damage
+                    if strongest_candidate is None or score > strongest_candidate[0]:
+                        strongest_candidate = (score, line)
+                    continue
+                if event_type == "damage_over_time_tick":
+                    damage = max(_read_int(detail.get("hp_damage")), _read_int(detail.get("total_damage")))
+                    if damage <= 0 or not target_id:
+                        continue
+                    target_side = unit_side_by_id.get(target_id, "")
+                    target_name = unit_name_by_id.get(target_id, target_id or "目标")
+                    if target_side == "enemy":
+                        line = f"余劲未散，又蚀掉{target_name} {damage} 点气血。"
+                        score = damage + 500
+                    else:
+                        line = f"残留妖气继续翻涌，又从你身上撕走 {damage} 点气血。"
+                        score = damage + 400
+                    if strongest_candidate is None or score > strongest_candidate[0]:
+                        strongest_candidate = (score, line)
+                    continue
+                if event_type == "healing_applied":
+                    healed = _read_int(detail.get("healed_hp"))
+                    if healed <= 0 or not actor_id:
+                        continue
+                    actor_side = unit_side_by_id.get(actor_id, "")
+                    action_label = current_action_by_actor.get(actor_id, action_label_by_id.get(action_id, "调息"))
+                    if actor_side == "ally":
+                        line = f"你借{action_label}回稳 {healed} 点气血，勉强把伤势压住。"
+                        score = healed + 650
+                    else:
+                        actor_name = unit_name_by_id.get(actor_id, actor_id or "对手")
+                        line = f"{actor_name}缓回了 {healed} 点气血，气势又续了上来。"
+                        score = healed + 300
+                    if strongest_candidate is None or score > strongest_candidate[0]:
+                        strongest_candidate = (score, line)
+                    continue
+                if event_type == "turn_skipped_by_control" and actor_id:
+                    actor_name = unit_name_by_id.get(actor_id, actor_id or "对手")
+                    actor_side = unit_side_by_id.get(actor_id, "")
+                    if actor_side == "enemy":
+                        line = f"{actor_name}被压得气机一滞，白白错过了一次出手机会。"
+                        score = 780
+                    else:
+                        line = "你气机一滞，被硬生生压掉了一次出手机会。"
+                        score = 720
+                    if strongest_candidate is None or score > strongest_candidate[0]:
+                        strongest_candidate = (score, line)
+            if strongest_candidate is not None:
+                score, line = strongest_candidate
+                candidates.append((score, round_index, line))
+        candidates.sort(key=lambda item: (-item[0], item[1]))
+        return tuple(line for _, _, line in candidates[:3])
 
     def _build_battle_narration_lines(
         self,
@@ -962,15 +1136,11 @@ class EndlessPanelQueryService:
         critical_hits: int,
         control_skips: int,
         unit_defeated: int,
+        ally_damage_dealt: int,
         ally_damage_taken: int,
+        ally_healing_done: int,
     ) -> tuple[str, ...]:
         lines: list[str] = []
-        action_line = self._build_action_narration(
-            focus_unit_name=focus_unit_name,
-            action_highlights=action_highlights,
-        )
-        if action_line is not None:
-            lines.append(action_line)
         for raw_line in round_highlights:
             narration = self._build_round_narration(
                 raw_line=raw_line,
@@ -979,18 +1149,25 @@ class EndlessPanelQueryService:
             if narration is None or narration in lines:
                 continue
             lines.append(narration)
-            if len(lines) >= 2:
-                break
+            break
         closing_line = self._build_battle_closing_line(
             result=result,
             completed_rounds=completed_rounds,
             critical_hits=critical_hits,
             control_skips=control_skips,
             unit_defeated=unit_defeated,
+            ally_damage_dealt=ally_damage_dealt,
             ally_damage_taken=ally_damage_taken,
+            ally_healing_done=ally_healing_done,
         )
         if closing_line is not None and closing_line not in lines:
             lines.append(closing_line)
+        action_line = self._build_action_narration(
+            focus_unit_name=focus_unit_name,
+            action_highlights=action_highlights,
+        )
+        if action_line is not None and action_line not in lines and len(lines) < 3:
+            lines.append(action_line)
         if not lines:
             lines.append("这一层厮杀来得极快，你只记得妖气和血光一起炸开。")
         return tuple(lines[:3])
@@ -1024,6 +1201,8 @@ class EndlessPanelQueryService:
         normalized_line = raw_line.strip()
         if not normalized_line:
             return None
+        if "：" not in normalized_line and "｜" not in normalized_line:
+            return normalized_line
         content = normalized_line.split("：", 1)[1] if "：" in normalized_line else normalized_line
         parts = [item.strip() for item in content.split("｜") if item.strip()]
         action_part = ""
@@ -1093,23 +1272,34 @@ class EndlessPanelQueryService:
         critical_hits: int,
         control_skips: int,
         unit_defeated: int,
+        ally_damage_dealt: int,
         ally_damage_taken: int,
+        ally_healing_done: int,
     ) -> str | None:
         if result == "ally_victory":
-            if unit_defeated > 1:
-                return f"连斩 {unit_defeated} 名敌人后，这一层终于被你拿下。"
-            if critical_hits > 0:
-                return "几次狠命中的重击之后，最后一名敌人终于倒下。"
-            if control_skips > 0:
-                return "你稳稳压住节奏，没再让敌阵把局面翻回去。"
+            if unit_defeated > 1 and ally_damage_dealt > 0:
+                return f"这一战你累计打出 {ally_damage_dealt} 点伤害，连斩 {unit_defeated} 名敌人拿下此层。"
+            if critical_hits > 0 and ally_damage_dealt > 0:
+                return f"几次重击之后，你累计打出 {ally_damage_dealt} 点伤害，终于压垮了最后一名敌人。"
+            if ally_healing_done > 0 and ally_damage_dealt > 0:
+                return (
+                    f"鏖战 {max(1, completed_rounds)} 回合后，你以 {ally_damage_dealt} 点总伤害取胜，"
+                    f"并回稳 {ally_healing_done} 点气血。"
+                )
+            if control_skips > 0 and ally_damage_dealt > 0:
+                return f"你稳稳压住节奏，以 {ally_damage_dealt} 点总伤害把这一层硬生生拿下。"
+            if ally_damage_dealt > 0:
+                return f"鏖战 {max(1, completed_rounds)} 回合后，你累计打出 {ally_damage_dealt} 点伤害，稳住了这一层。"
             return f"鏖战 {max(1, completed_rounds)} 回合后，你还是稳住了这一层。"
         if result == "enemy_victory":
-            if completed_rounds > 0:
-                return f"撑到第 {completed_rounds} 回合后，你还是被这一层的反扑压了下去。"
+            if ally_damage_taken > 0 and completed_rounds > 0:
+                return f"撑到第 {completed_rounds} 回合后，你累计承受 {ally_damage_taken} 点伤害，被这一层的反扑压了下去。"
             if ally_damage_taken > 0:
-                return "这一层的反扑太狠，你被迫止步于此。"
+                return f"这一层的反扑太狠，你累计承受 {ally_damage_taken} 点伤害，被迫止步于此。"
             return "你还没来得及稳住局势，就被这一层逼退了。"
         if result == "draw":
+            if ally_damage_dealt > 0 or ally_damage_taken > 0:
+                return f"双方僵持不下，你打出 {ally_damage_dealt} 点伤害，也承受了 {ally_damage_taken} 点伤害。"
             return "这一层僵持不下，谁也没能立刻终结对方。"
         return None
 
@@ -1117,19 +1307,90 @@ class EndlessPanelQueryService:
     def _build_unit_name_mapping(*, detail_payload: Mapping[str, Any]) -> dict[str, str]:
         mapping: dict[str, str] = {}
         input_snapshot_summary = _normalize_optional_mapping(detail_payload.get("input_snapshot_summary")) or {}
-        for group_name in ("allies", "enemies"):
-            for item in _normalize_mapping_list(input_snapshot_summary.get(group_name)):
-                unit_id = str(item.get("unit_id") or "")
-                unit_name = str(item.get("unit_name") or unit_id)
-                if unit_id:
-                    mapping[unit_id] = unit_name
-        terminal_statistics = _normalize_optional_mapping(detail_payload.get("terminal_statistics")) or {}
-        for item in _normalize_mapping_list(terminal_statistics.get("final_units")):
+        allies = _normalize_mapping_list(input_snapshot_summary.get("allies"))
+        enemies = _normalize_mapping_list(input_snapshot_summary.get("enemies"))
+        enemy_total_count = len(enemies)
+        enemy_index_by_id: dict[str, int] = {}
+        for item in allies:
             unit_id = str(item.get("unit_id") or "")
             unit_name = str(item.get("unit_name") or unit_id)
             if unit_id:
-                mapping[unit_id] = unit_name
+                mapping[unit_id] = EndlessPanelQueryService._sanitize_unit_display_name(
+                    raw_name=unit_name,
+                    side="ally",
+                    index=0,
+                    total_count=0,
+                )
+        for index, item in enumerate(enemies, start=1):
+            unit_id = str(item.get("unit_id") or "")
+            unit_name = str(item.get("unit_name") or unit_id)
+            if unit_id:
+                enemy_index_by_id[unit_id] = index
+                mapping[unit_id] = EndlessPanelQueryService._sanitize_unit_display_name(
+                    raw_name=unit_name,
+                    side="enemy",
+                    index=index,
+                    total_count=enemy_total_count,
+                )
+        terminal_statistics = _normalize_optional_mapping(detail_payload.get("terminal_statistics")) or {}
+        final_units = _normalize_mapping_list(terminal_statistics.get("final_units"))
+        fallback_enemy_total_count = max(
+            enemy_total_count,
+            sum(1 for item in final_units if str(item.get("side") or "") == "enemy"),
+        )
+        for item in final_units:
+            unit_id = str(item.get("unit_id") or "")
+            unit_name = str(item.get("unit_name") or unit_id)
+            side = str(item.get("side") or "")
+            if not unit_id:
+                continue
+            if side == "enemy":
+                enemy_index = enemy_index_by_id.get(unit_id, _extract_enemy_index_from_unit_id(unit_id))
+                mapping[unit_id] = EndlessPanelQueryService._sanitize_unit_display_name(
+                    raw_name=unit_name,
+                    side=side,
+                    index=enemy_index,
+                    total_count=fallback_enemy_total_count,
+                )
+                continue
+            mapping[unit_id] = EndlessPanelQueryService._sanitize_unit_display_name(
+                raw_name=unit_name,
+                side=side,
+                index=0,
+                total_count=0,
+            )
         return mapping
+
+    @staticmethod
+    def _build_unit_side_mapping(*, detail_payload: Mapping[str, Any]) -> dict[str, str]:
+        mapping: dict[str, str] = {}
+        input_snapshot_summary = _normalize_optional_mapping(detail_payload.get("input_snapshot_summary")) or {}
+        for group_name, side in (("allies", "ally"), ("enemies", "enemy")):
+            for item in _normalize_mapping_list(input_snapshot_summary.get(group_name)):
+                unit_id = str(item.get("unit_id") or "")
+                if unit_id:
+                    mapping[unit_id] = side
+        terminal_statistics = _normalize_optional_mapping(detail_payload.get("terminal_statistics")) or {}
+        for item in _normalize_mapping_list(terminal_statistics.get("final_units")):
+            unit_id = str(item.get("unit_id") or "")
+            side = str(item.get("side") or "")
+            if unit_id and side in {"ally", "enemy"}:
+                mapping[unit_id] = side
+        return mapping
+
+    @staticmethod
+    def _sanitize_unit_display_name(*, raw_name: str, side: str, index: int, total_count: int) -> str:
+        normalized_raw_name = raw_name.strip()
+        if side != "enemy":
+            return normalized_raw_name or ("你" if side == "ally" else "未知单位")
+        noun = EndlessPanelQueryService._resolve_enemy_name_noun(raw_name=normalized_raw_name, race_name="")
+        if index <= 0:
+            return noun
+        prefix = EndlessPanelQueryService._build_positional_enemy_prefix(
+            index=index,
+            total_count=max(total_count, index),
+        )
+        return f"{prefix}{noun}" if prefix else noun
 
     @staticmethod
     def _build_action_label_mapping(*, detail_payload: Mapping[str, Any]) -> dict[str, str]:
@@ -1140,14 +1401,21 @@ class EndlessPanelQueryService:
                 action_id = str(action.get("action_id") or "")
                 if not action_id:
                     continue
+                action_name = str(action.get("name") or "").strip()
+                if action_name and not _looks_like_internal_identifier(action_name):
+                    label_by_id[action_id] = action_name
+                    continue
                 labels = action.get("labels")
                 if isinstance(labels, list | tuple):
                     for item in labels:
-                        if isinstance(item, str) and item.strip():
-                            label_by_id[action_id] = item.strip()
+                        if not isinstance(item, str) or not item.strip():
+                            continue
+                        readable_label = _humanize_action_identifier(item)
+                        if readable_label is not None:
+                            label_by_id[action_id] = readable_label
                             break
                 if action_id not in label_by_id:
-                    label_by_id[action_id] = action_id
+                    label_by_id[action_id] = _humanize_action_identifier(action_id) or "一式攻势"
         return label_by_id
 
     @staticmethod
@@ -1212,6 +1480,99 @@ def _deduplicate_preserve_order(items: Sequence[str]) -> tuple[str, ...]:
         seen.add(normalized_item)
         ordered_items.append(normalized_item)
     return tuple(ordered_items)
+
+
+def _looks_like_internal_identifier(value: str) -> bool:
+    normalized_value = value.strip()
+    if not normalized_value:
+        return False
+    if any(separator in normalized_value for separator in ("_", ":")):
+        return True
+    return all(ord(char) < 128 for char in normalized_value)
+
+
+def _extract_counter_stem(value: str) -> str | None:
+    normalized_value = value.strip()
+    if not normalized_value.endswith("号"):
+        return None
+    digit_index = next((index for index, char in enumerate(normalized_value) if char.isdigit()), -1)
+    if digit_index <= 0:
+        return None
+    counter_text = normalized_value[digit_index:-1]
+    if not counter_text or not all(char.isdigit() for char in counter_text):
+        return None
+    stem = normalized_value[:digit_index].strip()
+    return stem or None
+
+
+def _extract_enemy_index_from_unit_id(value: str) -> int:
+    normalized_value = value.strip()
+    if not normalized_value:
+        return 0
+    tail = normalized_value.rsplit(":", 1)[-1]
+    return int(tail) if tail.isdigit() else 0
+
+
+def _humanize_action_identifier(value: str) -> str | None:
+    normalized_value = value.strip().lower()
+    if not normalized_value:
+        return None
+    exact_mapping = {
+        "single_target": "单体杀招",
+        "opening": "起手式",
+        "sword_intent": "剑意一击",
+        "burst": "爆发杀招",
+        "first_strike": "先手压制",
+        "execute": "斩杀一击",
+        "combo": "连斩",
+        "tempo": "抢势一击",
+        "pursuit": "追击",
+        "guard_convert": "转守为攻",
+        "counter": "反击",
+        "retaliation": "回击",
+        "sustain": "续战调息",
+        "frontline": "正面硬撼",
+        "spell_focus": "术法聚势",
+        "control": "控场术",
+        "interrupt": "断势术",
+        "debuff": "压制术",
+        "anti_guard": "破甲术",
+        "resource_cycle": "调息回转",
+        "attrition": "蚀气余劲",
+    }
+    if normalized_value in exact_mapping:
+        return exact_mapping[normalized_value]
+    token_mapping = {
+        "single": "单体",
+        "target": "杀招",
+        "opening": "起手",
+        "sword": "剑式",
+        "intent": "剑意",
+        "burst": "爆发",
+        "first": "先手",
+        "strike": "重击",
+        "execute": "斩杀",
+        "combo": "连斩",
+        "tempo": "抢势",
+        "pursuit": "追击",
+        "guard": "护体",
+        "convert": "转势",
+        "counter": "反击",
+        "retaliation": "回击",
+        "sustain": "续战",
+        "frontline": "前压",
+        "spell": "术法",
+        "focus": "聚势",
+        "control": "控场",
+        "interrupt": "断势",
+        "debuff": "压制",
+        "anti": "破",
+        "resource": "调息",
+        "cycle": "回转",
+        "attrition": "蚀气",
+    }
+    humanized = "".join(token_mapping.get(token, "") for token in normalized_value.split("_") if token)
+    return humanized or None
 
 
 def _read_int(value: Any, *, default: int = 0) -> int:

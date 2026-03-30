@@ -106,7 +106,6 @@ class EndlessPanelPresenter:
         action_note: EndlessActionNote | None = None,
     ) -> discord.Embed:
         presentation = snapshot.run_presentation
-        del action_note
         embed = discord.Embed(
             title=cls._build_embed_title(snapshot=snapshot, selected_start_floor=selected_start_floor),
             description=cls._build_embed_description(snapshot=snapshot, selected_start_floor=selected_start_floor),
@@ -119,6 +118,8 @@ class EndlessPanelPresenter:
         )
         embed.add_field(name="🧍 状态", value=cls._build_status_block(snapshot=snapshot), inline=False)
         embed.add_field(name="📜 战况", value=cls._build_battle_scene_block(snapshot=snapshot), inline=False)
+        if action_note is not None and action_note.lines:
+            embed.add_field(name=action_note.title, value="\n".join(action_note.lines[:5]), inline=False)
         if presentation.can_settle_retreat and presentation.decision_floor is not None:
             embed.add_field(name="🧭 抉择", value=cls._build_decision_block(snapshot=snapshot), inline=False)
         else:
@@ -169,6 +170,8 @@ class EndlessPanelPresenter:
             return "眼前暂时没有清晰敌影，但更深处的妖气还在翻涌。"
         source_lines = scene_floor.enemy_scene_lines or scene_floor.enemy_summary_lines
         lines = list(source_lines[:2] if presentation.current_scene_kind in {"upcoming_preview", "decision", "defeat"} else source_lines[:3])
+        if scene_floor.enemy_health_line is not None and scene_floor.enemy_health_line not in lines:
+            lines.insert(1 if lines else 0, scene_floor.enemy_health_line)
         scene_note = cls._build_encounter_scene_note(snapshot=snapshot, floor_snapshot=scene_floor)
         if scene_note is not None:
             lines.append(scene_note)
@@ -1154,11 +1157,14 @@ class EndlessPanelController:
     def _build_advance_lines(*, advance_presentation: EndlessAdvancePresentation) -> tuple[str, ...]:
         floor_snapshot = advance_presentation.floor_result
         lines = [f"第 {floor_snapshot.floor} 层已破。"]
+        if floor_snapshot.enemy_health_line:
+            lines.append("守敌余势：" + floor_snapshot.enemy_health_line)
+        battle_excerpt_limit = 1 if floor_snapshot.enemy_health_line else 2
         battle_lines = floor_snapshot.battle_scene_lines
         if battle_lines:
-            lines.extend(battle_lines[:2])
+            lines.extend(battle_lines[:battle_excerpt_limit])
         elif floor_snapshot.battle_report_digest is not None and floor_snapshot.battle_report_digest.narration_lines:
-            lines.extend(floor_snapshot.battle_report_digest.narration_lines[:2])
+            lines.extend(floor_snapshot.battle_report_digest.narration_lines[:battle_excerpt_limit])
         else:
             lines.append(
                 EndlessPanelPresenter._build_reward_result_line(
