@@ -553,7 +553,23 @@ def _build_item_snapshot(
     equipped_slot_id: str | None,
     is_artifact: bool = False,
     artifact_nurture_level: int = 0,
+    affixes: tuple[EquipmentAffixSnapshot, ...] | None = None,
 ) -> EquipmentItemSnapshot:
+    resolved_affixes = affixes or (
+        EquipmentAffixSnapshot(
+            affix_id="attack_power",
+            affix_name="攻力加成",
+            stat_id="attack_power",
+            category="base_stat",
+            tier_id="earth",
+            tier_name="地品",
+            rolled_multiplier=Decimal("1.0"),
+            value=12,
+            is_pve_specialized=False,
+            is_pvp_specialized=False,
+            position=1,
+        ),
+    )
     return EquipmentItemSnapshot(
         item_id=item_id,
         character_id=77,
@@ -586,21 +602,7 @@ def _build_item_snapshot(
         base_stat_bonus_ratio=Decimal("0"),
         affix_bonus_ratio=Decimal("0"),
         base_attributes=(EquipmentAttributeSnapshot(stat_id="attack_power", value=88),),
-        affixes=(
-            EquipmentAffixSnapshot(
-                affix_id="attack_bonus",
-                affix_name="锋锐",
-                stat_id="attack_power",
-                category="offense",
-                tier_id="t2",
-                tier_name="良品",
-                rolled_multiplier=1,
-                value=12,
-                is_pve_specialized=False,
-                is_pvp_specialized=False,
-                position=1,
-            ),
-        ),
+        affixes=resolved_affixes,
         resolved_stats=(EquipmentResolvedStatSnapshot(stat_id="attack_power", value=100),),
         naming=EquipmentNamingSnapshot(
             resolved_name=display_name,
@@ -617,17 +619,78 @@ def _build_equipment_card_snapshot(item: EquipmentItemSnapshot) -> EquipmentCard
     growth_line = f"强化 +{item.enhancement_level}"
     if item.is_artifact:
         growth_line += f"｜祭炼 {item.artifact_nurture_level}"
+    keyword_lines = tuple(EquipmentPanelPresenter._format_affix_line(affix) for affix in item.affixes[:3])
     return EquipmentCardSnapshot(
         name=item.display_name,
         badge_line=f"{'法宝' if item.is_artifact else item.slot_name}｜{item.rank_name}｜{item.quality_name}",
         growth_line=growth_line,
         stat_lines=("攻力 100",),
-        keyword_lines=("锋锐 12",),
+        keyword_lines=keyword_lines,
     )
 
 
 
 def _build_backpack_snapshot() -> BackpackPanelSnapshot:
+    selected_affixes = (
+        EquipmentAffixSnapshot(
+            affix_id="attack_power",
+            affix_name="攻力加成",
+            stat_id="attack_power",
+            category="base_stat",
+            tier_id="earth",
+            tier_name="地品",
+            rolled_multiplier=Decimal("1.0"),
+            value=12,
+            is_pve_specialized=False,
+            is_pvp_specialized=False,
+            position=1,
+        ),
+        EquipmentAffixSnapshot(
+            affix_id="artifact_counter_dot",
+            affix_name="反噬灼息",
+            stat_id="",
+            category="special_pattern",
+            tier_id="heaven",
+            tier_name="天品",
+            rolled_multiplier=Decimal("1.0"),
+            value=0,
+            is_pve_specialized=False,
+            is_pvp_specialized=False,
+            affix_kind="special_effect",
+            special_effect=SimpleNamespace(
+                effect_id="counter_dot",
+                effect_name="反噬灼息",
+                effect_type="counter_dot",
+                trigger_event="damage_taken",
+                payload={
+                    "trigger_rate_permille": 200,
+                    "dot_ratio_permille": 200,
+                    "duration_rounds": 2,
+                    "max_stacks": 3,
+                    "cooldown_rounds": 2,
+                    "max_triggers_per_round": 1,
+                },
+                public_score_key="se_counter_dot",
+                hidden_pvp_score_key="pvp_se_counter_dot",
+            ),
+            position=2,
+        ),
+    )
+    equipped_affixes = (
+        EquipmentAffixSnapshot(
+            affix_id="attack_power",
+            affix_name="攻力加成",
+            stat_id="attack_power",
+            category="base_stat",
+            tier_id="mystic",
+            tier_name="玄品",
+            rolled_multiplier=Decimal("1.0"),
+            value=10,
+            is_pve_specialized=False,
+            is_pvp_specialized=False,
+            position=1,
+        ),
+    )
     selected_equipment = _build_item_snapshot(
         item_id=5101,
         slot_id="weapon",
@@ -635,6 +698,7 @@ def _build_backpack_snapshot() -> BackpackPanelSnapshot:
         display_name="照霜剑",
         quality_name="史诗",
         equipped_slot_id=None,
+        affixes=selected_affixes,
     )
     equipped_equipment = _build_item_snapshot(
         item_id=5102,
@@ -643,6 +707,7 @@ def _build_backpack_snapshot() -> BackpackPanelSnapshot:
         display_name="破军刃",
         quality_name="稀有",
         equipped_slot_id="weapon",
+        affixes=equipped_affixes,
     )
     page_entries = (
         BackpackEntrySummarySnapshot(
@@ -656,31 +721,32 @@ def _build_backpack_snapshot() -> BackpackPanelSnapshot:
             rank_name="一阶",
             equipped=False,
             is_artifact=False,
-            summary_line="一阶｜史诗｜强化 +1｜1词条/0特效",
+            summary_line="一阶｜史诗｜强化 +1｜2词条/1特效",
+        ),
+        BackpackEntrySummarySnapshot(
+            entry_key=BackpackEntryKey(entry_kind=BackpackEntryKind.EQUIPMENT, item_id=5103),
+            entry_kind=BackpackEntryKind.EQUIPMENT,
+            item_id=5103,
+            slot_id="weapon",
+            slot_name="武器",
+            display_name="试锋剑",
+            quality_name="稀有",
+            rank_name="一阶",
+            equipped=False,
+            is_artifact=False,
+            summary_line="一阶｜稀有｜强化 +0｜1词条/0特效",
         ),
     )
     selected_detail = BackpackSelectedDetailSnapshot(
         entry_key=page_entries[0].entry_key,
         entry_kind=BackpackEntryKind.EQUIPMENT,
         equipment_item=selected_equipment,
-        selected_card=BackpackCardSnapshot(
-            name="照霜剑",
-            badge_line="武器｜一阶｜史诗",
-            growth_line="强化 +1",
-            stat_lines=("攻力 100", "暴击 5.0%"),
-            keyword_lines=("锋锐 12", "破甲 4.0%"),
-        ),
+        selected_card=_build_equipment_card_snapshot(selected_equipment),
         equip_action_enabled=True,
         equip_action_label="装配",
         same_type_equipped_entry_key=BackpackEntryKey(entry_kind=BackpackEntryKind.EQUIPMENT, item_id=5102),
         same_type_equipped_equipment_item=equipped_equipment,
-        equipped_card=BackpackCardSnapshot(
-            name="破军刃",
-            badge_line="武器｜一阶｜稀有",
-            growth_line="强化 +1",
-            stat_lines=("攻力 88", "命中 3.0%"),
-            keyword_lines=("锋锐 10",),
-        ),
+        equipped_card=_build_equipment_card_snapshot(equipped_equipment),
         is_same_as_equipped=False,
     )
     return BackpackPanelSnapshot(
@@ -689,7 +755,7 @@ def _build_backpack_snapshot() -> BackpackPanelSnapshot:
         filter_id=BackpackFilterId.ALL,
         page=1,
         page_size=25,
-        total_items=1,
+        total_items=2,
         total_pages=1,
         page_entries=page_entries,
         selected_detail=selected_detail,
@@ -707,6 +773,37 @@ def _build_forge_snapshot() -> ForgePanelSnapshot:
         equipped_slot_id="artifact",
         is_artifact=True,
         artifact_nurture_level=2,
+        affixes=(
+            EquipmentAffixSnapshot(
+                affix_id="artifact_damage_to_barrier",
+                affix_name="伤转灵障",
+                stat_id="",
+                category="special_pattern",
+                tier_id="heaven",
+                tier_name="天品",
+                rolled_multiplier=Decimal("1.0"),
+                value=0,
+                is_pve_specialized=False,
+                is_pvp_specialized=False,
+                affix_kind="special_effect",
+                special_effect=SimpleNamespace(
+                    effect_id="damage_to_barrier",
+                    effect_name="伤转灵障",
+                    effect_type="damage_to_barrier",
+                    trigger_event="damage_resolved",
+                    payload={
+                        "trigger_rate_permille": 1000,
+                        "damage_ratio_permille": 150,
+                        "cooldown_rounds": 1,
+                        "max_stacks": 1,
+                        "max_triggers_per_round": 1,
+                    },
+                    public_score_key="se_damage_to_barrier",
+                    hidden_pvp_score_key="pvp_se_damage_to_barrier",
+                ),
+                position=1,
+            ),
+        ),
     )
     target = ForgeTargetSnapshot(
         target_id="equipment:6201",
@@ -715,10 +812,29 @@ def _build_forge_snapshot() -> ForgePanelSnapshot:
         slot_name="法宝",
         core_role="法宝位",
         display_name="天火镜",
-        summary_line="一阶｜史诗｜祭炼 2｜1词条/0特效",
+        summary_line="一阶｜史诗｜祭炼 2｜1词条/1特效",
         equipped=True,
         equipment_item=item,
         supported_operations=(ForgeOperationId.NURTURE, ForgeOperationId.WASH, ForgeOperationId.REFORGE),
+    )
+    secondary_target = ForgeTargetSnapshot(
+        target_id="equipment:6202",
+        target_kind=ForgeTargetKind.EQUIPMENT,
+        slot_id="weapon",
+        slot_name="武器",
+        core_role="武器位",
+        display_name="试锋剑",
+        summary_line="一阶｜稀有｜强化 +0｜1词条/0特效",
+        equipped=False,
+        equipment_item=_build_item_snapshot(
+            item_id=6202,
+            slot_id="weapon",
+            slot_name="武器",
+            display_name="试锋剑",
+            quality_name="稀有",
+            equipped_slot_id=None,
+        ),
+        supported_operations=(ForgeOperationId.ENHANCE, ForgeOperationId.WASH),
     )
     return ForgePanelSnapshot(
         character_id=77,
@@ -740,16 +856,16 @@ def _build_forge_snapshot() -> ForgePanelSnapshot:
         filter_id=ForgeFilterId.ALL,
         page=1,
         page_size=25,
-        total_items=1,
+        total_items=2,
         total_pages=1,
-        targets=(target,),
+        targets=(target, secondary_target),
         selected_target=target,
         selected_target_card=ForgeCardSnapshot(
             name="天火镜",
             badge_line="法宝｜一阶｜史诗",
             growth_line="强化 +1｜祭炼 2",
             stat_lines=("攻力 100", "气血 120"),
-            keyword_lines=("锋锐 12",),
+            keyword_lines=("伤转灵障：造成伤害后必定把本次伤害的15.0%转化为自身护盾，冷却1回合。",),
         ),
         current_operation_name="法宝培养",
         operation_costs=(
@@ -797,19 +913,24 @@ def _build_interaction(*, user_id: int = 50001) -> SimpleNamespace:
 
 
 
-def test_backpack_embed_compacts_selected_and_equipped_cards_without_compare_block() -> None:
+def test_backpack_embed_removes_verbose_page_list_and_keeps_compact_status() -> None:
     snapshot = _build_backpack_snapshot()
     embed = BackpackPanelPresenter.build_embed(snapshot=snapshot, state=BackpackPanelState(selected_entry_key=snapshot.page_entries[0].entry_key))
 
     field_names = [field.name for field in embed.fields]
-    assert field_names[:3] == ["🎒 当前页", "✨ 选中卡", "🛡 当前已装同槽卡"]
-    assert "必要对比" not in field_names
+    assert field_names[:3] == ["📌 浏览状态", "✨ 选中卡", "🛡 当前已装同槽卡"]
+    assert "🎒 当前页" not in field_names
+    status_field = next(field for field in embed.fields if field.name == "📌 浏览状态")
     selected_field = next(field for field in embed.fields if field.name == "✨ 选中卡")
     equipped_field = next(field for field in embed.fields if field.name == "🛡 当前已装同槽卡")
+    assert "当前页可选：2 项，请使用下拉框查看。" in status_field.value
+    assert "照霜剑" in status_field.value
     assert "```" in selected_field.value
-    assert "词条：锋锐 12｜破甲 4.0%" in selected_field.value
+    assert "词条：" in selected_field.value
+    assert "攻力加成：攻力 +12" in selected_field.value
+    assert "反噬灼息：受到伤害后有20.0%概率对伤害来源施加持续伤害，系数为20.0%，持续2回合，最多叠加3层，冷却2回合。" in selected_field.value
     assert "```" in equipped_field.value
-    assert "词条：锋锐 10" in equipped_field.value
+    assert "攻力加成：攻力 +10" in equipped_field.value
 
 
 
@@ -850,19 +971,27 @@ def test_equipment_slot_detail_embed_uses_three_compact_blocks() -> None:
     assert "```" in current_field.value
     assert ">02. 试锋剑" in candidate_list_field.value
     assert "```" in selected_candidate_field.value
-    assert "词条：锋锐 12" in selected_candidate_field.value
+    assert "词条：" in selected_candidate_field.value
+    assert "攻力加成：攻力 +12" in selected_candidate_field.value
 
 
 
-def test_forge_embed_only_shows_current_operation_costs_and_preview() -> None:
+def test_forge_embed_removes_verbose_target_list_and_keeps_compact_status() -> None:
     snapshot = _build_forge_snapshot()
     embed = ForgePanelPresenter.build_embed(snapshot=snapshot, state=ForgePanelState(selected_target_id="equipment:6201"))
 
     field_names = [field.name for field in embed.fields]
-    assert field_names[:4] == ["⚒ 当前目标列表", "✨ 目标卡", "💰 本次消耗", "🧪 结果预览"]
-    assert "培养资源" not in field_names
+    assert field_names[:4] == ["📌 目标状态", "✨ 目标卡", "💰 本次消耗", "🧪 结果预览"]
+    assert "⚒ 当前目标列表" not in field_names
+    status_field = next(field for field in embed.fields if field.name == "📌 目标状态")
+    target_field = next(field for field in embed.fields if field.name == "✨ 目标卡")
     cost_field = next(field for field in embed.fields if field.name == "💰 本次消耗")
     preview_field = next(field for field in embed.fields if field.name == "🧪 结果预览")
+    assert "当前页可选：2 项，请使用下拉框切换目标。" in status_field.value
+    assert "当前目标：天火镜｜已装" in status_field.value
+    assert "当前操作：法宝培养" in status_field.value
+    assert "词条：" in target_field.value
+    assert "伤转灵障：造成伤害后必定把本次伤害的15.0%转化为自身护盾，冷却1回合。" in target_field.value
     assert "灵石 1200 / 持有 6000" in cost_field.value
     assert "法宝精粹 3 / 持有 10" in cost_field.value
     assert "祭炼 2 → 3" in preview_field.value
@@ -1295,6 +1424,25 @@ def test_skill_detail_embed_hides_internal_fields_and_uses_localized_names() -> 
     assert "流派加成 速度增幅" in auxiliary_field.value
     assert "流派加成 神识暴伤" in auxiliary_field.value
     assert "神识：锁念剑心诀｜问心剑道｜一阶｜凡品｜流派加成 神识暴伤" in auxiliary_field.value
+
+
+
+def test_equipment_slot_detail_card_uses_affix_name_and_effect_description() -> None:
+    snapshot = _build_test_snapshot(include_artifact=True, weapon_equipped=True)
+    embed = EquipmentPanelPresenter.build_embed(
+        snapshot=snapshot,
+        display_mode=EquipmentPanelDisplayMode.SLOT_DETAIL,
+        selected_slot_id="weapon",
+        selected_candidate_item_id=1002,
+        action_note=None,
+    )
+
+    current_field = next(field for field in embed.fields if field.name == "🛡 当前装备")
+    selected_field = next(field for field in embed.fields if field.name == "✨ 选中候选")
+    assert "攻力加成：攻力 +12" in current_field.value
+    assert "攻力加成：攻力 +12" in selected_field.value
+    assert "attack_power" not in selected_field.value
+    assert "效果说明缺失" not in selected_field.value
 
 
 

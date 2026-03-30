@@ -110,7 +110,7 @@ class BackpackPanelPresenter:
             description="仅操作者可见",
             color=discord.Color.dark_gold(),
         )
-        embed.add_field(name="🎒 当前页", value=cls._build_page_entries_block(snapshot=snapshot), inline=False)
+        embed.add_field(name="📌 浏览状态", value=cls._build_overview_block(snapshot=snapshot), inline=False)
         embed.add_field(name="✨ 选中卡", value=cls._build_selected_detail_block(snapshot=snapshot), inline=False)
         embed.add_field(name="🛡 当前已装同槽卡", value=cls._build_equipped_detail_block(snapshot=snapshot), inline=False)
         if state.action_note is not None and state.action_note.lines:
@@ -123,12 +123,14 @@ class BackpackPanelPresenter:
         selected_label = "无"
         if snapshot.selected_detail is not None:
             selected_label = cls._format_selected_entry_label(snapshot=snapshot)
+        current_page_count = len(snapshot.page_entries)
+        helper_line = "当前页暂无可选实例。" if current_page_count <= 0 else f"当前页可选：{current_page_count} 项，请使用下拉框查看。"
         return "\n".join(
             (
                 f"当前筛选：{_FILTER_LABEL_BY_ID[snapshot.filter_id]}",
-                f"页码：第 {snapshot.page}/{snapshot.total_pages} 页",
-                f"实例数：{snapshot.total_items}",
+                f"页码：第 {snapshot.page}/{snapshot.total_pages} 页｜共 {snapshot.total_items} 项",
                 f"当前选中：{selected_label}",
+                helper_line,
             )
         )
 
@@ -234,7 +236,8 @@ class BackpackPanelPresenter:
         lines.extend(card.stat_lines[:4])
         lines.append("```")
         if card.keyword_lines:
-            lines.append("词条：" + "｜".join(card.keyword_lines[:3]))
+            lines.append("词条：")
+            lines.extend(card.keyword_lines[:3])
         else:
             lines.append("词条：无")
         return cls._truncate_lines(tuple(lines), limit=1000)

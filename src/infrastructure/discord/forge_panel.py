@@ -134,7 +134,7 @@ class ForgePanelPresenter:
             description="仅操作者可见",
             color=discord.Color.dark_gold(),
         )
-        embed.add_field(name="⚒ 当前目标列表", value=cls._build_target_list_block(snapshot=snapshot), inline=False)
+        embed.add_field(name="📌 目标状态", value=cls._build_target_status_block(snapshot=snapshot), inline=False)
         embed.add_field(name="✨ 目标卡", value=cls._build_target_detail_block(snapshot=snapshot), inline=False)
         embed.add_field(name="💰 本次消耗", value=cls._build_operation_cost_block(snapshot=snapshot), inline=False)
         embed.add_field(name="🧪 结果预览", value=cls._build_operation_preview_block(snapshot=snapshot), inline=False)
@@ -154,23 +154,24 @@ class ForgePanelPresenter:
         return "```\n" + "\n".join(lines) + "\n```"
 
     @classmethod
-    def _build_target_list_block(cls, *, snapshot: ForgePanelSnapshot) -> str:
-        if not snapshot.targets:
-            return "当前没有可培养目标。"
-        lines = [f"第 {snapshot.page}/{snapshot.total_pages} 页｜共 {snapshot.total_items} 个目标"]
-        selected_target_id = None if snapshot.selected_target is None else snapshot.selected_target.target_id
-        for index, target in enumerate(snapshot.targets, start=1 + (snapshot.page - 1) * snapshot.page_size):
-            prefix = ">" if target.target_id == selected_target_id else " "
-            if target.target_kind is ForgeTargetKind.SKILL:
-                kind_tag = "功法"
-                location_tag = " 已装"
-            else:
-                item = target.equipment_item
-                kind_tag = "法宝" if item is not None and item.is_artifact else target.slot_name
-                location_tag = " 已装" if target.equipped else " 背包"
-            lines.append(f"{prefix}{index:02d}. {kind_tag}{location_tag} {target.display_name}")
-            lines.append(f"   {target.summary_line}")
-        return "```\n" + cls._truncate_lines(tuple(lines), limit=900) + "\n```"
+    def _build_target_status_block(cls, *, snapshot: ForgePanelSnapshot) -> str:
+        selected_target = snapshot.selected_target
+        selected_label = "无"
+        if selected_target is not None:
+            location_label = "已装" if selected_target.equipped else "背包"
+            selected_label = f"{selected_target.display_name}｜{location_label}"
+        current_page_count = len(snapshot.targets)
+        helper_line = "当前页暂无可选目标。" if current_page_count <= 0 else f"当前页可选：{current_page_count} 项，请使用下拉框切换目标。"
+        current_operation = snapshot.current_operation_name or "无"
+        return "\n".join(
+            (
+                f"当前筛选：{_FILTER_LABEL_BY_ID[snapshot.filter_id]}",
+                f"页码：第 {snapshot.page}/{snapshot.total_pages} 页｜共 {snapshot.total_items} 项",
+                f"当前目标：{selected_label}",
+                f"当前操作：{current_operation}",
+                helper_line,
+            )
+        )
 
     @classmethod
     def _build_target_detail_block(cls, *, snapshot: ForgePanelSnapshot) -> str:
@@ -196,7 +197,8 @@ class ForgePanelPresenter:
         lines.extend(card.stat_lines[:4])
         lines.append("```")
         if card.keyword_lines:
-            lines.append("词条：" + "｜".join(card.keyword_lines[:3]))
+            lines.append("词条：")
+            lines.extend(card.keyword_lines[:3])
         else:
             lines.append("词条：无")
         return cls._truncate_lines(tuple(lines), limit=1000)

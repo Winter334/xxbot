@@ -400,6 +400,7 @@ public_score_key = "se_sunder_on_hit"
 hidden_pvp_score_key = "pvp_se_sunder_on_hit"
 payload = { trigger_rate_permille = 300, suppression_permille = 250, duration_rounds = 2, max_stacks = 1, cooldown_rounds = 1, max_triggers_per_round = 1 }
 summary = "造成伤害后有概率对当前受击目标施加短时属性压制。"
+detail_summary = "造成伤害后有30.0%概率对当前受击目标施加25.0%属性压制，持续2回合，冷却1回合。"
 
 [[special_effects]]
 effect_id = "dot_on_hit"
@@ -411,6 +412,7 @@ public_score_key = "se_dot_on_hit"
 hidden_pvp_score_key = "pvp_se_dot_on_hit"
 payload = { trigger_rate_permille = 250, dot_ratio_permille = 250, duration_rounds = 2, max_stacks = 3, cooldown_rounds = 1, max_triggers_per_round = 1 }
 summary = "造成伤害后有概率对当前受击目标施加持续伤害。"
+detail_summary = "造成伤害后有25.0%概率对当前受击目标施加持续伤害，系数为25.0%，持续2回合，最多叠加3层，冷却1回合。"
 
 [[special_effects]]
 effect_id = "battle_start_barrier"
@@ -422,6 +424,7 @@ public_score_key = "se_battle_start_barrier"
 hidden_pvp_score_key = "pvp_se_battle_start_barrier"
 payload = { guard_ratio_permille = 600, trigger_rate_permille = 1000, cooldown_rounds = 0, max_stacks = 1, max_triggers_per_battle = 1 }
 summary = "战斗开始时仅首轮入场生效，为自身附加护盾。"
+detail_summary = "战斗开始时必定触发，为自身附加1层护盾，护盾系数为60.0%，每场战斗最多触发1次。"
 
 [[special_effects]]
 effect_id = "barrier_on_damage_taken"
@@ -433,6 +436,7 @@ public_score_key = "se_barrier_on_damage_taken"
 hidden_pvp_score_key = "pvp_se_barrier_on_damage_taken"
 payload = { trigger_rate_permille = 350, damage_ratio_permille = 200, cooldown_rounds = 1, max_stacks = 1, max_triggers_per_round = 1 }
 summary = "受到伤害后有概率按受击值转化为护盾。"
+detail_summary = "受到伤害后有35.0%概率按本次受击值的20.0%转化为护盾，冷却1回合。"
 
 [[special_effects]]
 effect_id = "low_hp_regen"
@@ -444,6 +448,7 @@ public_score_key = "se_low_hp_regen"
 hidden_pvp_score_key = "pvp_se_low_hp_regen"
 payload = { trigger_rate_permille = 1000, hp_threshold_permille = 500, attack_ratio_permille = 180, cooldown_rounds = 2, max_stacks = 1, max_triggers_per_round = 1 }
 summary = "回合开始时若自身气血偏低，则回复一定气血。"
+detail_summary = "回合开始时若自身气血低于50.0%，则必定回复相当于攻力18.0%的气血，冷却2回合。"
 
 [[special_effects]]
 effect_id = "heal_after_attack"
@@ -455,6 +460,7 @@ public_score_key = "se_heal_after_attack"
 hidden_pvp_score_key = "pvp_se_heal_after_attack"
 payload = { trigger_rate_permille = 1000, attack_ratio_permille = 120, cooldown_rounds = 1, max_stacks = 1, requires_damage_resolved = true, max_triggers_per_round = 1 }
 summary = "完成一次造成伤害的动作后回复自身气血。"
+detail_summary = "完成一次造成伤害的动作后必定回复相当于攻力12.0%的气血，冷却1回合。"
 
 [[special_effects]]
 effect_id = "round_end_barrier_if_empty"
@@ -466,6 +472,7 @@ public_score_key = "se_round_end_barrier_if_empty"
 hidden_pvp_score_key = "pvp_se_round_end_barrier_if_empty"
 payload = { trigger_rate_permille = 1000, guard_ratio_permille = 180, cooldown_rounds = 1, max_stacks = 1, require_empty_shield = true, max_triggers_per_round = 1 }
 summary = "回合结束时若自身当前没有护盾，则补上一层护盾。"
+detail_summary = "回合结束时若自身当前没有护盾，则必定补上一层护盾，护盾系数为18.0%，冷却1回合。"
 
 [[special_effects]]
 effect_id = "counter_sunder"
@@ -477,6 +484,7 @@ public_score_key = "se_counter_sunder"
 hidden_pvp_score_key = "pvp_se_counter_sunder"
 payload = { trigger_rate_permille = 250, suppression_permille = 200, duration_rounds = 2, max_stacks = 1, cooldown_rounds = 2, max_triggers_per_round = 1 }
 summary = "受到伤害后有概率对伤害来源施加属性压制。"
+detail_summary = "受到伤害后有25.0%概率对伤害来源施加20.0%属性压制，持续2回合，冷却2回合。"
 
 [[special_effects]]
 effect_id = "damage_to_barrier"
@@ -488,6 +496,7 @@ public_score_key = "se_damage_to_barrier"
 hidden_pvp_score_key = "pvp_se_damage_to_barrier"
 payload = { trigger_rate_permille = 1000, damage_ratio_permille = 150, cooldown_rounds = 1, max_stacks = 1, max_triggers_per_round = 1 }
 summary = "造成伤害后把部分伤害值转化为自身护盾。"
+detail_summary = "造成伤害后必定把本次伤害的15.0%转化为自身护盾，冷却1回合。"
 
 [[special_effects]]
 effect_id = "counter_dot"
@@ -499,6 +508,7 @@ public_score_key = "se_counter_dot"
 hidden_pvp_score_key = "pvp_se_counter_dot"
 payload = { trigger_rate_permille = 200, dot_ratio_permille = 200, duration_rounds = 2, max_stacks = 3, cooldown_rounds = 2, max_triggers_per_round = 1 }
 summary = "受到伤害后有概率对伤害来源施加持续伤害。"
+detail_summary = "受到伤害后有20.0%概率对伤害来源施加持续伤害，系数为20.0%，持续2回合，最多叠加3层，冷却2回合。"
 
 [[affixes]]
 affix_id = "attack_power"

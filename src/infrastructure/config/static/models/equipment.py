@@ -123,6 +123,7 @@ class EquipmentSpecialEffectDefinition(OrderedConfigItem):
     hidden_pvp_score_key: StableId | None = None
     payload: dict[str, str | int | bool | None] = {}
     summary: ShortText
+    detail_summary: ShortText
 
 
 class EquipmentAffixDefinition(OrderedConfigItem):
@@ -639,6 +640,13 @@ class EquipmentConfig(VersionedSectionConfig):
                     config_path="special_effects[].order",
                     identifier=effect.effect_id,
                     reason=f"特殊效果顺序值 {effect.order} 重复",
+                )
+            if not effect.detail_summary.strip():
+                collector.add(
+                    filename=filename,
+                    config_path="special_effects[].detail_summary",
+                    identifier=effect.effect_id,
+                    reason="特殊效果必须提供可直接展示的完整效果描述",
                 )
 
     def _collect_affixes(self, *, filename: str, collector: StaticConfigIssueCollector) -> None:

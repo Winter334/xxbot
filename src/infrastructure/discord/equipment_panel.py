@@ -35,6 +35,7 @@ from application.equipment.panel_query_service import (
     EquipmentPanelQueryServiceError,
     EquipmentPanelSnapshot,
     EquipmentSlotPanelSnapshot,
+    format_equipment_affix_display_line,
 )
 from infrastructure.config.static import get_static_config
 from infrastructure.db.session import session_scope
@@ -461,7 +462,8 @@ class EquipmentPanelPresenter:
         lines.extend(card.stat_lines[:4])
         lines.append("```")
         if card.keyword_lines:
-            lines.append("词条：" + "｜".join(card.keyword_lines[:3]))
+            lines.append("词条：")
+            lines.extend(card.keyword_lines[:3])
         else:
             lines.append("词条：无")
         return "\n".join(lines)
@@ -492,7 +494,7 @@ class EquipmentPanelPresenter:
 
     @classmethod
     def _format_affix_line(cls, affix) -> str:
-        return f"{affix.affix_name}({affix.tier_name}) {cls._format_stat_value(affix.stat_id, affix.value)}"
+        return format_equipment_affix_display_line(affix)
 
     @staticmethod
     def _format_stat_name(stat_id: str) -> str:

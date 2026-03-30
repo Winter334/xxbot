@@ -80,6 +80,89 @@ _STAT_NAME_BY_ID = {
 }
 
 
+def format_equipment_affix_display_lines(
+    affixes: Sequence[object],
+    *,
+    static_config: StaticGameConfig | None = None,
+    limit: int | None = None,
+) -> tuple[str, ...]:
+    """把装备词条格式化为可直接展示的“名称：说明”行。"""
+    resolved_config = static_config or get_static_config()
+    iterable = affixes if limit is None else affixes[:limit]
+    return tuple(
+        format_equipment_affix_display_line(affix, static_config=resolved_config)
+        for affix in iterable
+    )
+
+
+def format_equipment_affix_display_line(
+    affix: object,
+    *,
+    static_config: StaticGameConfig | None = None,
+) -> str:
+    """格式化单条装备词条展示文本。"""
+    resolved_config = static_config or get_static_config()
+    affix_name = str(getattr(affix, "affix_name", "未命名词条")).strip() or "未命名词条"
+    description = _resolve_affix_display_description(affix=affix, static_config=resolved_config)
+    return f"{affix_name}：{description}"
+
+
+def _resolve_affix_display_description(*, affix: object, static_config: StaticGameConfig) -> str:
+    special_effect = getattr(affix, "special_effect", None)
+    affix_id = str(getattr(affix, "affix_id", "")).strip()
+    affix_definition = None if not affix_id else static_config.equipment.get_affix(affix_id)
+    if special_effect is not None or str(getattr(affix, "affix_kind", "")).strip() == "special_effect":
+        description = _resolve_special_affix_description(
+            affix=affix,
+            static_config=static_config,
+            affix_definition=affix_definition,
+        )
+        if description:
+            return description
+    stat_id = str(getattr(affix, "stat_id", "")).strip()
+    if stat_id:
+        stat_name = _STAT_NAME_BY_ID.get(stat_id)
+        if stat_name is not None:
+            stat_value = int(getattr(affix, "value", 0) or 0)
+            return f"{stat_name} {_format_signed_stat_value(stat_id=stat_id, value=stat_value)}"
+        if affix_definition is not None and affix_definition.summary:
+            return str(affix_definition.summary)
+        return "属性效果提升"
+    if affix_definition is not None and affix_definition.summary:
+        return str(affix_definition.summary)
+    return "效果说明缺失"
+
+
+def _resolve_special_affix_description(
+    *,
+    affix: object,
+    static_config: StaticGameConfig,
+    affix_definition,
+) -> str:
+    special_effect = getattr(affix, "special_effect", None)
+    effect_id = ""
+    if special_effect is not None:
+        effect_id = str(getattr(special_effect, "effect_id", "")).strip()
+    if effect_id:
+        effect_definition = static_config.equipment.get_special_effect(effect_id)
+        if effect_definition is not None:
+            detail_summary = str(getattr(effect_definition, "detail_summary", "")).strip()
+            if detail_summary:
+                return detail_summary
+            if effect_definition.summary:
+                return str(effect_definition.summary)
+    if affix_definition is not None and affix_definition.summary:
+        return str(affix_definition.summary)
+    return ""
+
+
+def _format_signed_stat_value(*, stat_id: str, value: int) -> str:
+    prefix = "+" if value > 0 else ""
+    if stat_id.endswith("_permille"):
+        return f"{prefix}{value / 10:.1f}%"
+    return f"{prefix}{value}"
+
+
 @dataclass(frozen=True, slots=True)
 class EquipmentCardSnapshot:
     """可直接渲染的装备卡片快照。"""
@@ -219,7 +302,7 @@ class EquipmentPanelQueryService:
             f"{self._format_stat_name(stat.stat_id)} {self._format_stat_value(stat.stat_id, stat.value)}"
             for stat in stats[:4]
         )
-        keyword_lines = tuple(self._format_affix_keyword(affix) for affix in item.affixes[:3])
+        keyword_lines = format_equipment_affix_display_lines(item.affixes, static_config=self._static_config, limit=3)
         growth_parts = [f"强化 +{item.enhancement_level}"]
         if item.is_artifact:
             growth_parts.append(f"祭炼 {item.artifact_nurture_level}")
@@ -231,11 +314,8 @@ class EquipmentPanelQueryService:
             keyword_lines=keyword_lines,
         )
 
-    @staticmethod
-    def _format_affix_keyword(affix) -> str:
-        if affix.affix_kind == "special_effect" or affix.special_effect is not None or not affix.stat_id.strip():
-            return affix.affix_name
-        return f"{affix.affix_name} {EquipmentPanelQueryService._format_stat_value(affix.stat_id, affix.value)}"
+    def _format_affix_keyword(self, affix) -> str:
+        return format_equipment_affix_display_line(affix, static_config=self._static_config)
 
     @staticmethod
     def _format_stat_name(stat_id: str) -> str:
@@ -434,4 +514,6 @@ __all__ = [
     "EquipmentPanelSnapshot",
     "EquipmentPanelStateError",
     "EquipmentSlotPanelSnapshot",
+    "format_equipment_affix_display_line",
+    "format_equipment_affix_display_lines",
 ]

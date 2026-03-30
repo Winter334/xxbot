@@ -16,6 +16,7 @@ from application.equipment.equipment_service import (
     EquipmentService,
     EquipmentServiceError,
 )
+from application.equipment.panel_query_service import format_equipment_affix_display_line, format_equipment_affix_display_lines
 from infrastructure.config.static import StaticGameConfig, get_static_config
 from infrastructure.db.repositories import InventoryRepository
 
@@ -369,7 +370,7 @@ class ForgePanelQueryService:
             f"{self._format_stat_name(stat.stat_id)} {self._format_stat_value(stat.stat_id, stat.value)}"
             for stat in stats[:4]
         )
-        keyword_lines = tuple(self._format_affix_keyword(affix) for affix in item.affixes[:3])
+        keyword_lines = format_equipment_affix_display_lines(item.affixes, static_config=self._static_config, limit=3)
         growth_parts = [f"强化 +{item.enhancement_level}"]
         if item.is_artifact:
             growth_parts.append(f"祭炼 {item.artifact_nurture_level}")
@@ -589,9 +590,7 @@ class ForgePanelQueryService:
         return str(value)
 
     def _format_affix_keyword(self, affix) -> str:
-        if affix.affix_kind == "special_effect" or affix.special_effect is not None or not affix.stat_id.strip():
-            return affix.affix_name
-        return f"{affix.affix_name} {self._format_stat_value(affix.stat_id, affix.value)}"
+        return format_equipment_affix_display_line(affix, static_config=self._static_config)
 
     def _format_patch_name(self, patch_id: str) -> str:
         normalized_patch_id = patch_id.strip()
