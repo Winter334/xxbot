@@ -1786,13 +1786,27 @@ class EndlessDungeonService:
             raise EndlessRunStateError(f"未找到小阶段倍率：{stage_id}") from exc
 
     def _resolve_enemy_per_unit_scale(self, *, encounter: EndlessEnemyEncounter) -> Decimal:
-        base_scale = Decimal("0.52") + Decimal(encounter.floor) * Decimal("0.02")
-        if encounter.node_type is EndlessNodeType.ELITE:
-            base_scale += Decimal("0.10")
-        elif encounter.node_type is EndlessNodeType.ANCHOR_BOSS:
-            base_scale += Decimal("0.18")
+        floor = max(1, encounter.floor)
+        floor_offset = Decimal(floor - 1)
+        region_snapshot = self._progression.resolve_region(floor)
+        base_scale = (
+            Decimal("0.52")
+            + floor_offset * Decimal("0.018")
+            + floor_offset * floor_offset / Decimal("4500")
+            + floor_offset * floor_offset * floor_offset / Decimal("700000")
+            + Decimal(max(0, region_snapshot.region_index - 1)) * Decimal("0.04")
+        )
+        node_multiplier = self._resolve_enemy_node_multiplier(node_type=encounter.node_type)
         enemy_divisor = Decimal(max(1, encounter.enemy_count))
-        return base_scale / enemy_divisor
+        return base_scale * node_multiplier / enemy_divisor
+
+    @staticmethod
+    def _resolve_enemy_node_multiplier(*, node_type: EndlessNodeType) -> Decimal:
+        if node_type is EndlessNodeType.ANCHOR_BOSS:
+            return Decimal("1.20")
+        if node_type is EndlessNodeType.ELITE:
+            return Decimal("1.08")
+        return Decimal("1.00")
 
     @staticmethod
     def _resolve_enemy_slot_scale(*, index: int) -> Decimal:

@@ -641,24 +641,73 @@ class EndlessPanelQueryService:
         enemy_units: Sequence[EndlessEnemyUnitDigest],
         enemy_health_line: str | None,
     ) -> tuple[str, ...]:
-        enemy_title = "·".join(
-            item
-            for item in (race_name.strip(), template_name.strip())
-            if item and item not in {"未知敌类", "未知模板"} and not _looks_like_internal_identifier(item)
+        del race_name, template_name, enemy_count, enemy_health_line
+        lines: list[str] = [
+            self._build_enemy_scene_header(
+                floor=floor,
+                node_type=node_type,
+                region_name=region_name,
+            )
+        ]
+        lines.extend(
+            self._build_enemy_unit_scene_lines(
+                node_type=node_type,
+                enemy_units=enemy_units,
+            )
         )
-        if not enemy_title:
-            enemy_title = race_name.strip() if race_name.strip() and race_name.strip() != "未知敌类" else "异样妖影"
-        count_text = f"{max(1, enemy_count)} 名" if enemy_count > 1 else "1 名"
-        lines = [f"第 {floor} 层有 {count_text}{enemy_title}拦路。"]
-        if enemy_health_line is not None:
-            lines.append(enemy_health_line)
         pressure_line = self._build_enemy_pressure_line(node_type=node_type, enemy_units=enemy_units)
-        if pressure_line is not None:
+        if pressure_line is not None and len(lines) < 5:
             lines.append(pressure_line)
         region_line = self._build_region_pressure_line(region_name=region_name, region_theme=region_theme)
-        if region_line is not None and len(lines) < 3:
+        if region_line is not None and len(lines) < 5:
             lines.append(region_line)
-        return tuple(lines[:3])
+        return tuple(line for line in lines if line.strip())[:5]
+
+    @staticmethod
+    def _build_enemy_scene_header(*, floor: int, node_type: str, region_name: str) -> str:
+        node_label = _NODE_LABEL_BY_VALUE.get(node_type, node_type or "异层")
+        return f"第 {floor} 层·{region_name}·{node_label}"
+
+    def _build_enemy_unit_scene_lines(
+        self,
+        *,
+        node_type: str,
+        enemy_units: Sequence[EndlessEnemyUnitDigest],
+    ) -> tuple[str, ...]:
+        return tuple(
+            self._build_enemy_unit_state_line(
+                unit=unit,
+                index=index,
+                total_count=len(enemy_units),
+                node_type=node_type,
+            )
+            for index, unit in enumerate(enemy_units, start=1)
+        )
+
+    @staticmethod
+    def _build_enemy_unit_state_line(
+        *,
+        unit: EndlessEnemyUnitDigest,
+        index: int,
+        total_count: int,
+        node_type: str,
+    ) -> str:
+        extra_tag = EndlessPanelQueryService._build_enemy_unit_extra_tag(
+            index=index,
+            total_count=total_count,
+            node_type=node_type,
+        )
+        display_name = unit.unit_name if extra_tag is None else f"{unit.unit_name}（{extra_tag}）"
+        return f"{display_name}：{EndlessPanelQueryService._format_enemy_health_state(unit=unit)}"
+
+    @staticmethod
+    def _build_enemy_unit_extra_tag(*, index: int, total_count: int, node_type: str) -> str | None:
+        del total_count
+        if node_type == "anchor_boss" and index == 1:
+            return "首领"
+        if node_type == "elite" and index == 1:
+            return "精英"
+        return None
 
     @staticmethod
     def _build_enemy_pressure_line(
@@ -673,16 +722,16 @@ class EndlessPanelQueryService:
             if speed_average >= attack_average and speed_average >= guard_average:
                 detail = "它们身法极快，稍慢一步就会被追着打。"
             elif attack_average >= guard_average:
-                detail = "它们杀势很重，正面硬吃几下就会非常难受。"
+                detail = "它们杀势很重，正面硬吃几下都会很难受。"
             else:
                 detail = "它们护体很稳，想一口气斩穿并不容易。"
         else:
             detail = "妖气翻得很乱，一时还摸不清深浅。"
         if node_type == "anchor_boss":
-            return f"首领妖气压得很沉，{detail}"
+            return f"👑 首领妖气压得很沉，{detail}"
         if node_type == "elite":
-            return f"这一层比寻常更凶，{detail}"
-        return f"这些妖影来势不轻，{detail}"
+            return f"⚠️ 这一层比寻常更凶，{detail}"
+        return f"⚔️ 这些妖影来势不轻，{detail}"
 
     @staticmethod
     def _build_region_pressure_line(*, region_name: str, region_theme: str) -> str | None:
@@ -742,18 +791,20 @@ class EndlessPanelQueryService:
             if str(item.get("side") or "") == "enemy" and str(item.get("unit_id") or "")
         }
 
-    @staticmethod
-    def _build_enemy_health_line(*, enemy_units: Sequence[EndlessEnemyUnitDigest]) -> str | None:
+    @classmethod
+    def _build_enemy_health_line(cls, *, enemy_units: Sequence[EndlessEnemyUnitDigest]) -> str | None:
         if not enemy_units:
             return None
         parts = [
-            f"{unit.unit_name} {EndlessPanelQueryService._format_enemy_health_state(unit=unit)}"
-            for unit in enemy_units[:3]
+            cls._build_enemy_unit_state_line(
+                unit=unit,
+                index=index,
+                total_count=len(enemy_units),
+                node_type="",
+            )
+            for index, unit in enumerate(enemy_units, start=1)
         ]
-        if len(enemy_units) > 3:
-            alive_count = sum(1 for unit in enemy_units if unit.is_alive and unit.current_hp > 0)
-            parts.append(f"其余 {len(enemy_units) - 3} 名仍在缠斗 {alive_count}/{len(enemy_units)}")
-        return "｜".join(parts)
+        return "｜".join(parts[:3])
 
     def _build_enemy_display_name(
         self,
@@ -797,15 +848,10 @@ class EndlessPanelQueryService:
     @staticmethod
     def _format_enemy_health_state(*, unit: EndlessEnemyUnitDigest) -> str:
         if not unit.is_alive or unit.current_hp <= 0:
-            return "已击破"
+            return "💀 已击破"
         if unit.max_hp <= 0:
-            return f"{unit.current_hp}"
-        hp_ratio = unit.current_hp / unit.max_hp
-        if hp_ratio <= 0.15:
-            return f"濒危 {unit.current_hp}/{unit.max_hp}"
-        if hp_ratio <= 0.4:
-            return f"受创 {unit.current_hp}/{unit.max_hp}"
-        return f"{unit.current_hp}/{unit.max_hp}"
+            return f"❤️ {unit.current_hp}"
+        return f"❤️ {unit.current_hp}/{unit.max_hp}"
 
     def _build_battle_scene_lines(
         self,
@@ -821,16 +867,16 @@ class EndlessPanelQueryService:
             )[:3]
         if battle_outcome == "ally_victory":
             return (
-                "这一层厮杀结束得极快，你只记得剑光和妖气一起炸开。",
-                "最后还是你把这一层硬生生压了过去。",
+                "🏁 这一层厮杀结束得极快，你只记得剑光和妖气一起炸开。",
+                "🏁 最后还是你把这一层硬生生压了过去。",
             )
         if battle_outcome == "enemy_victory":
             return (
-                "这一层反扑太狠，你转眼就被逼退了下来。",
-                "妖气还压在胸口，一时很难缓过来。",
+                "⚠️ 这一层反扑太狠，你转眼就被逼退了下来。",
+                "⚠️ 妖气还压在胸口，一时很难缓过来。",
             )
         if battle_outcome == "draw":
-            return ("双方在这一层僵住了，一时谁也没能压垮谁。",)
+            return ("⏳ 双方在这一层僵住了，一时谁也没能压垮谁。",)
         return ()
 
     def _build_reward_scene_lines(
@@ -1056,20 +1102,21 @@ class EndlessPanelQueryService:
                     if actor_side == "ally":
                         if target_name in defeated_targets:
                             crit_text = "暴击" if is_critical else ""
-                            line = f"你以{action_label}打出 {damage} 点{crit_text}伤害，{target_name}当场溃散。"
+                            event_emoji = "💥" if is_critical else "⚔️"
+                            line = f"{event_emoji} 你以{action_label}打出 {damage} 点{crit_text}伤害，{target_name}当场溃散。"
                             score = damage + (4200 if is_critical else 2600)
                         elif is_critical:
-                            line = f"你以{action_label}轰出 {damage} 点暴击伤害，逼得{target_name}气息大乱。"
+                            line = f"💥 你以{action_label}轰出 {damage} 点暴击伤害，逼得{target_name}气息大乱。"
                             score = damage + 2200
                         else:
-                            line = f"你以{action_label}斩出 {damage} 点伤害，压得{target_name}连连后退。"
+                            line = f"⚔️ 你以{action_label}斩出 {damage} 点伤害，压得{target_name}连连后退。"
                             score = damage + 1200
                     elif actor_side == "enemy":
                         if is_critical:
-                            line = f"{actor_name}猛扑而上，打得你硬吃 {damage} 点暴击伤害。"
+                            line = f"💥 {actor_name}猛扑而上，打得你硬吃 {damage} 点暴击伤害。"
                             score = damage + 2100
                         else:
-                            line = f"{actor_name}反压一记，你硬吃 {damage} 点伤害。"
+                            line = f"⚠️ {actor_name}反压一记，你硬吃 {damage} 点伤害。"
                             score = damage + 900
                     else:
                         line = f"{actor_name}打出 {damage} 点伤害，场面骤然一紧。"
@@ -1084,10 +1131,10 @@ class EndlessPanelQueryService:
                     target_side = unit_side_by_id.get(target_id, "")
                     target_name = unit_name_by_id.get(target_id, target_id or "目标")
                     if target_side == "enemy":
-                        line = f"余劲未散，又蚀掉{target_name} {damage} 点气血。"
+                        line = f"🩸 余劲未散，又蚀掉{target_name} {damage} 点气血。"
                         score = damage + 500
                     else:
-                        line = f"残留妖气继续翻涌，又从你身上撕走 {damage} 点气血。"
+                        line = f"🩸 残留妖气继续翻涌，又从你身上撕走 {damage} 点气血。"
                         score = damage + 400
                     if strongest_candidate is None or score > strongest_candidate[0]:
                         strongest_candidate = (score, line)
@@ -1099,11 +1146,11 @@ class EndlessPanelQueryService:
                     actor_side = unit_side_by_id.get(actor_id, "")
                     action_label = current_action_by_actor.get(actor_id, action_label_by_id.get(action_id, "调息"))
                     if actor_side == "ally":
-                        line = f"你借{action_label}回稳 {healed} 点气血，勉强把伤势压住。"
+                        line = f"💚 你借{action_label}回稳 {healed} 点气血，勉强把伤势压住。"
                         score = healed + 650
                     else:
                         actor_name = unit_name_by_id.get(actor_id, actor_id or "对手")
-                        line = f"{actor_name}缓回了 {healed} 点气血，气势又续了上来。"
+                        line = f"💚 {actor_name}缓回了 {healed} 点气血，气势又续了上来。"
                         score = healed + 300
                     if strongest_candidate is None or score > strongest_candidate[0]:
                         strongest_candidate = (score, line)
@@ -1112,10 +1159,10 @@ class EndlessPanelQueryService:
                     actor_name = unit_name_by_id.get(actor_id, actor_id or "对手")
                     actor_side = unit_side_by_id.get(actor_id, "")
                     if actor_side == "enemy":
-                        line = f"{actor_name}被压得气机一滞，白白错过了一次出手机会。"
+                        line = f"🌀 {actor_name}被压得气机一滞，白白错过了一次出手机会。"
                         score = 780
                     else:
-                        line = "你气机一滞，被硬生生压掉了一次出手机会。"
+                        line = "🌀 你气机一滞，被硬生生压掉了一次出手机会。"
                         score = 720
                     if strongest_candidate is None or score > strongest_candidate[0]:
                         strongest_candidate = (score, line)
@@ -1169,7 +1216,7 @@ class EndlessPanelQueryService:
         if action_line is not None and action_line not in lines and len(lines) < 3:
             lines.append(action_line)
         if not lines:
-            lines.append("这一层厮杀来得极快，你只记得妖气和血光一起炸开。")
+            lines.append("⚔️ 这一层厮杀来得极快，你只记得妖气和血光一起炸开。")
         return tuple(lines[:3])
 
     @staticmethod
@@ -1193,8 +1240,8 @@ class EndlessPanelQueryService:
             return None
         del focus_unit_name
         if use_count >= 2:
-            return f"你连催{normalized_label}，先把敌势压住了。"
-        return f"你起手便祭出{normalized_label}，直接撞进敌阵。"
+            return f"🔥 你连催{normalized_label}，先把敌势压住了。"
+        return f"✨ 你起手便祭出{normalized_label}，直接撞进敌阵。"
 
     @staticmethod
     def _build_round_narration(*, raw_line: str, focus_unit_name: str) -> str | None:
@@ -1236,32 +1283,32 @@ class EndlessPanelQueryService:
                 action_label = action_part
         if defeated_target:
             if action_label and actor_name == "你":
-                return f"你借{action_label}撕开缺口，{defeated_target}当场溃散。"
+                return f"☠️ 你借{action_label}撕开缺口，{defeated_target}当场溃散。"
             if action_label:
-                return f"{actor_name}借{action_label}撕开缺口，{defeated_target}当场溃散。"
-            return f"混战正紧时，{defeated_target}当场溃散。"
+                return f"☠️ {actor_name}借{action_label}撕开缺口，{defeated_target}当场溃散。"
+            return f"☠️ 混战正紧时，{defeated_target}当场溃散。"
         if critical_hits > 0:
             if action_label and actor_name == "你":
-                return f"你催动{action_label}狠狠干下一记，逼得对面护体乱了一瞬。"
+                return f"💥 你催动{action_label}狠狠干下一记，逼得对面护体乱了一瞬。"
             if action_label:
-                return f"{actor_name}催动{action_label}狠狠干下一记，场面顿时一震。"
-            return f"{actor_name}突然打出一记重击，场中妖气都被震乱。"
+                return f"💥 {actor_name}催动{action_label}狠狠干下一记，场面顿时一震。"
+            return f"💥 {actor_name}突然打出一记重击，场中妖气都被震乱。"
         if control_skips > 0:
             if action_label and actor_name == "你":
-                return f"你借{action_label}压住敌阵，对面一时没能缓过气。"
+                return f"🌀 你借{action_label}压住敌阵，对面一时没能缓过气。"
             if action_label:
-                return f"{actor_name}借{action_label}压得人一时难以招架。"
-            return f"{actor_name}把场面压得很死，对面一时没能缓过气。"
+                return f"🌀 {actor_name}借{action_label}压得人一时难以招架。"
+            return f"🌀 {actor_name}把场面压得很死，对面一时没能缓过气。"
         if status_changes > 0:
             if action_label and actor_name == "你":
-                return f"你一动{action_label}，场中气机立刻翻涌起来。"
+                return f"✨ 你一动{action_label}，场中气机立刻翻涌起来。"
             if action_label:
-                return f"{actor_name}一动{action_label}，场中气机立刻翻涌起来。"
-            return "这一轮气机翻得很乱，谁都不敢大意。"
+                return f"✨ {actor_name}一动{action_label}，场中气机立刻翻涌起来。"
+            return "✨ 这一轮气机翻得很乱，谁都不敢大意。"
         if action_label and actor_name == "你":
-            return f"你先以{action_label}探路，转眼就和对面缠成了一团。"
+            return f"⚔️ 你先以{action_label}探路，转眼就和对面缠成了一团。"
         if action_label:
-            return f"{actor_name}先以{action_label}探路，转眼就把场面搅紧了。"
+            return f"⚔️ {actor_name}先以{action_label}探路，转眼就把场面搅紧了。"
         return None
 
     @staticmethod
@@ -1278,29 +1325,29 @@ class EndlessPanelQueryService:
     ) -> str | None:
         if result == "ally_victory":
             if unit_defeated > 1 and ally_damage_dealt > 0:
-                return f"这一战你累计打出 {ally_damage_dealt} 点伤害，连斩 {unit_defeated} 名敌人拿下此层。"
+                return f"🏁 这一战你累计打出 {ally_damage_dealt} 点伤害，连斩 {unit_defeated} 名敌人拿下此层。"
             if critical_hits > 0 and ally_damage_dealt > 0:
-                return f"几次重击之后，你累计打出 {ally_damage_dealt} 点伤害，终于压垮了最后一名敌人。"
+                return f"💥 几次重击之后，你累计打出 {ally_damage_dealt} 点伤害，终于压垮了最后一名敌人。"
             if ally_healing_done > 0 and ally_damage_dealt > 0:
                 return (
-                    f"鏖战 {max(1, completed_rounds)} 回合后，你以 {ally_damage_dealt} 点总伤害取胜，"
+                    f"💚 鏖战 {max(1, completed_rounds)} 回合后，你以 {ally_damage_dealt} 点总伤害取胜，"
                     f"并回稳 {ally_healing_done} 点气血。"
                 )
             if control_skips > 0 and ally_damage_dealt > 0:
-                return f"你稳稳压住节奏，以 {ally_damage_dealt} 点总伤害把这一层硬生生拿下。"
+                return f"🌀 你稳稳压住节奏，以 {ally_damage_dealt} 点总伤害把这一层硬生生拿下。"
             if ally_damage_dealt > 0:
-                return f"鏖战 {max(1, completed_rounds)} 回合后，你累计打出 {ally_damage_dealt} 点伤害，稳住了这一层。"
-            return f"鏖战 {max(1, completed_rounds)} 回合后，你还是稳住了这一层。"
+                return f"🏁 鏖战 {max(1, completed_rounds)} 回合后，你累计打出 {ally_damage_dealt} 点伤害，稳住了这一层。"
+            return f"🏁 鏖战 {max(1, completed_rounds)} 回合后，你还是稳住了这一层。"
         if result == "enemy_victory":
             if ally_damage_taken > 0 and completed_rounds > 0:
-                return f"撑到第 {completed_rounds} 回合后，你累计承受 {ally_damage_taken} 点伤害，被这一层的反扑压了下去。"
+                return f"⚠️ 撑到第 {completed_rounds} 回合后，你累计承受 {ally_damage_taken} 点伤害，被这一层的反扑压了下去。"
             if ally_damage_taken > 0:
-                return f"这一层的反扑太狠，你累计承受 {ally_damage_taken} 点伤害，被迫止步于此。"
-            return "你还没来得及稳住局势，就被这一层逼退了。"
+                return f"⚠️ 这一层的反扑太狠，你累计承受 {ally_damage_taken} 点伤害，被迫止步于此。"
+            return "⚠️ 你还没来得及稳住局势，就被这一层逼退了。"
         if result == "draw":
             if ally_damage_dealt > 0 or ally_damage_taken > 0:
-                return f"双方僵持不下，你打出 {ally_damage_dealt} 点伤害，也承受了 {ally_damage_taken} 点伤害。"
-            return "这一层僵持不下，谁也没能立刻终结对方。"
+                return f"⏳ 双方僵持不下，你打出 {ally_damage_dealt} 点伤害，也承受了 {ally_damage_taken} 点伤害。"
+            return "⏳ 这一层僵持不下，谁也没能立刻终结对方。"
         return None
 
     @staticmethod

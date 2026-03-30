@@ -22,6 +22,7 @@ from application.dungeon import (
 )
 from application.equipment.equipment_service import EquipmentService
 from application.naming import ItemNamingBatchRequest, ItemNamingBatchResult, ItemNamingBatchService, ItemNamingProvider
+from domain.dungeon import EndlessEnemyEncounter, EndlessNodeType
 from infrastructure.config.static import load_static_config
 from infrastructure.db.repositories import (
     SqlAlchemyBattleRecordRepository,
@@ -416,9 +417,14 @@ def test_advance_next_floor_advances_single_floor_and_requires_step_by_step_prog
             now=start_time,
         )
 
+        _set_run_floor(
+            state_repository=state_repository,
+            character_id=created.character_id,
+            floor=5,
+            node_type="elite",
+        )
         step_results = [
             endless_service.advance_next_floor(character_id=created.character_id)
-            for _ in range(5)
         ]
         current = endless_service.get_current_run_state(character_id=created.character_id)
         aggregate = character_repository.get_aggregate(created.character_id)
@@ -427,19 +433,14 @@ def test_advance_next_floor_advances_single_floor_and_requires_step_by_step_prog
         drops = battle_record_repository.list_drop_records(created.character_id)
 
         assert started.current_floor == 1
-        assert [result.cleared_floor for result in step_results] == [1, 2, 3, 4, 5]
+        assert [result.cleared_floor for result in step_results] == [5]
         assert all(len(result.advanced_results) == 1 for result in step_results)
-        assert step_results[0].advanced_results[0]["floor"] == 1
-        assert step_results[3].advanced_results[0]["floor"] == 4
-        assert step_results[0].stopped_reason == "advanced"
-        assert step_results[1].stopped_reason == "advanced"
-        assert step_results[2].stopped_reason == "advanced"
-        assert step_results[3].stopped_reason == "advanced"
-        assert step_results[4].stopped_reason == "decision"
-        assert step_results[4].decision_floor == 5
-        assert step_results[4].next_floor == 6
+        assert step_results[0].advanced_results[0]["floor"] == 5
+        assert step_results[0].stopped_reason == "decision"
+        assert step_results[0].decision_floor == 5
+        assert step_results[0].next_floor == 6
         assert current.reward_ledger is not None
-        assert current.reward_ledger.drop_display[0]["floor"] == 1
+        assert current.reward_ledger.drop_display[0]["floor"] == 5
         assert current.reward_ledger.latest_node_result is not None
         assert current.reward_ledger.latest_node_result["floor"] == step_results[-1].cleared_floor
         assert persisted is not None
@@ -451,14 +452,14 @@ def test_advance_next_floor_advances_single_floor_and_requires_step_by_step_prog
         assert current.current_node_type is not None
         assert current.current_node_type.value == "normal"
         assert current.reward_ledger.last_reward_floor == 5
-        assert current.reward_ledger.advanced_floor_count == 5
-        assert len(current.reward_ledger.drop_display) == 5
-        assert len(current.encounter_history) == 5
+        assert current.reward_ledger.advanced_floor_count == 1
+        assert len(current.reward_ledger.drop_display) == 1
+        assert len(current.encounter_history) == 1
         assert current.reward_ledger.latest_node_result["reward_granted"] is True
         assert persisted.status == "running"
         assert persisted.current_floor == 6
-        assert len(persisted.pending_rewards_json["drop_display"]) == 5
-        assert len(reports) == 5
+        assert len(persisted.pending_rewards_json["drop_display"]) == 1
+        assert len(reports) == 1
         assert aggregate.progress.highest_endless_floor == 5
 
 
@@ -687,6 +688,156 @@ def test_advance_next_floor_moves_to_pending_defeat_settlement_on_failure(tmp_pa
         assert persisted.run_snapshot_json["encounter_history"][0]["battle_outcome"] == "enemy_victory"
         assert len(reports) == 1
         assert len(drops) == 0
+
+
+
+def test_enemy_scaling_curve_grows_with_floor_and_node_pressure(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """敌人强度应随楼层连续增长，并在精英/首领层明显抬升。"""
+    database_url = _build_sqlite_url(tmp_path / "endless_scaling_curve.db")
+    _upgrade_database(database_url, monkeypatch)
+    session_factory = create_session_factory(database_url)
+    static_config = load_static_config()
+
+    with session_scope(session_factory) as session:
+        growth_service, endless_service, character_repository, _, _, _, _, _ = _build_services(session, static_config)
+        created = growth_service.create_character(
+            discord_user_id="320071",
+            player_display_name="河洛",
+            character_name="寒屿",
+        )
+        _set_character_progress(
+            character_repository=character_repository,
+            character_id=created.character_id,
+            realm_id="mortal",
+            stage_id="early",
+        )
+        aggregate = character_repository.get_aggregate(created.character_id)
+        assert aggregate is not None
+        assert aggregate.progress is not None
+        progress = aggregate.progress
+
+        floor_1 = EndlessEnemyEncounter(
+            floor=1,
+            region_id="wind",
+            region_bias_id="wind",
+            node_type=EndlessNodeType.NORMAL,
+            race_id="spirit",
+            template_id="swift",
+            enemy_count=1,
+            seed=1,
+        )
+        floor_5 = EndlessEnemyEncounter(
+            floor=5,
+            region_id="wind",
+            region_bias_id="wind",
+            node_type=EndlessNodeType.ELITE,
+            race_id="spirit",
+            template_id="swift",
+            enemy_count=2,
+            seed=1,
+        )
+        floor_10 = EndlessEnemyEncounter(
+            floor=10,
+            region_id="wind",
+            region_bias_id="wind",
+            node_type=EndlessNodeType.ANCHOR_BOSS,
+            race_id="ancient_demon",
+            template_id="berserker",
+            enemy_count=3,
+            seed=1,
+        )
+        floor_50 = EndlessEnemyEncounter(
+            floor=50,
+            region_id="frost",
+            region_bias_id="frost",
+            node_type=EndlessNodeType.ANCHOR_BOSS,
+            race_id="ancient_demon",
+            template_id="berserker",
+            enemy_count=3,
+            seed=1,
+        )
+
+        scale_1 = endless_service._resolve_enemy_per_unit_scale(encounter=floor_1)  # type: ignore[attr-defined]
+        scale_5 = endless_service._resolve_enemy_per_unit_scale(encounter=floor_5)  # type: ignore[attr-defined]
+        scale_10 = endless_service._resolve_enemy_per_unit_scale(encounter=floor_10)  # type: ignore[attr-defined]
+        scale_50 = endless_service._resolve_enemy_per_unit_scale(encounter=floor_50)  # type: ignore[attr-defined]
+        assert scale_1 == Decimal("0.5200")
+        assert scale_5 < scale_1
+        assert scale_10 < scale_5
+        total_pressure_1 = scale_1 * Decimal(floor_1.enemy_count)
+        total_pressure_5 = scale_5 * Decimal(floor_5.enemy_count)
+        total_pressure_10 = scale_10 * Decimal(floor_10.enemy_count)
+        total_pressure_50 = scale_50 * Decimal(floor_50.enemy_count)
+        assert total_pressure_5 > total_pressure_1
+        assert total_pressure_10 > total_pressure_5
+        assert total_pressure_50 > total_pressure_10 * Decimal("2.50")
+
+        enemies_1 = endless_service._build_enemy_battle_snapshots(progress=progress, encounter=floor_1)  # type: ignore[attr-defined]
+        enemies_10 = endless_service._build_enemy_battle_snapshots(progress=progress, encounter=floor_10)  # type: ignore[attr-defined]
+        enemies_50 = endless_service._build_enemy_battle_snapshots(progress=progress, encounter=floor_50)  # type: ignore[attr-defined]
+        total_hp_1 = sum(enemy.max_hp for enemy in enemies_1)
+        total_hp_10 = sum(enemy.max_hp for enemy in enemies_10)
+        total_hp_50 = sum(enemy.max_hp for enemy in enemies_50)
+        total_attack_1 = sum(enemy.attack_power for enemy in enemies_1)
+        total_attack_10 = sum(enemy.attack_power for enemy in enemies_10)
+        total_attack_50 = sum(enemy.attack_power for enemy in enemies_50)
+        assert total_hp_1 < total_hp_10 < total_hp_50
+        assert total_attack_1 < total_attack_10 < total_attack_50
+        assert total_attack_50 >= total_attack_10 * 2
+
+
+
+def test_mortal_full_health_cannot_clear_floor_100_boss(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """凡人满状态也不应轻松越过百层首领。"""
+    database_url = _build_sqlite_url(tmp_path / "endless_mortal_floor_100.db")
+    _upgrade_database(database_url, monkeypatch)
+    session_factory = create_session_factory(database_url)
+    static_config = load_static_config()
+    start_time = datetime(2026, 3, 26, 17, 30, 0)
+
+    with session_scope(session_factory) as session:
+        growth_service, endless_service, character_repository, state_repository, _, _, _, _ = _build_services(
+            session,
+            static_config,
+        )
+        created = growth_service.create_character(
+            discord_user_id="320072",
+            player_display_name="栖衡",
+            character_name="微尘",
+        )
+        _set_character_progress(
+            character_repository=character_repository,
+            character_id=created.character_id,
+            realm_id="mortal",
+            stage_id="early",
+            current_hp_ratio="1.0000",
+            current_mp_ratio="1.0000",
+        )
+        endless_service.start_run(
+            character_id=created.character_id,
+            selected_start_floor=1,
+            seed=2026032602,
+            now=start_time,
+        )
+        _set_run_floor(
+            state_repository=state_repository,
+            character_id=created.character_id,
+            floor=100,
+            node_type="anchor_boss",
+        )
+
+        result = endless_service.advance_next_floor(character_id=created.character_id)
+        current = endless_service.get_current_run_state(character_id=created.character_id)
+
+        assert result.reward_granted is False
+        assert result.battle_outcome == "enemy_victory"
+        assert result.cleared_floor == 100
+        assert current.status == "pending_defeat_settlement"
+        assert current.current_floor == 100
+        assert current.reward_ledger is not None
+        assert current.reward_ledger.last_reward_floor is None
+        assert current.reward_ledger.latest_node_result is not None
+        assert current.reward_ledger.latest_node_result["battle_outcome"] == "enemy_victory"
 
 
 

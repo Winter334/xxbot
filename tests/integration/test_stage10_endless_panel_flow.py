@@ -44,6 +44,7 @@ from tests.integration.test_endless_service import (
     _build_services,
     _build_sqlite_url,
     _set_character_progress,
+    _set_run_floor,
     _upgrade_database,
 )
 
@@ -196,9 +197,10 @@ def _build_floor_snapshot(
             ),
         ),
         enemy_summary_lines=(
-            f"第 {floor} 层有 2 名灵体·灵巧型拦路。",
-            "前排灵体 已击破｜后侧灵体 受创 160/1020",
-            "这一层比寻常更凶，它们身法极快，稍慢一步就会被追着打。",
+            f"第 {floor} 层·风域·{'精英层' if floor % 5 == 0 else '常规层'}",
+            "前排灵体（精英）：💀 已击破",
+            "后侧灵体：❤️ 160/1020",
+            "⚠️ 这一层比寻常更凶，它们身法极快，稍慢一步就会被追着打。",
         ),
         battle_outcome="ally_victory" if battle_outcome_label == "胜利" else "enemy_victory",
         battle_outcome_label=battle_outcome_label,
@@ -212,16 +214,17 @@ def _build_floor_snapshot(
         current_hp_ratio="0.7600",
         current_mp_ratio="0.4100",
         battle_report_digest=battle_digest,
-        enemy_health_line="前排灵体 已击破｜后侧灵体 受创 160/1020",
+        enemy_health_line="前排灵体：💀 已击破｜后侧灵体：❤️ 160/1020",
         enemy_scene_lines=(
-            f"第 {floor} 层有 2 名灵体·灵巧型拦路。",
-            "前排灵体 已击破｜后侧灵体 受创 160/1020",
-            "这一层比寻常更凶，它们身法极快，稍慢一步就会被追着打。",
+            f"第 {floor} 层·风域·{'精英层' if floor % 5 == 0 else '常规层'}",
+            "前排灵体（精英）：💀 已击破",
+            "后侧灵体：❤️ 160/1020",
+            "⚠️ 这一层比寻常更凶，它们身法极快，稍慢一步就会被追着打。",
         ),
         battle_scene_lines=(
-            "你以七杀剑诀轰出 1680 点暴击伤害，逼得后侧灵体气息大乱。",
-            "这一战你累计打出 3200 点伤害，连斩 2 名敌人拿下此层。",
-            "你连催七杀剑诀，先把敌势压住了。",
+            "💥 你以七杀剑诀轰出 1680 点暴击伤害，逼得后侧灵体气息大乱。",
+            "🏁 这一战你累计打出 3200 点伤害，连斩 2 名敌人拿下此层。",
+            "🔥 你连催七杀剑诀，先把敌势压住了。",
         )
         if battle_digest is not None
         else (),
@@ -488,14 +491,13 @@ def test_endless_panel_query_service_maps_single_floor_scene_and_enemy_battle_di
             seed=20260329,
             now=_NOW.replace(tzinfo=None),
         )
-        first_result = endless_service.advance_next_floor(character_id=created.character_id)
-        first_snapshot = panel_query_service.get_panel_snapshot(character_id=created.character_id)
-        assert first_snapshot.run_presentation.decision_floor is None
-        assert first_snapshot.run_presentation.current_scene_kind == "floor_result"
-        assert first_snapshot.run_presentation.can_settle_retreat is False
-
-        for _ in range(4):
-            result = endless_service.advance_next_floor(character_id=created.character_id)
+        _set_run_floor(
+            state_repository=state_repository,
+            character_id=created.character_id,
+            floor=5,
+            node_type="elite",
+        )
+        result = endless_service.advance_next_floor(character_id=created.character_id)
         advance_presentation = panel_query_service.build_advance_presentation(
             character_id=created.character_id,
             result=result,
@@ -686,12 +688,15 @@ def test_endless_hub_embed_focuses_current_floor_scene_and_removes_history_overv
 
     assert field_names == ["👹 敌人", "🧍 状态", "📜 战况", "🧭 抉择"]
     assert "无涯渊境·第 5 层·精英层·节点" in text
-    assert "第 5 层有 2 名灵体·灵巧型拦路。" in text
-    assert "前排灵体 已击破｜后侧灵体 受创 160/1020" in text
-    assert "你以七杀剑诀轰出 1680 点暴击伤害" in text
-    assert "这一战你累计打出 3200 点伤害，连斩 2 名敌人拿下此层。" in text
+    assert "第 5 层·风域·精英层" in text
+    assert "前排灵体（精英）：💀 已击破" in text
+    assert "后侧灵体：❤️ 160/1020" in text
+    assert "第 5 层有 2 名" not in text
+    assert "💥 你以七杀剑诀轰出 1680 点暴击伤害" in text
+    assert "🏁 这一战你累计打出 3200 点伤害，连斩 2 名敌人拿下此层。" in text
     assert "这一层带回 修为 +1200｜感悟 +2｜炼华精粹 +1。" in text
-    assert "这一层已破，你可以继续深入，也可以带着收获暂退。" in text
+    assert "继续点击即可逐层推进；若想收手，就在这里带着收获撤离。" in text
+    assert "前方第 6 层" not in text
     assert "标签：" not in text
     assert "风格：" not in text
     assert "成长层级：" not in text
@@ -805,10 +810,11 @@ def test_endless_advance_lines_show_single_floor_result_and_next_scene() -> None
     lines = EndlessPanelController._build_advance_lines(advance_presentation=advance_presentation)
     text = "\n".join(lines)
 
-    assert "第 5 层已破。" in text
-    assert "守敌余势：前排灵体 已击破｜后侧灵体 受创 160/1020" in text
-    assert "你以七杀剑诀轰出 1680 点暴击伤害" in text
-    assert "这一层带回 修为 +1200｜感悟 +2｜炼华精粹 +1；掉落进度又涨 4，累计 12，已凝成 1 次掉落。" in text
-    assert "这一层已破，你可以继续深入，也可以带着收获暂退。" in text
+    assert "🏁 第 5 层已破。" in text
+    assert "守敌余势：" not in text
+    assert "💥 你以七杀剑诀轰出 1680 点暴击伤害" in text
+    assert "✨ 这一层带回 修为 +1200｜感悟 +2｜炼华精粹 +1；掉落进度又涨 4，累计 12，已凝成 1 次掉落。" in text
+    assert "继续点击即可逐层推进；若想收手，就在这里带着收获撤离。" in text
     assert "推进完成：" not in text
+    assert "本层推进" not in text
     assert "关键技能：" not in text

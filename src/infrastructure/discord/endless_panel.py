@@ -129,8 +129,6 @@ class EndlessPanelPresenter:
             footer_parts.append("需先战败结算")
         elif presentation.can_settle_retreat and presentation.decision_floor is not None:
             footer_parts.append("可继续深入或撤离")
-        elif presentation.next_floor is not None and snapshot.run_status.has_active_run:
-            footer_parts.append(f"前方第 {presentation.next_floor} 层")
         embed.set_footer(text="｜".join(footer_parts))
         return embed
 
@@ -169,13 +167,11 @@ class EndlessPanelPresenter:
                 return "这一层妖气还没散尽，你得先把败局收束下来。"
             return "眼前暂时没有清晰敌影，但更深处的妖气还在翻涌。"
         source_lines = scene_floor.enemy_scene_lines or scene_floor.enemy_summary_lines
-        lines = list(source_lines[:2] if presentation.current_scene_kind in {"upcoming_preview", "decision", "defeat"} else source_lines[:3])
-        if scene_floor.enemy_health_line is not None and scene_floor.enemy_health_line not in lines:
-            lines.insert(1 if lines else 0, scene_floor.enemy_health_line)
+        lines = [line for line in source_lines if line.strip()]
         scene_note = cls._build_encounter_scene_note(snapshot=snapshot, floor_snapshot=scene_floor)
-        if scene_note is not None:
+        if scene_note is not None and len(lines) < 5:
             lines.append(scene_note)
-        return "\n".join(lines[:3])
+        return "\n".join(lines[:5])
 
     @classmethod
     def _build_reward_ledger_block(cls, *, snapshot: EndlessPanelSnapshot) -> str:
@@ -235,7 +231,7 @@ class EndlessPanelPresenter:
             lines.extend(scene_floor.reward_scene_lines[:2])
         else:
             lines.append(f"第 {presentation.decision_floor} 层已破，眼前短暂安静了下来。")
-        lines.append("这一层已破，你可以继续深入，也可以带着收获暂退。")
+        lines.append("继续点击即可逐层推进；若想收手，就在这里带着收获撤离。")
         return "\n".join(lines[:3])
 
 
@@ -244,8 +240,8 @@ class EndlessPanelPresenter:
         floor = cls._resolve_title_floor(snapshot=snapshot, selected_start_floor=selected_start_floor)
         badge = cls._resolve_floor_badge(snapshot=snapshot)
         if floor is None:
-            return f"{snapshot.overview.character_name}｜无涯渊境·{badge}"
-        return f"{snapshot.overview.character_name}｜无涯渊境·第 {floor} 层·{badge}"
+            return f"{snapshot.overview.character_name}｜🌀无涯渊境·{badge}"
+        return f"{snapshot.overview.character_name}｜🌀无涯渊境·第 {floor} 层·{badge}"
 
     @classmethod
     def _build_embed_description(cls, *, snapshot: EndlessPanelSnapshot, selected_start_floor: int) -> str:
@@ -352,7 +348,7 @@ class EndlessPanelPresenter:
         if presentation.phase == "pending_defeat_settlement":
             return "这一层已经失手，眼下只能先执行战败结算。"
         if presentation.next_floor is not None:
-            return f"前方第 {presentation.next_floor} 层的妖气已经冒头。"
+            return "继续点击即可逐层推进。"
         return None
 
     @classmethod
@@ -915,17 +911,13 @@ class EndlessPanelController:
         except (EndlessPanelQueryServiceError, EndlessDungeonServiceError) as exc:
             await self.responder.send_private_error(interaction, message=str(exc))
             return
-        action_note = EndlessActionNote(
-            title="本层推进",
-            lines=self._build_advance_lines(advance_presentation=advance_presentation),
-        )
         await self._edit_panel(
             interaction,
             snapshot=snapshot,
             owner_user_id=owner_user_id,
             selected_start_floor=selected_start_floor,
             display_mode=EndlessDisplayMode.HUB,
-            action_note=action_note,
+            action_note=None,
         )
 
     async def settle_retreat(
@@ -1156,15 +1148,12 @@ class EndlessPanelController:
     @staticmethod
     def _build_advance_lines(*, advance_presentation: EndlessAdvancePresentation) -> tuple[str, ...]:
         floor_snapshot = advance_presentation.floor_result
-        lines = [f"第 {floor_snapshot.floor} 层已破。"]
-        if floor_snapshot.enemy_health_line:
-            lines.append("守敌余势：" + floor_snapshot.enemy_health_line)
-        battle_excerpt_limit = 1 if floor_snapshot.enemy_health_line else 2
+        lines = [f"🏁 第 {floor_snapshot.floor} 层已破。"]
         battle_lines = floor_snapshot.battle_scene_lines
         if battle_lines:
-            lines.extend(battle_lines[:battle_excerpt_limit])
+            lines.extend(battle_lines[:2])
         elif floor_snapshot.battle_report_digest is not None and floor_snapshot.battle_report_digest.narration_lines:
-            lines.extend(floor_snapshot.battle_report_digest.narration_lines[:battle_excerpt_limit])
+            lines.extend(floor_snapshot.battle_report_digest.narration_lines[:2])
         else:
             lines.append(
                 EndlessPanelPresenter._build_reward_result_line(
@@ -1174,7 +1163,7 @@ class EndlessPanelController:
             )
         if floor_snapshot.reward_granted:
             lines.append(
-                "这一层带回 "
+                "✨ 这一层带回 "
                 + EndlessPanelPresenter._build_reward_summary_line(
                     reward_mapping=floor_snapshot.stable_reward_summary,
                 )
@@ -1187,18 +1176,16 @@ class EndlessPanelController:
             )
         else:
             lines.append(
-                "这一层没能再带回新的收获；"
+                "⚠️ 这一层没能再带回新的收获；"
                 + EndlessPanelPresenter._build_drop_progress_line(
                     pending_drop_progress=advance_presentation.pending_drop_progress,
                     claimable_drop_count=advance_presentation.claimable_drop_count,
                 )
             )
         if advance_presentation.can_settle_retreat and advance_presentation.decision_floor is not None:
-            lines.append("这一层已破，你可以继续深入，也可以带着收获暂退。")
+            lines.append("继续点击即可逐层推进；若想收手，就在这里带着收获撤离。")
         elif advance_presentation.stopped_reason == "defeat":
-            lines.append("这一层的反扑把你逼停了，得先收束败局。")
-        elif advance_presentation.upcoming_floor_preview is not None:
-            lines.append(f"第 {advance_presentation.upcoming_floor_preview.floor} 层的妖气已经在前头等你。")
+            lines.append("⚠️ 这一层的反扑把你逼停了，得先收束败局。")
         return tuple(lines[:5])
 
     @staticmethod
