@@ -106,28 +106,31 @@ class EndlessPanelPresenter:
         action_note: EndlessActionNote | None = None,
     ) -> discord.Embed:
         presentation = snapshot.run_presentation
+        del action_note
         embed = discord.Embed(
-            title=f"{snapshot.overview.character_name}｜无涯渊境",
-            description="仅操作者可见",
+            title=cls._build_embed_title(snapshot=snapshot, selected_start_floor=selected_start_floor),
+            description=cls._build_embed_description(snapshot=snapshot, selected_start_floor=selected_start_floor),
             color=cls._resolve_scene_color(snapshot=snapshot),
         )
-        embed.add_field(name="遭遇 / 敌阵", value=cls._build_encounter_scene_block(snapshot=snapshot, selected_start_floor=selected_start_floor), inline=False)
-        embed.add_field(name="自身状态 / 风险", value=cls._build_status_block(snapshot=snapshot), inline=False)
-        embed.add_field(name="本层战况", value=cls._build_battle_scene_block(snapshot=snapshot), inline=False)
-        embed.add_field(name="结果 / 收益 / 掉落进度", value=cls._build_reward_ledger_block(snapshot=snapshot), inline=False)
+        embed.add_field(
+            name="👹 敌人",
+            value=cls._build_encounter_scene_block(snapshot=snapshot, selected_start_floor=selected_start_floor),
+            inline=False,
+        )
+        embed.add_field(name="🧍 状态", value=cls._build_status_block(snapshot=snapshot), inline=False)
+        embed.add_field(name="📜 战况", value=cls._build_battle_scene_block(snapshot=snapshot), inline=False)
         if presentation.can_settle_retreat and presentation.decision_floor is not None:
-            embed.add_field(name="节点抉择", value=cls._build_decision_block(snapshot=snapshot), inline=False)
-        if action_note is not None and action_note.lines:
-            embed.add_field(name=action_note.title, value="\n".join(action_note.lines), inline=False)
-        footer_parts: list[str] = []
-        if not snapshot.run_status.has_active_run:
-            footer_parts.append(f"当前选择起始层：第 {selected_start_floor} 层")
-        if presentation.decision_floor is not None:
-            footer_parts.append(f"节点停驻：第 {presentation.decision_floor} 层")
+            embed.add_field(name="🧭 抉择", value=cls._build_decision_block(snapshot=snapshot), inline=False)
+        else:
+            embed.add_field(name="✨ 战果", value=cls._build_reward_ledger_block(snapshot=snapshot), inline=False)
+        footer_parts = ["仅操作者可见"]
+        if presentation.phase == "pending_defeat_settlement":
+            footer_parts.append("需先战败结算")
+        elif presentation.can_settle_retreat and presentation.decision_floor is not None:
+            footer_parts.append("可继续深入或撤离")
         elif presentation.next_floor is not None and snapshot.run_status.has_active_run:
-            footer_parts.append(f"下一层：第 {presentation.next_floor} 层")
-        if footer_parts:
-            embed.set_footer(text="｜".join(footer_parts))
+            footer_parts.append(f"前方第 {presentation.next_floor} 层")
+        embed.set_footer(text="｜".join(footer_parts))
         return embed
 
     @classmethod
@@ -135,25 +138,15 @@ class EndlessPanelPresenter:
         projection = snapshot.overview.battle_projection
         hp_ratio = cls._format_ratio_by_current_and_max(projection.current_hp, projection.max_hp)
         mp_ratio = cls._format_ratio_by_current_and_max(projection.current_resource, projection.max_resource)
-        presentation = snapshot.run_presentation
         hp_percent = cls._ratio_percent(projection.current_hp, projection.max_hp)
         mp_percent = cls._ratio_percent(projection.current_resource, projection.max_resource)
-        lines = [
-            f"当前状态：{presentation.phase_label}",
-            f"生命：{projection.current_hp}/{projection.max_hp}｜{hp_ratio}",
-            f"灵力：{projection.current_resource}/{projection.max_resource}｜{mp_ratio}",
-            "风险感知：" + cls._describe_risk(hp_percent=hp_percent, mp_percent=mp_percent, snapshot=snapshot),
-        ]
-        if not snapshot.run_status.has_active_run:
-            lines.append("当前未在渊行中，可选择已解锁起始层重新入场。")
-            return "\n".join(lines)
-        if presentation.decision_floor is not None:
-            lines.append(f"节点态势：已击破第 {presentation.decision_floor} 层，可决定是否继续深入。")
-        elif presentation.phase == "pending_defeat_settlement":
-            lines.append("当前已战败，需先结算本层结果。")
-        elif snapshot.run_status.current_floor is not None:
-            lines.append(f"待战层数：第 {snapshot.run_status.current_floor} 层")
-        return "\n".join(lines)
+        return "\n".join(
+            (
+                f"气血 {projection.current_hp}/{projection.max_hp}（{hp_ratio}）",
+                f"灵力 {projection.current_resource}/{projection.max_resource}（{mp_ratio}）",
+                cls._build_status_feeling(hp_percent=hp_percent, mp_percent=mp_percent, snapshot=snapshot),
+            )
+        )
 
     @classmethod
     def _build_encounter_scene_block(cls, *, snapshot: EndlessPanelSnapshot, selected_start_floor: int) -> str:
@@ -162,105 +155,141 @@ class EndlessPanelPresenter:
         available_start_floors = "、".join(f"第 {floor} 层" for floor in run_status.anchor_status.available_start_floors)
         scene_floor = presentation.current_scene_floor
         if not run_status.has_active_run:
-            entry_floor = 1 if selected_start_floor <= 1 else selected_start_floor + 1
+            entry_floor = cls._resolve_entry_floor(selected_start_floor)
             return "\n".join(
                 (
-                    f"可选起始层：{available_start_floors}",
-                    f"当前选择：第 {selected_start_floor} 层",
-                    f"本次入场：第 {entry_floor} 层",
-                    "开启挑战后，面板会聚焦你正要面对的那一层敌阵。",
+                    f"你还未踏入渊境，已解锁锚点：{available_start_floors}。",
+                    f"若从第 {selected_start_floor} 层落脚，第一战就在第 {entry_floor} 层。",
+                    "入内之后，只能一层一层往下闯。",
                 )
             )
         if scene_floor is None:
             if presentation.phase == "pending_defeat_settlement":
-                return "当前已进入战败待结算状态，本层敌阵等待结算后结束。"
-            return "当前暂无可展示的楼层遭遇。"
-        lines = [
-            cls._format_floor_enemy_header(floor_snapshot=scene_floor),
-            cls._format_enemy_style_line(floor_snapshot=scene_floor),
-            cls._format_enemy_unit_summary(floor_snapshot=scene_floor),
-        ]
-        if presentation.current_scene_kind == "upcoming_preview":
-            lines.append("遭遇预览：点击“继续挑战”后，将直接进入这一层战斗。")
-        elif presentation.current_scene_kind == "decision":
-            lines.append("本层敌阵已清空，当前停在节点抉择。")
-        elif presentation.current_scene_kind == "defeat":
-            lines.append("本层敌阵压制了你，当前停在战败结算前。")
-        else:
-            lines.append("这是你刚刚处理完的当前层遭遇。")
-        return "\n".join(lines)
+                return "这一层妖气还没散尽，你得先把败局收束下来。"
+            return "眼前暂时没有清晰敌影，但更深处的妖气还在翻涌。"
+        source_lines = scene_floor.enemy_scene_lines or scene_floor.enemy_summary_lines
+        lines = list(source_lines[:2] if presentation.current_scene_kind in {"upcoming_preview", "decision", "defeat"} else source_lines[:3])
+        scene_note = cls._build_encounter_scene_note(snapshot=snapshot, floor_snapshot=scene_floor)
+        if scene_note is not None:
+            lines.append(scene_note)
+        return "\n".join(lines[:3])
 
     @classmethod
     def _build_reward_ledger_block(cls, *, snapshot: EndlessPanelSnapshot) -> str:
         presentation = snapshot.run_presentation
         scene_floor = presentation.current_scene_floor
-        if scene_floor is None:
-            return "当前还没有可展示的本层结果与收益。"
-        result_line = cls._build_result_line(floor_snapshot=scene_floor, scene_kind=presentation.current_scene_kind)
-        reward_lines = [result_line]
-        if scene_floor.reward_granted:
-            reward_lines.append(
-                "本层收益："
-                + cls._format_reward_mapping_by_keys(
-                    reward_mapping=scene_floor.stable_reward_summary,
-                    key_order=_STABLE_REWARD_ORDER,
-                    name_mapping=_STABLE_REWARD_NAME_BY_KEY,
+        if scene_floor is not None:
+            if scene_floor.reward_scene_lines:
+                return "\n".join(scene_floor.reward_scene_lines[:2])
+            if scene_floor.reward_granted:
+                return "这一层有收获，但余波未散。"
+            if presentation.current_scene_kind == "upcoming_preview":
+                return "这一层还没开打，战果还悬在前头。"
+            return "这一层没能再带回新的收获。"
+        recent_settlement = snapshot.recent_settlement
+        if recent_settlement is not None and not snapshot.run_status.has_active_run:
+            settlement = recent_settlement.settlement_result
+            settlement_name = _SETTLEMENT_NAME_BY_VALUE.get(settlement.settlement_type, settlement.settlement_type)
+            stable_text = cls._format_reward_mapping_by_keys(
+                reward_mapping=settlement.stable_rewards.settled,
+                key_order=_STABLE_REWARD_ORDER,
+                name_mapping=_STABLE_REWARD_NAME_BY_KEY,
+            )
+            drop_progress = max(0, _read_int(settlement.pending_rewards.settled.get("drop_progress")))
+            return "\n".join(
+                (
+                    f"上次止步第 {settlement.terminated_floor} 层，已完成{settlement_name}。",
+                    f"带回 {stable_text}｜掉落进度 {drop_progress}",
                 )
             )
-            reward_lines.append(f"本层掉落进度：+{max(0, scene_floor.drop_progress_gained)}")
-        elif presentation.current_scene_kind == "upcoming_preview":
-            reward_lines.append("本层收益：尚未交战，等待进入本层后结算。")
-        else:
-            reward_lines.append("本层收益：未能带回新的层内收益。")
-        reward_lines.append(
-            f"累计掉落进度：{presentation.pending_drop_progress}｜可结算掉落 {presentation.claimable_drop_count} 次"
-        )
-        return "\n".join(reward_lines)
+        return "眼下还没真正带回什么。"
 
     @classmethod
     def _build_battle_scene_block(cls, *, snapshot: EndlessPanelSnapshot) -> str:
         presentation = snapshot.run_presentation
         scene_floor = presentation.current_scene_floor
         if scene_floor is None:
-            return "当前暂无本层战况。"
+            return "此刻还没有能回想的厮杀。"
         if presentation.current_scene_kind == "upcoming_preview":
-            return "尚未开战：面板优先展示下一层遭遇预览，进入后将记录本层关键过程。"
+            return "妖气还没压到眼前。\n你再往前一步，这里才会留下厮杀。"
+        if scene_floor.battle_scene_lines:
+            return "\n".join(scene_floor.battle_scene_lines[:3])
         digest = scene_floor.battle_report_digest
-        if digest is None:
-            if presentation.current_scene_kind == "defeat":
-                return "本层战斗已结束，但暂缺详细战报摘要。"
-            return "本层战斗已结束，暂无可提取的关键过程。"
-        lines = [
-            f"关键技能：{'、'.join(digest.action_highlights[:3])}" if digest.action_highlights else "关键技能：本层以基础招式周旋。",
-        ]
-        process_lines = cls._format_floor_process_lines(floor_snapshot=scene_floor, max_round_lines=2)
-        if process_lines:
-            lines.extend(process_lines)
-        lines.append(
-            f"高光信号：造成 {digest.ally_damage_dealt}｜承受 {digest.ally_damage_taken}｜暴击 {digest.critical_hits}｜击破 {digest.unit_defeated}"
-        )
-        return "\n".join(lines)
+        if digest is not None and digest.narration_lines:
+            return "\n".join(digest.narration_lines[:3])
+        if presentation.current_scene_kind == "defeat":
+            return "这一层的反扑来得太快，你只记得自己被逼退了下来。"
+        return "方才交锋太短，还没来得及留下清晰的回响。"
 
     @classmethod
     def _build_decision_block(cls, *, snapshot: EndlessPanelSnapshot) -> str:
         presentation = snapshot.run_presentation
+        scene_floor = presentation.current_scene_floor
         if presentation.decision_floor is None:
-            return "当前不在节点抉择。"
-        next_floor = presentation.next_floor
-        lines = [f"你已击破第 {presentation.decision_floor} 层，前方通往第 {next_floor} 层。"]
-        if next_floor is not None:
-            lines.append("继续挑战：立刻进入下一层遭遇。")
-        lines.append("结算撤离：带着当前累计收益与累计掉落进度离开。")
-        lines.append("该按钮仅在第 5 / 10 层节点出现。")
-        return "\n".join(lines)
+            return "眼下还没有走到能够驻足抉择的节点。"
+        lines: list[str] = []
+        if scene_floor is not None and scene_floor.reward_scene_lines:
+            lines.extend(scene_floor.reward_scene_lines[:2])
+        else:
+            lines.append(f"第 {presentation.decision_floor} 层已破，眼前短暂安静了下来。")
+        lines.append("这一层已破，你可以继续深入，也可以带着收获暂退。")
+        return "\n".join(lines[:3])
 
 
     @classmethod
-    def _format_floor_enemy_header(cls, *, floor_snapshot: EndlessFloorPanelSnapshot) -> str:
-        return (
-            f"第 {floor_snapshot.floor} 层｜{floor_snapshot.node_label}｜{floor_snapshot.region_name}｜"
-            f"{floor_snapshot.race_name}·{floor_snapshot.template_name}×{floor_snapshot.enemy_count}"
-        )
+    def _build_embed_title(cls, *, snapshot: EndlessPanelSnapshot, selected_start_floor: int) -> str:
+        floor = cls._resolve_title_floor(snapshot=snapshot, selected_start_floor=selected_start_floor)
+        badge = cls._resolve_floor_badge(snapshot=snapshot)
+        if floor is None:
+            return f"{snapshot.overview.character_name}｜无涯渊境·{badge}"
+        return f"{snapshot.overview.character_name}｜无涯渊境·第 {floor} 层·{badge}"
+
+    @classmethod
+    def _build_embed_description(cls, *, snapshot: EndlessPanelSnapshot, selected_start_floor: int) -> str:
+        presentation = snapshot.run_presentation
+        scene_floor = presentation.current_scene_floor
+        if not snapshot.run_status.has_active_run:
+            entry_floor = cls._resolve_entry_floor(selected_start_floor)
+            return f"选定锚点后，你会直落第 {entry_floor} 层。"
+        if scene_floor is None:
+            return "前路暂时沉寂，但真正的去留还在你手里。"
+        if presentation.current_scene_kind == "upcoming_preview":
+            return f"第 {scene_floor.floor} 层妖气压境，抬脚便是开战。"
+        if presentation.current_scene_kind == "decision":
+            return f"第 {scene_floor.floor} 层刚破，前路与退路都在脚下。"
+        if presentation.current_scene_kind == "defeat":
+            return f"你被压在第 {scene_floor.floor} 层前，气息一时还没稳住。"
+        return f"第 {scene_floor.floor} 层余波未散，更深处的妖气已经抬头。"
+
+    @classmethod
+    def _resolve_title_floor(cls, *, snapshot: EndlessPanelSnapshot, selected_start_floor: int) -> int | None:
+        scene_floor = snapshot.run_presentation.current_scene_floor
+        if scene_floor is not None:
+            return scene_floor.floor
+        if snapshot.run_status.current_floor is not None:
+            return snapshot.run_status.current_floor
+        return cls._resolve_entry_floor(selected_start_floor)
+
+    @staticmethod
+    def _resolve_entry_floor(selected_start_floor: int) -> int:
+        return 1 if selected_start_floor <= 1 else selected_start_floor + 1
+
+    @staticmethod
+    def _resolve_floor_badge(*, snapshot: EndlessPanelSnapshot) -> str:
+        presentation = snapshot.run_presentation
+        scene_floor = presentation.current_scene_floor
+        tone = {
+            "normal": "普通层",
+            "elite": "精英层",
+            "anchor_boss": "首领层",
+        }.get("" if scene_floor is None else scene_floor.node_type, "前路未明")
+        if presentation.phase == "pending_defeat_settlement":
+            return f"{tone}·战败"
+        if presentation.decision_floor is not None:
+            return f"{tone}·节点"
+        if presentation.current_scene_kind == "upcoming_preview" or not snapshot.run_status.has_active_run:
+            return f"{tone}·待开战"
+        return f"{tone}·已破"
 
     @staticmethod
     def _resolve_scene_color(*, snapshot: EndlessPanelSnapshot) -> discord.Color:
@@ -283,120 +312,114 @@ class EndlessPanelPresenter:
         return max(0.0, min(1.0, current / maximum))
 
     @classmethod
-    def _describe_risk(cls, *, hp_percent: float, mp_percent: float, snapshot: EndlessPanelSnapshot) -> str:
+    def _build_status_feeling(cls, *, hp_percent: float, mp_percent: float, snapshot: EndlessPanelSnapshot) -> str:
         presentation = snapshot.run_presentation
         scene_floor = presentation.current_scene_floor
-        risk_parts: list[str] = []
-        if hp_percent <= 0.2:
-            risk_parts.append("濒危")
-        elif hp_percent <= 0.45:
-            risk_parts.append("高压")
-        else:
-            risk_parts.append("可战")
-        if mp_percent <= 0.2:
-            risk_parts.append("灵力紧缺")
-        elif mp_percent <= 0.45:
-            risk_parts.append("灵力吃紧")
-        else:
-            risk_parts.append("灵力尚稳")
+        if not snapshot.run_status.has_active_run:
+            return "尚未入渊，先定好落脚锚点。"
         if presentation.phase == "pending_defeat_settlement":
-            risk_parts.append("本层已战败")
-        elif presentation.decision_floor is not None:
-            risk_parts.append("节点停驻")
-        elif scene_floor is not None and scene_floor.node_type == "anchor_boss":
-            risk_parts.append("首领压迫")
-        elif scene_floor is not None and scene_floor.node_type == "elite":
-            risk_parts.append("精英压迫")
-        return "｜".join(risk_parts)
+            return "你已被压到极限，眼下只能先收束残局。"
+        if hp_percent <= 0.18 and mp_percent <= 0.2:
+            return "你已逼近极限，再往前很可能当场崩盘。"
+        if hp_percent <= 0.18:
+            return "你伤得很重，再挨一轮就可能倒下。"
+        if hp_percent <= 0.4 and mp_percent <= 0.35:
+            return "你气血与灵力都在下滑，继续深入会很险。"
+        if hp_percent <= 0.4:
+            return "你气息开始乱了，下一轮硬碰会越来越难扛。"
+        if mp_percent <= 0.2:
+            return "你的灵力快见底了，后手会越来越少。"
+        if mp_percent <= 0.4:
+            return "你的灵力已开始吃紧，招式不好再放开。"
+        if presentation.decision_floor is not None:
+            return "这一层刚破，你还能稳住呼吸。"
+        if scene_floor is not None and scene_floor.node_type == "anchor_boss":
+            return "首领余威还压在身上，气机仍旧发紧。"
+        if scene_floor is not None and scene_floor.node_type == "elite":
+            return "这一层逼得很紧，但你还站得住。"
+        return "你气息还稳，暂时还能再战。"
 
     @classmethod
-    def _build_result_line(cls, *, floor_snapshot: EndlessFloorPanelSnapshot, scene_kind: str) -> str:
-        if scene_kind == "upcoming_preview":
-            return f"当前层结果：第 {floor_snapshot.floor} 层尚未开战。"
-        if floor_snapshot.battle_outcome_label is None:
-            return f"当前层结果：第 {floor_snapshot.floor} 层战况待定。"
-        return "当前层结果：" + cls._format_floor_result_summary(floor_snapshot=floor_snapshot)
+    def _build_status_direction_line(cls, *, snapshot: EndlessPanelSnapshot) -> str | None:
+        presentation = snapshot.run_presentation
+        if not snapshot.run_status.has_active_run:
+            return "选好锚点后，便能从那一层开始逐步往下闯。"
+        if presentation.decision_floor is not None:
+            return "你可以先缓口气，再决定是继续还是暂退。"
+        if presentation.phase == "pending_defeat_settlement":
+            return "这一层已经失手，眼下只能先执行战败结算。"
+        if presentation.next_floor is not None:
+            return f"前方第 {presentation.next_floor} 层的妖气已经冒头。"
+        return None
 
     @classmethod
-    def _format_enemy_style_line(cls, *, floor_snapshot: EndlessFloorPanelSnapshot) -> str:
-        parts = [f"成长层级：{floor_snapshot.realm_name}·{floor_snapshot.stage_name}"]
-        if floor_snapshot.style_tags:
-            parts.append("标签：" + " / ".join(floor_snapshot.style_tags))
-        profiles = [
-            item
-            for item in (floor_snapshot.race_profile, floor_snapshot.template_profile)
-            if item and item != "-"
-        ]
-        if profiles:
-            parts.append("风格：" + "｜".join(profiles))
-        return "｜".join(parts)
-
-    @staticmethod
-    def _format_enemy_unit_summary(*, floor_snapshot: EndlessFloorPanelSnapshot) -> str:
-        if not floor_snapshot.enemy_units:
-            return "属性摘要：暂缺"
-        parts = [
-            (
-                f"{unit.unit_name} 气血 {unit.max_hp}｜攻力 {unit.attack_power}｜"
-                f"护体 {unit.guard_power}｜迅捷 {unit.speed}"
-            )
-            for unit in floor_snapshot.enemy_units[:2]
-        ]
-        if len(floor_snapshot.enemy_units) > 2:
-            parts.append(f"其余 {len(floor_snapshot.enemy_units) - 2} 名同系敌人")
-        return "属性摘要：" + "；".join(parts)
-
-    @classmethod
-    def _format_floor_result_summary(cls, *, floor_snapshot: EndlessFloorPanelSnapshot) -> str:
-        parts = [
-            f"第 {floor_snapshot.floor} 层",
-            floor_snapshot.node_label,
-            f"{floor_snapshot.race_name}·{floor_snapshot.template_name}×{floor_snapshot.enemy_count}",
-        ]
-        if floor_snapshot.battle_outcome_label is not None:
-            parts.append(f"结果 {floor_snapshot.battle_outcome_label}")
-        if floor_snapshot.current_hp_ratio is not None or floor_snapshot.current_mp_ratio is not None:
-            parts.append(
-                f"血蓝 {cls._format_ratio_text(floor_snapshot.current_hp_ratio)}"
-                f"/{cls._format_ratio_text(floor_snapshot.current_mp_ratio)}"
-            )
-        if floor_snapshot.cumulative_drop_progress is not None:
-            parts.append(
-                f"进度 {floor_snapshot.cumulative_drop_progress}（可结算 {max(0, floor_snapshot.claimable_drop_count or 0)} 次）"
-            )
-        return "｜".join(parts)
-
-    @staticmethod
-    def _format_floor_process_lines(
+    def _build_encounter_scene_note(
+        cls,
         *,
+        snapshot: EndlessPanelSnapshot,
         floor_snapshot: EndlessFloorPanelSnapshot,
-        max_round_lines: int,
-    ) -> tuple[str, ...]:
-        digest = floor_snapshot.battle_report_digest
-        if digest is None:
-            return ()
-        lines: list[str] = []
-        if digest.action_highlights:
-            lines.append("关键技能：" + "、".join(digest.action_highlights[:3]))
-        if digest.round_highlights:
-            lines.extend(digest.round_highlights[:max_round_lines])
-        if not lines:
-            lines.append(
-                f"战斗信号：命中 {digest.successful_hits}｜暴击 {digest.critical_hits}｜击破 {digest.unit_defeated}"
-            )
-        return tuple(lines)
+    ) -> str | None:
+        scene_kind = snapshot.run_presentation.current_scene_kind
+        if scene_kind == "upcoming_preview":
+            return "它们就在前面等你先动。"
+        if scene_kind == "decision":
+            return "守敌刚散，更深处的动静还在前头翻。"
+        if scene_kind == "defeat":
+            return "你刚被它们逼退，妖气一时还没散。"
+        del floor_snapshot
+        return None
 
     @classmethod
-    def _format_latest_node_result(cls, *, latest_node_result: Mapping[str, Any]) -> str:
-        floor = _read_int(latest_node_result.get("floor"))
-        node_name = _NODE_TYPE_NAME_BY_VALUE.get(str(latest_node_result.get("node_type") or ""), "未知节点")
-        battle_outcome = str(latest_node_result.get("battle_outcome") or "-")
-        hp_ratio = cls._format_ratio_text(latest_node_result.get("current_hp_ratio"))
-        mp_ratio = cls._format_ratio_text(latest_node_result.get("current_mp_ratio"))
-        return (
-            f"第 {floor} 层｜{node_name}｜结果 {battle_outcome}｜"
-            f"生命 {hp_ratio}｜灵力 {mp_ratio}"
-        )
+    def _build_reward_result_line(cls, *, floor_snapshot: EndlessFloorPanelSnapshot, scene_kind: str) -> str:
+        if scene_kind == "upcoming_preview":
+            return f"第 {floor_snapshot.floor} 层还没开打，战果还悬在前头。"
+        if floor_snapshot.battle_outcome == "ally_victory":
+            return "这一战得胜，你把这一层硬生生踩了过去。"
+        if floor_snapshot.battle_outcome == "enemy_victory":
+            return "这一战失手，你被这一层硬生生逼停。"
+        if floor_snapshot.battle_outcome == "draw":
+            return "这一层还僵着，谁也没能立刻压垮谁。"
+        return f"第 {floor_snapshot.floor} 层的战果还没有真正落定。"
+
+    @classmethod
+    def _build_reward_summary_line(cls, *, reward_mapping: Mapping[str, int]) -> str:
+        parts: list[str] = []
+        for key in _STABLE_REWARD_ORDER:
+            value = max(0, _read_int(reward_mapping.get(key)))
+            if value <= 0:
+                continue
+            parts.append(f"{_STABLE_REWARD_NAME_BY_KEY.get(key, key)} +{value}")
+        if not parts:
+            return "没有新的稳定收获"
+        return "｜".join(parts)
+
+    @staticmethod
+    def _build_floor_progress_line(
+        *,
+        gained: int,
+        pending_drop_progress: int,
+        claimable_drop_count: int,
+    ) -> str:
+        if claimable_drop_count > 0:
+            return f"掉落进度又涨 {gained}，累计 {pending_drop_progress}，已凝成 {claimable_drop_count} 次掉落。"
+        return f"掉落进度又涨 {gained}，累计到了 {pending_drop_progress}。"
+
+    @staticmethod
+    def _build_drop_progress_line(*, pending_drop_progress: int, claimable_drop_count: int) -> str:
+        if claimable_drop_count > 0:
+            return f"累计掉落进度 {pending_drop_progress}，已凝成 {claimable_drop_count} 次掉落。"
+        return f"累计掉落进度 {pending_drop_progress}，还得继续往下攒。"
+
+    @staticmethod
+    def _build_enemy_brief(*, floor_snapshot: EndlessFloorPanelSnapshot) -> str:
+        parts = [
+            item
+            for item in (floor_snapshot.race_name.strip(), floor_snapshot.template_name.strip())
+            if item and item not in {"未知敌类", "未知模板"}
+        ]
+        if not parts:
+            return "这一层守敌"
+        return "·".join(parts)
 
     @classmethod
     def _extract_final_drop_lines(
@@ -1111,44 +1134,66 @@ class EndlessPanelController:
 
     @staticmethod
     def _build_start_lines(*, snapshot: EndlessPanelSnapshot, selected_start_floor: int) -> tuple[str, ...]:
-        lines = [f"起始层：第 {selected_start_floor} 层"]
+        lines = [f"你已在第 {selected_start_floor} 层锚点落脚。"]
         preview = snapshot.run_presentation.upcoming_floor_preview
         if preview is None:
             if snapshot.run_status.current_floor is not None:
-                lines.append(f"进入层数：第 {snapshot.run_status.current_floor} 层")
-            lines.append("面板会先展示你即将面对的当前层遭遇。")
-            return tuple(lines)
-        lines.extend(
-            (
-                f"进入层数：第 {preview.floor} 层",
-                EndlessPanelPresenter._format_floor_enemy_header(floor_snapshot=preview),
-                EndlessPanelPresenter._format_enemy_style_line(floor_snapshot=preview),
-                EndlessPanelPresenter._format_enemy_unit_summary(floor_snapshot=preview),
-                "点击“继续挑战”后，只会推进并结算这一层。",
-            )
-        )
-        return tuple(lines)
+                lines.append(f"踏进去后，第一场厮杀会落在第 {snapshot.run_status.current_floor} 层。")
+            lines.append("入内之后，只能一层一层往下闯。")
+            return tuple(lines[:3])
+        lines.append(f"踏入后会直面第 {preview.floor} 层的{EndlessPanelPresenter._build_enemy_brief(floor_snapshot=preview)}。")
+        preview_lines = preview.enemy_scene_lines or preview.enemy_summary_lines
+        if len(preview_lines) >= 2:
+            lines.append(preview_lines[1])
+        elif preview_lines:
+            lines.append(preview_lines[0])
+        lines.append("入内之后，只能一层一层往下闯。")
+        return tuple(lines[:4])
 
     @staticmethod
     def _build_advance_lines(*, advance_presentation: EndlessAdvancePresentation) -> tuple[str, ...]:
         floor_snapshot = advance_presentation.floor_result
-        lines = [
-            f"推进完成：第 {floor_snapshot.floor} 层",
-            f"当前结果：{EndlessPanelPresenter._format_floor_result_summary(floor_snapshot=floor_snapshot)}",
-            f"累计掉落进度：{advance_presentation.pending_drop_progress}｜可结算掉落 {advance_presentation.claimable_drop_count} 次",
-        ]
-        process_lines = EndlessPanelPresenter._format_floor_process_lines(
-            floor_snapshot=floor_snapshot,
-            max_round_lines=2,
-        )
-        lines.extend(process_lines)
+        lines = [f"第 {floor_snapshot.floor} 层已破。"]
+        battle_lines = floor_snapshot.battle_scene_lines
+        if battle_lines:
+            lines.extend(battle_lines[:2])
+        elif floor_snapshot.battle_report_digest is not None and floor_snapshot.battle_report_digest.narration_lines:
+            lines.extend(floor_snapshot.battle_report_digest.narration_lines[:2])
+        else:
+            lines.append(
+                EndlessPanelPresenter._build_reward_result_line(
+                    floor_snapshot=floor_snapshot,
+                    scene_kind="floor_result",
+                )
+            )
+        if floor_snapshot.reward_granted:
+            lines.append(
+                "这一层带回 "
+                + EndlessPanelPresenter._build_reward_summary_line(
+                    reward_mapping=floor_snapshot.stable_reward_summary,
+                )
+                + "；"
+                + EndlessPanelPresenter._build_floor_progress_line(
+                    gained=max(0, floor_snapshot.drop_progress_gained),
+                    pending_drop_progress=advance_presentation.pending_drop_progress,
+                    claimable_drop_count=advance_presentation.claimable_drop_count,
+                )
+            )
+        else:
+            lines.append(
+                "这一层没能再带回新的收获；"
+                + EndlessPanelPresenter._build_drop_progress_line(
+                    pending_drop_progress=advance_presentation.pending_drop_progress,
+                    claimable_drop_count=advance_presentation.claimable_drop_count,
+                )
+            )
         if advance_presentation.can_settle_retreat and advance_presentation.decision_floor is not None:
-            lines.append(f"已抵达第 {advance_presentation.decision_floor} 层节点，可继续挑战或结算撤离。")
+            lines.append("这一层已破，你可以继续深入，也可以带着收获暂退。")
         elif advance_presentation.stopped_reason == "defeat":
-            lines.append("本层战败，需先执行战败结算。")
+            lines.append("这一层的反扑把你逼停了，得先收束败局。")
         elif advance_presentation.upcoming_floor_preview is not None:
-            lines.append(f"下一层遭遇：第 {advance_presentation.upcoming_floor_preview.floor} 层，等待你手动继续。")
-        return tuple(lines)
+            lines.append(f"第 {advance_presentation.upcoming_floor_preview.floor} 层的妖气已经在前头等你。")
+        return tuple(lines[:5])
 
     @staticmethod
     def _build_settlement_lines(*, settlement: EndlessRunSettlementResult) -> tuple[str, ...]:

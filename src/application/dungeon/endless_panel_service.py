@@ -37,6 +37,11 @@ _STOP_REASON_LABEL_BY_VALUE = {
     "decision": "抵达决策点",
     "defeat": "战败停止",
 }
+_STABLE_REWARD_NAME_BY_KEY = {
+    "cultivation": "修为",
+    "insight": "感悟",
+    "refining_essence": "炼华精粹",
+}
 _ROUND_STATUS_EVENT_TYPES = frozenset(
     {
         "status_applied",
@@ -69,6 +74,7 @@ class EndlessBattleReportDigest:
     unit_defeated: int
     action_highlights: tuple[str, ...]
     round_highlights: tuple[str, ...]
+    narration_lines: tuple[str, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -106,6 +112,7 @@ class EndlessFloorPanelSnapshot:
     stage_name: str
     style_tags: tuple[str, ...]
     enemy_units: tuple[EndlessEnemyUnitDigest, ...]
+    enemy_summary_lines: tuple[str, ...]
     battle_outcome: str | None
     battle_outcome_label: str | None
     reward_granted: bool | None
@@ -118,6 +125,9 @@ class EndlessFloorPanelSnapshot:
     current_hp_ratio: str | None
     current_mp_ratio: str | None
     battle_report_digest: EndlessBattleReportDigest | None
+    enemy_scene_lines: tuple[str, ...] = ()
+    battle_scene_lines: tuple[str, ...] = ()
+    reward_scene_lines: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -558,6 +568,32 @@ class EndlessPanelQueryService:
         )
         battle_outcome = None if node_result.get("battle_outcome") is None else str(node_result.get("battle_outcome"))
         battle_outcome_label = None if battle_outcome is None else _BATTLE_OUTCOME_LABEL_BY_VALUE.get(battle_outcome, battle_outcome)
+        reward_granted = None if node_result.get("reward_granted") is None else bool(node_result.get("reward_granted"))
+        battle_report_digest = None if battle_report is None else self._build_battle_report_digest(battle_report)
+        drop_progress_gained = _read_int(pending_reward_summary.get("drop_progress"))
+        enemy_summary_lines = self._build_enemy_summary_lines(
+            floor=floor,
+            node_type=node_type,
+            region_name=region_entry.name if region_entry is not None else (region_id or "未知区域"),
+            region_theme=region_entry.theme_summary if region_entry is not None else "-",
+            race_name=race_entry.name if race_entry is not None else (race_id or "未知敌类"),
+            template_name=template_entry.name if template_entry is not None else (template_id or "未知模板"),
+            enemy_count=_read_int(node_result.get("enemy_count")),
+            enemy_units=enemy_units,
+        )
+        battle_scene_lines = self._build_battle_scene_lines(
+            battle_outcome=battle_outcome,
+            battle_report_digest=battle_report_digest,
+        )
+        reward_scene_lines = self._build_reward_scene_lines(
+            floor=floor,
+            battle_outcome=battle_outcome,
+            reward_granted=reward_granted,
+            stable_reward_summary=stable_reward_summary,
+            drop_progress_gained=drop_progress_gained,
+            cumulative_drop_progress=cumulative_drop_progress,
+            claimable_drop_count=claimable_drop_count,
+        )
         return EndlessFloorPanelSnapshot(
             floor=floor,
             node_type=node_type,
@@ -576,19 +612,184 @@ class EndlessPanelQueryService:
             stage_name=overview.stage_name,
             style_tags=style_tags,
             enemy_units=enemy_units,
+            enemy_summary_lines=enemy_summary_lines,
             battle_outcome=battle_outcome,
             battle_outcome_label=battle_outcome_label,
-            reward_granted=None if node_result.get("reward_granted") is None else bool(node_result.get("reward_granted")),
+            reward_granted=reward_granted,
             battle_report_id=battle_report_id,
             stable_reward_summary=stable_reward_summary,
             pending_reward_summary=pending_reward_summary,
-            drop_progress_gained=_read_int(pending_reward_summary.get("drop_progress")),
+            drop_progress_gained=drop_progress_gained,
             cumulative_drop_progress=cumulative_drop_progress,
             claimable_drop_count=claimable_drop_count,
             current_hp_ratio=_read_optional_str(node_result.get("current_hp_ratio")),
             current_mp_ratio=_read_optional_str(node_result.get("current_mp_ratio")),
-            battle_report_digest=None if battle_report is None else self._build_battle_report_digest(battle_report),
+            battle_report_digest=battle_report_digest,
+            enemy_scene_lines=enemy_summary_lines,
+            battle_scene_lines=battle_scene_lines,
+            reward_scene_lines=reward_scene_lines,
         )
+
+    def _build_enemy_summary_lines(
+        self,
+        *,
+        floor: int,
+        node_type: str,
+        region_name: str,
+        region_theme: str,
+        race_name: str,
+        template_name: str,
+        enemy_count: int,
+        enemy_units: Sequence[EndlessEnemyUnitDigest],
+    ) -> tuple[str, ...]:
+        enemy_title = "·".join(
+            item
+            for item in (race_name.strip(), template_name.strip())
+            if item and item not in {"未知敌类", "未知模板"}
+        )
+        if not enemy_title:
+            enemy_title = "异样妖影"
+        count_text = f"{max(1, enemy_count)} 名" if enemy_count > 1 else "1 名"
+        lines = [f"第 {floor} 层有 {count_text}{enemy_title}拦路。"]
+        pressure_line = self._build_enemy_pressure_line(node_type=node_type, enemy_units=enemy_units)
+        if pressure_line is not None:
+            lines.append(pressure_line)
+        region_line = self._build_region_pressure_line(region_name=region_name, region_theme=region_theme)
+        if region_line is not None:
+            lines.append(region_line)
+        return tuple(lines[:3])
+
+    @staticmethod
+    def _build_enemy_pressure_line(
+        *,
+        node_type: str,
+        enemy_units: Sequence[EndlessEnemyUnitDigest],
+    ) -> str | None:
+        if enemy_units:
+            attack_average = sum(unit.attack_power for unit in enemy_units) / len(enemy_units)
+            guard_average = sum(unit.guard_power for unit in enemy_units) / len(enemy_units)
+            speed_average = sum(unit.speed for unit in enemy_units) / len(enemy_units)
+            if speed_average >= attack_average and speed_average >= guard_average:
+                detail = "它们身法极快，稍慢一步就会被追着打。"
+            elif attack_average >= guard_average:
+                detail = "它们杀势很重，正面硬吃几下就会非常难受。"
+            else:
+                detail = "它们护体很稳，想一口气斩穿并不容易。"
+        else:
+            detail = "妖气翻得很乱，一时还摸不清深浅。"
+        if node_type == "anchor_boss":
+            return f"首领妖气压得很沉，{detail}"
+        if node_type == "elite":
+            return f"这一层比寻常更凶，{detail}"
+        return f"这些妖影来势不轻，{detail}"
+
+    @staticmethod
+    def _build_region_pressure_line(*, region_name: str, region_theme: str) -> str | None:
+        normalized_theme = region_theme.strip().rstrip("。")
+        if not normalized_theme or normalized_theme == "-":
+            return None
+        return f"这段{region_name}气机紊乱，{normalized_theme}。"
+
+    def _build_battle_scene_lines(
+        self,
+        *,
+        battle_outcome: str | None,
+        battle_report_digest: EndlessBattleReportDigest | None,
+    ) -> tuple[str, ...]:
+        if battle_report_digest is not None and battle_report_digest.narration_lines:
+            return tuple(
+                line.strip()
+                for line in battle_report_digest.narration_lines
+                if isinstance(line, str) and line.strip()
+            )[:3]
+        if battle_outcome == "ally_victory":
+            return (
+                "这一层厮杀结束得极快，你只记得剑光和妖气一起炸开。",
+                "最后还是你把这一层硬生生压了过去。",
+            )
+        if battle_outcome == "enemy_victory":
+            return (
+                "这一层反扑太狠，你转眼就被逼退了下来。",
+                "妖气还压在胸口，一时很难缓过来。",
+            )
+        if battle_outcome == "draw":
+            return ("双方在这一层僵住了，一时谁也没能压垮谁。",)
+        return ()
+
+    def _build_reward_scene_lines(
+        self,
+        *,
+        floor: int,
+        battle_outcome: str | None,
+        reward_granted: bool | None,
+        stable_reward_summary: Mapping[str, int],
+        drop_progress_gained: int,
+        cumulative_drop_progress: int | None,
+        claimable_drop_count: int | None,
+    ) -> tuple[str, ...]:
+        pending_drop_progress = max(0, cumulative_drop_progress or 0)
+        available_drop_count = max(0, claimable_drop_count or 0)
+        if battle_outcome is None:
+            return (
+                "这一层还没真正开打。",
+                self._build_drop_progress_story(
+                    pending_drop_progress=pending_drop_progress,
+                    claimable_drop_count=available_drop_count,
+                ),
+            )
+        if reward_granted:
+            return (
+                f"这一层带回 {self._format_reward_summary_text(reward_mapping=stable_reward_summary)}。",
+                self._build_floor_progress_story(
+                    gained=max(0, drop_progress_gained),
+                    pending_drop_progress=pending_drop_progress,
+                    claimable_drop_count=available_drop_count,
+                ),
+            )
+        if battle_outcome == "enemy_victory":
+            return (
+                "这一次没能再从敌阵里带回新的层内收获。",
+                self._build_drop_progress_story(
+                    pending_drop_progress=pending_drop_progress,
+                    claimable_drop_count=available_drop_count,
+                ),
+            )
+        return (
+            f"第 {floor} 层的战果还没有真正落定。",
+            self._build_drop_progress_story(
+                pending_drop_progress=pending_drop_progress,
+                claimable_drop_count=available_drop_count,
+            ),
+        )
+
+    @staticmethod
+    def _format_reward_summary_text(*, reward_mapping: Mapping[str, int]) -> str:
+        parts: list[str] = []
+        for key in ("cultivation", "insight", "refining_essence"):
+            value = max(0, _read_int(reward_mapping.get(key)))
+            if value <= 0:
+                continue
+            parts.append(f"{_STABLE_REWARD_NAME_BY_KEY.get(key, key)} +{value}")
+        if not parts:
+            return "没有新的稳定收获"
+        return "｜".join(parts)
+
+    @staticmethod
+    def _build_floor_progress_story(
+        *,
+        gained: int,
+        pending_drop_progress: int,
+        claimable_drop_count: int,
+    ) -> str:
+        if claimable_drop_count > 0:
+            return f"掉落进度又涨 {gained}，累计 {pending_drop_progress}，已凝成 {claimable_drop_count} 次掉落。"
+        return f"掉落进度又涨 {gained}，累计到了 {pending_drop_progress}。"
+
+    @staticmethod
+    def _build_drop_progress_story(*, pending_drop_progress: int, claimable_drop_count: int) -> str:
+        if claimable_drop_count > 0:
+            return f"累计掉落进度停在 {pending_drop_progress}，但已凝成 {claimable_drop_count} 次掉落。"
+        return f"累计掉落进度停在 {pending_drop_progress}，还得继续往下攒。"
 
     def _load_battle_reports_by_id(
         self,
@@ -612,25 +813,48 @@ class EndlessPanelQueryService:
         damage_summary = _normalize_int_mapping(summary_payload.get("damage_summary"))
         healing_summary = _normalize_int_mapping(summary_payload.get("healing_summary"))
         key_trigger_counts = _normalize_int_mapping(summary_payload.get("key_trigger_counts"))
+        result = str(summary_payload.get("result") or battle_report.result)
+        completed_rounds = _read_int(summary_payload.get("completed_rounds"))
+        focus_unit_name = str(summary_payload.get("focus_unit_name") or f"角色 {battle_report.character_id}")
+        ally_damage_dealt = _read_int(damage_summary.get("ally_damage_dealt"))
+        ally_damage_taken = _read_int(damage_summary.get("ally_damage_taken"))
+        ally_healing_done = _read_int(healing_summary.get("ally_healing_done"))
+        successful_hits = _read_int(key_trigger_counts.get("successful_hits"))
+        critical_hits = _read_int(key_trigger_counts.get("critical_hits"))
+        control_skips = _read_int(key_trigger_counts.get("control_skips"))
+        unit_defeated = _read_int(key_trigger_counts.get("unit_defeated"))
+        action_highlights = self._extract_action_highlights(
+            summary_payload=summary_payload,
+            detail_payload=detail_payload,
+        )
+        round_highlights = self._extract_round_highlights(detail_payload=detail_payload)
         return EndlessBattleReportDigest(
             battle_report_id=battle_report.id,
-            result=str(summary_payload.get("result") or battle_report.result),
-            completed_rounds=_read_int(summary_payload.get("completed_rounds")),
-            focus_unit_name=str(summary_payload.get("focus_unit_name") or f"角色 {battle_report.character_id}"),
+            result=result,
+            completed_rounds=completed_rounds,
+            focus_unit_name=focus_unit_name,
             final_hp_ratio=str(summary_payload.get("final_hp_ratio") or "0.0000"),
             final_mp_ratio=str(summary_payload.get("final_mp_ratio") or "0.0000"),
-            ally_damage_dealt=_read_int(damage_summary.get("ally_damage_dealt")),
-            ally_damage_taken=_read_int(damage_summary.get("ally_damage_taken")),
-            ally_healing_done=_read_int(healing_summary.get("ally_healing_done")),
-            successful_hits=_read_int(key_trigger_counts.get("successful_hits")),
-            critical_hits=_read_int(key_trigger_counts.get("critical_hits")),
-            control_skips=_read_int(key_trigger_counts.get("control_skips")),
-            unit_defeated=_read_int(key_trigger_counts.get("unit_defeated")),
-            action_highlights=self._extract_action_highlights(
-                summary_payload=summary_payload,
-                detail_payload=detail_payload,
+            ally_damage_dealt=ally_damage_dealt,
+            ally_damage_taken=ally_damage_taken,
+            ally_healing_done=ally_healing_done,
+            successful_hits=successful_hits,
+            critical_hits=critical_hits,
+            control_skips=control_skips,
+            unit_defeated=unit_defeated,
+            action_highlights=action_highlights,
+            round_highlights=round_highlights,
+            narration_lines=self._build_battle_narration_lines(
+                focus_unit_name=focus_unit_name,
+                result=result,
+                completed_rounds=completed_rounds,
+                action_highlights=action_highlights,
+                round_highlights=round_highlights,
+                critical_hits=critical_hits,
+                control_skips=control_skips,
+                unit_defeated=unit_defeated,
+                ally_damage_taken=ally_damage_taken,
             ),
-            round_highlights=self._extract_round_highlights(detail_payload=detail_payload),
         )
 
     def _extract_action_highlights(
@@ -726,6 +950,168 @@ class EndlessPanelQueryService:
             if len(lines) >= 3:
                 break
         return tuple(lines)
+
+    def _build_battle_narration_lines(
+        self,
+        *,
+        focus_unit_name: str,
+        result: str,
+        completed_rounds: int,
+        action_highlights: Sequence[str],
+        round_highlights: Sequence[str],
+        critical_hits: int,
+        control_skips: int,
+        unit_defeated: int,
+        ally_damage_taken: int,
+    ) -> tuple[str, ...]:
+        lines: list[str] = []
+        action_line = self._build_action_narration(
+            focus_unit_name=focus_unit_name,
+            action_highlights=action_highlights,
+        )
+        if action_line is not None:
+            lines.append(action_line)
+        for raw_line in round_highlights:
+            narration = self._build_round_narration(
+                raw_line=raw_line,
+                focus_unit_name=focus_unit_name,
+            )
+            if narration is None or narration in lines:
+                continue
+            lines.append(narration)
+            if len(lines) >= 2:
+                break
+        closing_line = self._build_battle_closing_line(
+            result=result,
+            completed_rounds=completed_rounds,
+            critical_hits=critical_hits,
+            control_skips=control_skips,
+            unit_defeated=unit_defeated,
+            ally_damage_taken=ally_damage_taken,
+        )
+        if closing_line is not None and closing_line not in lines:
+            lines.append(closing_line)
+        if not lines:
+            lines.append("这一层厮杀来得极快，你只记得妖气和血光一起炸开。")
+        return tuple(lines[:3])
+
+    @staticmethod
+    def _build_action_narration(
+        *,
+        focus_unit_name: str,
+        action_highlights: Sequence[str],
+    ) -> str | None:
+        if not action_highlights:
+            return None
+        action_text = str(action_highlights[0]).strip()
+        if not action_text:
+            return None
+        action_label = action_text
+        use_count = 0
+        if "×" in action_text:
+            action_label, _, count_text = action_text.partition("×")
+            use_count = _parse_positive_int(count_text)
+        normalized_label = action_label.strip()
+        if not normalized_label:
+            return None
+        del focus_unit_name
+        if use_count >= 2:
+            return f"你连催{normalized_label}，先把敌势压住了。"
+        return f"你起手便祭出{normalized_label}，直接撞进敌阵。"
+
+    @staticmethod
+    def _build_round_narration(*, raw_line: str, focus_unit_name: str) -> str | None:
+        normalized_line = raw_line.strip()
+        if not normalized_line:
+            return None
+        content = normalized_line.split("：", 1)[1] if "：" in normalized_line else normalized_line
+        parts = [item.strip() for item in content.split("｜") if item.strip()]
+        action_part = ""
+        critical_hits = 0
+        control_skips = 0
+        defeated_target = ""
+        status_changes = 0
+        for part in parts:
+            if part.startswith("出手 "):
+                action_part = part.removeprefix("出手 ").split("、", 1)[0].strip()
+                continue
+            if part.startswith("暴击 "):
+                critical_hits = _parse_positive_int(part.removeprefix("暴击 "))
+                continue
+            if part.startswith("控场 "):
+                control_skips = _parse_positive_int(part.removeprefix("控场 "))
+                continue
+            if part.startswith("击破 "):
+                defeated_target = part.removeprefix("击破 ").split("、", 1)[0].strip()
+                continue
+            if part.startswith("状态变化 "):
+                status_changes = _parse_positive_int(part.removeprefix("状态变化 "))
+        actor_name = "你"
+        action_label = ""
+        if action_part:
+            candidate_actor, separator, candidate_action = action_part.partition("·")
+            if separator:
+                actor_name = "你" if not candidate_actor or candidate_actor == focus_unit_name else candidate_actor
+                action_label = candidate_action.strip()
+            else:
+                action_label = action_part
+        if defeated_target:
+            if action_label and actor_name == "你":
+                return f"你借{action_label}撕开缺口，{defeated_target}当场溃散。"
+            if action_label:
+                return f"{actor_name}借{action_label}撕开缺口，{defeated_target}当场溃散。"
+            return f"混战正紧时，{defeated_target}当场溃散。"
+        if critical_hits > 0:
+            if action_label and actor_name == "你":
+                return f"你催动{action_label}狠狠干下一记，逼得对面护体乱了一瞬。"
+            if action_label:
+                return f"{actor_name}催动{action_label}狠狠干下一记，场面顿时一震。"
+            return f"{actor_name}突然打出一记重击，场中妖气都被震乱。"
+        if control_skips > 0:
+            if action_label and actor_name == "你":
+                return f"你借{action_label}压住敌阵，对面一时没能缓过气。"
+            if action_label:
+                return f"{actor_name}借{action_label}压得人一时难以招架。"
+            return f"{actor_name}把场面压得很死，对面一时没能缓过气。"
+        if status_changes > 0:
+            if action_label and actor_name == "你":
+                return f"你一动{action_label}，场中气机立刻翻涌起来。"
+            if action_label:
+                return f"{actor_name}一动{action_label}，场中气机立刻翻涌起来。"
+            return "这一轮气机翻得很乱，谁都不敢大意。"
+        if action_label and actor_name == "你":
+            return f"你先以{action_label}探路，转眼就和对面缠成了一团。"
+        if action_label:
+            return f"{actor_name}先以{action_label}探路，转眼就把场面搅紧了。"
+        return None
+
+    @staticmethod
+    def _build_battle_closing_line(
+        *,
+        result: str,
+        completed_rounds: int,
+        critical_hits: int,
+        control_skips: int,
+        unit_defeated: int,
+        ally_damage_taken: int,
+    ) -> str | None:
+        if result == "ally_victory":
+            if unit_defeated > 1:
+                return f"连斩 {unit_defeated} 名敌人后，这一层终于被你拿下。"
+            if critical_hits > 0:
+                return "几次狠命中的重击之后，最后一名敌人终于倒下。"
+            if control_skips > 0:
+                return "你稳稳压住节奏，没再让敌阵把局面翻回去。"
+            return f"鏖战 {max(1, completed_rounds)} 回合后，你还是稳住了这一层。"
+        if result == "enemy_victory":
+            if completed_rounds > 0:
+                return f"撑到第 {completed_rounds} 回合后，你还是被这一层的反扑压了下去。"
+            if ally_damage_taken > 0:
+                return "这一层的反扑太狠，你被迫止步于此。"
+            return "你还没来得及稳住局势，就被这一层逼退了。"
+        if result == "draw":
+            return "这一层僵持不下，谁也没能立刻终结对方。"
+        return None
 
     @staticmethod
     def _build_unit_name_mapping(*, detail_payload: Mapping[str, Any]) -> dict[str, str]:
@@ -851,6 +1237,13 @@ def _read_optional_str(value: Any) -> str | None:
         stripped = value.strip()
         return None if not stripped else stripped
     return str(value)
+
+
+def _parse_positive_int(text: str) -> int:
+    digits = "".join(character for character in str(text) if character.isdigit())
+    if not digits:
+        return 0
+    return int(digits)
 
 
 __all__ = [

@@ -136,6 +136,11 @@ def _build_battle_digest() -> EndlessBattleReportDigest:
             "第 1 回合：出手 青玄·七杀剑诀｜暴击 1｜状态变化 1",
             "第 2 回合：出手 青玄·风影步｜击破 妖兽1号",
         ),
+        narration_lines=(
+            "你连催七杀剑诀，先把敌势压住了。",
+            "你催动七杀剑诀狠狠干下一记，逼得对面护体乱了一瞬。",
+            "你借风影步撕开缺口，妖兽1号当场溃散。",
+        ),
     )
 
 
@@ -186,6 +191,11 @@ def _build_floor_snapshot(
                 behavior_template_id="zhanqing_sword",
             ),
         ),
+        enemy_summary_lines=(
+            f"第 {floor} 层有 2 名灵体·灵巧型拦路。",
+            "这一层比寻常更凶，它们身法极快，稍慢一步就会被追着打。",
+            "这段风域气机紊乱，速度系敌人更多，主打先手压制。",
+        ),
         battle_outcome="ally_victory" if battle_outcome_label == "胜利" else "enemy_victory",
         battle_outcome_label=battle_outcome_label,
         reward_granted=battle_outcome_label == "胜利",
@@ -198,6 +208,29 @@ def _build_floor_snapshot(
         current_hp_ratio="0.7600",
         current_mp_ratio="0.4100",
         battle_report_digest=battle_digest,
+        enemy_scene_lines=(
+            f"第 {floor} 层有 2 名灵体·灵巧型拦路。",
+            "这一层比寻常更凶，它们身法极快，稍慢一步就会被追着打。",
+            "这段风域气机紊乱，速度系敌人更多，主打先手压制。",
+        ),
+        battle_scene_lines=(
+            "你连催七杀剑诀，先把敌势压住了。",
+            "你催动七杀剑诀狠狠干下一记，逼得对面护体乱了一瞬。",
+            "你借风影步撕开缺口，妖兽1号当场溃散。",
+        )
+        if battle_digest is not None
+        else (),
+        reward_scene_lines=(
+            "这一层带回 修为 +1200｜感悟 +2｜炼华精粹 +1。",
+            f"掉落进度又涨 4，累计 {cumulative_progress}，已凝成 {claimable_drop_count} 次掉落。"
+            if claimable_drop_count > 0
+            else f"掉落进度又涨 4，累计到了 {cumulative_progress}。",
+        )
+        if battle_outcome_label == "胜利"
+        else (
+            "这一次没能再从敌阵里带回新的层内收获。",
+            f"累计掉落进度停在 {cumulative_progress}，还得继续往下攒。",
+        ),
     )
 
 
@@ -475,6 +508,8 @@ def test_endless_panel_query_service_maps_single_floor_scene_and_enemy_battle_di
         assert latest_floor.race_name != ""
         assert len(latest_floor.enemy_units) >= 1
         assert latest_floor.battle_report_digest is not None
+        assert latest_floor.enemy_summary_lines
+        assert latest_floor.battle_report_digest.narration_lines
         assert latest_floor.battle_report_digest.action_highlights or latest_floor.battle_report_digest.round_highlights
         preview = snapshot.run_presentation.upcoming_floor_preview
         assert preview is not None
@@ -633,28 +668,29 @@ async def test_endless_panel_view_does_not_expose_recent_settlement_entry_after_
 
 
 def test_endless_hub_embed_focuses_current_floor_scene_and_removes_history_overview_terms() -> None:
-    """主面板应聚焦当前层场景，移除历史/总览式字段与旧分数字段。"""
+    """主面板应收敛到敌人/状态/战况/抉择，并移除报表式字段。"""
     snapshot = _build_panel_snapshot(phase="decision")
 
     embed = EndlessPanelPresenter.build_hub_embed(snapshot=snapshot, selected_start_floor=1)
     text = _flatten_embed(embed)
+    field_names = [field.name for field in embed.fields]
 
-    assert "遭遇 / 敌阵" in text
-    assert "自身状态 / 风险" in text
-    assert "本层战况" in text
-    assert "结果 / 收益 / 掉落进度" in text
-    assert "节点抉择" in text
-    assert "统一掉落进度" not in text
-    assert "累计掉落进度" in text
-    assert "当前选择起始层" not in text
-    assert "起始层：" not in text
-    assert "最近战斗记录" not in text
-    assert "最近结算摘要" not in text
-    assert "下一战敌阵" not in text
-    assert "装备分" not in text
-    assert "法宝分" not in text
-    assert "功法分" not in text
-    assert "锚点" not in text
+    assert field_names == ["👹 敌人", "🧍 状态", "📜 战况", "🧭 抉择"]
+    assert "无涯渊境·第 5 层·精英层·节点" in text
+    assert "第 5 层有 2 名灵体·灵巧型拦路。" in text
+    assert "你连催七杀剑诀，先把敌势压住了。" in text
+    assert "这一层带回 修为 +1200｜感悟 +2｜炼华精粹 +1。" in text
+    assert "这一层已破，你可以继续深入，也可以带着收获暂退。" in text
+    assert "标签：" not in text
+    assert "风格：" not in text
+    assert "成长层级：" not in text
+    assert "属性摘要：" not in text
+    assert "当前层结果：" not in text
+    assert "关键技能：" not in text
+    assert "第 1 回合：" not in text
+    assert "遭遇 / 敌阵" not in text
+    assert "自身状态 / 风险" not in text
+    assert "结果 / 收益 / 掉落进度" not in text
 
 
 def test_endless_public_settlement_embed_uses_source_progress_for_highlight_drops() -> None:
@@ -758,8 +794,9 @@ def test_endless_advance_lines_show_single_floor_result_and_next_scene() -> None
     lines = EndlessPanelController._build_advance_lines(advance_presentation=advance_presentation)
     text = "\n".join(lines)
 
-    assert "推进完成：第 5 层" in text
-    assert "累计掉落进度" in text
-    assert "灵体·灵巧型×2" in text
-    assert "关键技能：" in text or "第 1 回合：" in text
-    assert "可继续挑战或结算撤离" in text
+    assert "第 5 层已破。" in text
+    assert "你连催七杀剑诀，先把敌势压住了。" in text
+    assert "这一层带回 修为 +1200｜感悟 +2｜炼华精粹 +1；掉落进度又涨 4，累计 12，已凝成 1 次掉落。" in text
+    assert "这一层已破，你可以继续深入，也可以带着收获暂退。" in text
+    assert "推进完成：" not in text
+    assert "关键技能：" not in text
