@@ -15,6 +15,7 @@ from application.character import CharacterGrowthService
 from application.character.skill_drop_service import SkillDropService
 from application.dungeon import (
     EndlessDungeonService,
+    EndlessDungeonServiceError,
     EndlessRunAlreadyRunningError,
     EndlessRunNotFoundError,
     InvalidEndlessStartFloorError,
@@ -375,8 +376,11 @@ def test_invalid_start_floor_and_missing_run_are_rejected(tmp_path, monkeypatch:
 
 
 
-def test_advance_next_floor_accumulates_process_ledger_without_drop_record_write(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """连续推进多层后应累计过程账本，并只写战报不写掉落记录。"""
+def test_advance_next_floor_advances_single_floor_and_requires_step_by_step_progression(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """每次推进只应结算 1 层，且非 5/10 层不得出现撤离节点。"""
     database_url = _build_sqlite_url(tmp_path / "endless_advance_normal.db")
     _upgrade_database(database_url, monkeypatch)
     session_factory = create_session_factory(database_url)
@@ -412,8 +416,10 @@ def test_advance_next_floor_accumulates_process_ledger_without_drop_record_write
             now=start_time,
         )
 
-        first_result = endless_service.advance_next_floor(character_id=created.character_id)
-        second_result = endless_service.advance_next_floor(character_id=created.character_id)
+        step_results = [
+            endless_service.advance_next_floor(character_id=created.character_id)
+            for _ in range(5)
+        ]
         current = endless_service.get_current_run_state(character_id=created.character_id)
         aggregate = character_repository.get_aggregate(created.character_id)
         persisted = state_repository.get_endless_run_state(created.character_id)
@@ -421,80 +427,73 @@ def test_advance_next_floor_accumulates_process_ledger_without_drop_record_write
         drops = battle_record_repository.list_drop_records(created.character_id)
 
         assert started.current_floor == 1
-        assert first_result.cleared_floor == 5
-        assert first_result.reward_granted is True
-        assert first_result.battle_outcome == "ally_victory"
-        assert first_result.stopped_reason == "decision"
-        assert first_result.decision_floor == 5
-        assert first_result.next_floor == 6
-        assert len(first_result.advanced_results) == 5
-        assert first_result.advanced_results[0]["floor"] == 1
-        assert first_result.advanced_results[-1]["floor"] == 5
-        assert second_result.cleared_floor == 10
-        assert len(second_result.advanced_results) == 5
-        assert second_result.advanced_results[0]["floor"] == 6
-        assert second_result.advanced_results[-1]["floor"] == 10
+        assert [result.cleared_floor for result in step_results] == [1, 2, 3, 4, 5]
+        assert all(len(result.advanced_results) == 1 for result in step_results)
+        assert step_results[0].advanced_results[0]["floor"] == 1
+        assert step_results[3].advanced_results[0]["floor"] == 4
+        assert step_results[0].stopped_reason == "advanced"
+        assert step_results[1].stopped_reason == "advanced"
+        assert step_results[2].stopped_reason == "advanced"
+        assert step_results[3].stopped_reason == "advanced"
+        assert step_results[4].stopped_reason == "decision"
+        assert step_results[4].decision_floor == 5
+        assert step_results[4].next_floor == 6
         assert current.reward_ledger is not None
         assert current.reward_ledger.drop_display[0]["floor"] == 1
         assert current.reward_ledger.latest_node_result is not None
-        assert current.reward_ledger.latest_node_result["floor"] == 10
+        assert current.reward_ledger.latest_node_result["floor"] == step_results[-1].cleared_floor
         assert persisted is not None
         assert len(drops) == 0
         assert aggregate is not None
         assert aggregate.progress is not None
-        if second_result.reward_granted:
-            assert second_result.battle_outcome == "ally_victory"
-            assert second_result.stopped_reason == "decision"
-            assert second_result.decision_floor == 10
-            assert second_result.next_floor == 11
-            assert current.status == "running"
-            assert current.current_floor == 11
-            assert current.current_node_type is not None
-            assert current.current_node_type.value == "normal"
-            assert current.reward_ledger.last_reward_floor == 10
-            assert current.reward_ledger.advanced_floor_count == 10
-            assert current.reward_ledger.pending_drop_progress == 30
-            assert current.reward_ledger.drop_count == 3
-            assert len(current.reward_ledger.drop_display) == 10
-            assert current.reward_ledger.drop_display[-1]["floor"] == 10
-            assert current.reward_ledger.drop_display[-1]["pending_drop_progress"] == 30
-            assert len(current.encounter_history) == 10
-            assert current.encounter_history[-1]["battle_outcome"] == "ally_victory"
-            assert current.reward_ledger.latest_node_result["reward_granted"] is True
-            assert current.reward_ledger.latest_anchor_unlock is not None
-            assert current.reward_ledger.latest_anchor_unlock["unlocked"] is True
-            assert current.reward_ledger.latest_anchor_unlock["anchor_floor"] == 10
-            assert persisted.status == "running"
-            assert persisted.current_floor == 11
-            assert persisted.pending_rewards_json["pending_totals"]["drop_progress"] == 30
-            assert len(persisted.pending_rewards_json["drop_display"]) == 10
-            assert len(reports) == 10
-            assert aggregate.progress.highest_endless_floor == 10
-        else:
-            assert second_result.battle_outcome == "enemy_victory"
-            assert second_result.stopped_reason == "defeat"
-            assert second_result.decision_floor is None
-            assert second_result.next_floor is None
-            assert current.status == "pending_defeat_settlement"
-            assert current.current_floor == 10
-            assert current.reward_ledger.last_reward_floor == 9
-            assert current.reward_ledger.advanced_floor_count == 9
-            assert current.reward_ledger.pending_drop_progress == 20
-            assert current.reward_ledger.drop_count == 2
-            assert len(current.reward_ledger.drop_display) == 9
-            assert current.reward_ledger.drop_display[-1]["floor"] == 9
-            assert current.reward_ledger.drop_display[-1]["pending_drop_progress"] == 20
-            assert len(current.encounter_history) == 10
-            assert current.encounter_history[-1]["battle_outcome"] == "enemy_victory"
-            assert current.reward_ledger.latest_node_result["reward_granted"] is False
-            assert current.reward_ledger.latest_anchor_unlock is not None
-            assert current.reward_ledger.latest_anchor_unlock["unlocked"] is False
-            assert persisted.status == "pending_defeat_settlement"
-            assert persisted.current_floor == 10
-            assert persisted.pending_rewards_json["pending_totals"]["drop_progress"] == 20
-            assert len(persisted.pending_rewards_json["drop_display"]) == 9
-            assert len(reports) == 10
-            assert aggregate.progress.highest_endless_floor == 5
+        assert current.status == "running"
+        assert current.current_floor == 6
+        assert current.current_node_type is not None
+        assert current.current_node_type.value == "normal"
+        assert current.reward_ledger.last_reward_floor == 5
+        assert current.reward_ledger.advanced_floor_count == 5
+        assert len(current.reward_ledger.drop_display) == 5
+        assert len(current.encounter_history) == 5
+        assert current.reward_ledger.latest_node_result["reward_granted"] is True
+        assert persisted.status == "running"
+        assert persisted.current_floor == 6
+        assert len(persisted.pending_rewards_json["drop_display"]) == 5
+        assert len(reports) == 5
+        assert aggregate.progress.highest_endless_floor == 5
+
+
+
+def test_settle_retreat_rejected_outside_decision_floor(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """非第 5/10 层节点不应允许执行撤离结算。"""
+    database_url = _build_sqlite_url(tmp_path / "endless_retreat_guard.db")
+    _upgrade_database(database_url, monkeypatch)
+    session_factory = create_session_factory(database_url)
+    static_config = load_static_config()
+    start_time = datetime(2026, 3, 26, 15, 30, 0)
+
+    with session_scope(session_factory) as session:
+        growth_service, endless_service, character_repository, _, _, _, _, _ = _build_services(session, static_config)
+        created = growth_service.create_character(
+            discord_user_id="320041",
+            player_display_name="渡枝",
+            character_name="照夜",
+        )
+        _set_character_progress(
+            character_repository=character_repository,
+            character_id=created.character_id,
+            realm_id="great_vehicle",
+            stage_id="perfect",
+        )
+        endless_service.start_run(
+            character_id=created.character_id,
+            selected_start_floor=1,
+            seed=2026032601,
+            now=start_time,
+        )
+        endless_service.advance_next_floor(character_id=created.character_id)
+
+        with pytest.raises(EndlessDungeonServiceError):
+            endless_service.settle_retreat(character_id=created.character_id, now=start_time)
 
 
 

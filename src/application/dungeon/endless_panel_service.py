@@ -33,6 +33,7 @@ _BATTLE_OUTCOME_LABEL_BY_VALUE = {
     "draw": "平局",
 }
 _STOP_REASON_LABEL_BY_VALUE = {
+    "advanced": "完成当前层",
     "decision": "抵达决策点",
     "defeat": "战败停止",
 }
@@ -121,7 +122,7 @@ class EndlessFloorPanelSnapshot:
 
 @dataclass(frozen=True, slots=True)
 class EndlessRunPresentationSnapshot:
-    """无尽副本当前运行态的 UI 投影。"""
+    """无尽副本当前运行态的当前层场景投影。"""
 
     phase: str
     phase_label: str
@@ -135,14 +136,15 @@ class EndlessRunPresentationSnapshot:
     advanced_floor_count: int
     pending_drop_progress: int
     claimable_drop_count: int
+    current_scene_kind: str
+    current_scene_floor: EndlessFloorPanelSnapshot | None
     latest_floor_result: EndlessFloorPanelSnapshot | None
-    recent_floor_results: tuple[EndlessFloorPanelSnapshot, ...]
     upcoming_floor_preview: EndlessFloorPanelSnapshot | None
 
 
 @dataclass(frozen=True, slots=True)
 class EndlessAdvancePresentation:
-    """单次自动推进的 UI 投影。"""
+    """单层推进后的 UI 投影。"""
 
     stopped_reason: str
     stopped_reason_label: str
@@ -152,7 +154,8 @@ class EndlessAdvancePresentation:
     can_settle_retreat: bool
     pending_drop_progress: int
     claimable_drop_count: int
-    floor_results: tuple[EndlessFloorPanelSnapshot, ...]
+    floor_result: EndlessFloorPanelSnapshot
+    upcoming_floor_preview: EndlessFloorPanelSnapshot | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -236,37 +239,29 @@ class EndlessPanelQueryService:
         result: EndlessFloorAdvanceResult,
         overview: CharacterPanelOverview | None = None,
     ) -> EndlessAdvancePresentation:
-        """把单次自动推进结果转换为 UI 可直接消费的展示数据。"""
+        """把单层推进结果转换为 UI 可直接消费的展示数据。"""
         resolved_overview = overview or self._character_panel_query_service.get_overview(character_id=character_id)
         battle_reports_by_id = self._load_battle_reports_by_id(
             character_id=character_id,
-            battle_report_ids=_collect_battle_report_ids(result.advanced_results),
+            battle_report_ids=_collect_battle_report_ids((result.latest_node_result,)),
         )
-        total_gain = 0
-        for payload in result.advanced_results:
-            reward_payload = _normalize_optional_mapping(payload.get("reward_payload")) or {}
-            pending_mapping = _normalize_int_mapping(reward_payload.get("pending"))
-            if bool(payload.get("reward_granted")):
-                total_gain += _read_int(pending_mapping.get("drop_progress"))
         reward_ledger = result.run_status.reward_ledger
         final_pending_drop_progress = 0 if reward_ledger is None else reward_ledger.pending_drop_progress
-        base_pending_drop_progress = max(0, final_pending_drop_progress - total_gain)
-        cumulative_drop_progress = base_pending_drop_progress
-        floor_results: list[EndlessFloorPanelSnapshot] = []
-        for payload in result.advanced_results:
-            reward_payload = _normalize_optional_mapping(payload.get("reward_payload")) or {}
-            pending_mapping = _normalize_int_mapping(reward_payload.get("pending"))
-            if bool(payload.get("reward_granted")):
-                cumulative_drop_progress += _read_int(pending_mapping.get("drop_progress"))
-            floor_results.append(
-                self._build_floor_panel_snapshot(
-                    node_result=payload,
-                    overview=resolved_overview,
-                    battle_reports_by_id=battle_reports_by_id,
-                    cumulative_drop_progress=cumulative_drop_progress,
-                    claimable_drop_count=cumulative_drop_progress // 10,
-                )
-            )
+        final_claimable_drop_count = 0 if reward_ledger is None else reward_ledger.drop_count
+        floor_result = self._build_floor_panel_snapshot(
+            node_result=result.latest_node_result,
+            overview=resolved_overview,
+            battle_reports_by_id=battle_reports_by_id,
+            cumulative_drop_progress=final_pending_drop_progress,
+            claimable_drop_count=final_claimable_drop_count,
+        )
+        upcoming_floor_preview = self._build_upcoming_floor_preview(
+            character_id=character_id,
+            overview=resolved_overview,
+            run_status=result.run_status,
+            current_pending_drop_progress=final_pending_drop_progress,
+            current_claimable_drop_count=final_claimable_drop_count,
+        )
         return EndlessAdvancePresentation(
             stopped_reason=result.stopped_reason,
             stopped_reason_label=_STOP_REASON_LABEL_BY_VALUE.get(result.stopped_reason, result.stopped_reason),
@@ -275,8 +270,9 @@ class EndlessPanelQueryService:
             next_floor=result.next_floor,
             can_settle_retreat=result.stopped_reason == "decision" and result.decision_floor is not None,
             pending_drop_progress=final_pending_drop_progress,
-            claimable_drop_count=0 if reward_ledger is None else reward_ledger.drop_count,
-            floor_results=tuple(floor_results),
+            claimable_drop_count=final_claimable_drop_count,
+            floor_result=floor_result,
+            upcoming_floor_preview=upcoming_floor_preview,
         )
 
     def get_recent_settlement_snapshot(
@@ -354,33 +350,33 @@ class EndlessPanelQueryService:
                 advanced_floor_count=0,
                 pending_drop_progress=0,
                 claimable_drop_count=0,
+                current_scene_kind="idle",
+                current_scene_floor=None,
                 latest_floor_result=None,
-                recent_floor_results=(),
                 upcoming_floor_preview=None,
             )
         reward_ledger = run_status.reward_ledger
-        encounter_history = run_status.encounter_history
+        latest_node_result = None if reward_ledger is None else _normalize_optional_mapping(reward_ledger.latest_node_result)
         battle_reports_by_id = self._load_battle_reports_by_id(
             character_id=character_id,
-            battle_report_ids=_collect_battle_report_ids(encounter_history),
+            battle_report_ids=() if latest_node_result is None else _collect_battle_report_ids((latest_node_result,)),
         )
-        cumulative_drop_progress = 0
-        recent_floor_results: list[EndlessFloorPanelSnapshot] = []
-        for payload in encounter_history:
-            reward_payload = _normalize_optional_mapping(payload.get("reward_payload")) or {}
-            pending_mapping = _normalize_int_mapping(reward_payload.get("pending"))
-            if bool(payload.get("reward_granted")):
-                cumulative_drop_progress += _read_int(pending_mapping.get("drop_progress"))
-            recent_floor_results.append(
-                self._build_floor_panel_snapshot(
-                    node_result=payload,
-                    overview=overview,
-                    battle_reports_by_id=battle_reports_by_id,
-                    cumulative_drop_progress=cumulative_drop_progress,
-                    claimable_drop_count=cumulative_drop_progress // 10,
-                )
+        latest_floor_result = None
+        if latest_node_result is not None:
+            latest_floor_result = self._build_floor_panel_snapshot(
+                node_result=latest_node_result,
+                overview=overview,
+                battle_reports_by_id=battle_reports_by_id,
+                cumulative_drop_progress=0 if reward_ledger is None else reward_ledger.pending_drop_progress,
+                claimable_drop_count=0 if reward_ledger is None else reward_ledger.drop_count,
             )
-        latest_floor_result = None if not recent_floor_results else recent_floor_results[-1]
+        upcoming_floor_preview = self._build_upcoming_floor_preview(
+            character_id=character_id,
+            overview=overview,
+            run_status=run_status,
+            current_pending_drop_progress=0 if reward_ledger is None else reward_ledger.pending_drop_progress,
+            current_claimable_drop_count=0 if reward_ledger is None else reward_ledger.drop_count,
+        )
         decision_floor = self._resolve_decision_floor(run_status=run_status)
         if run_status.status == _STATUS_PENDING_DEFEAT_SETTLEMENT:
             phase = "pending_defeat_settlement"
@@ -390,24 +386,37 @@ class EndlessPanelQueryService:
             can_continue = False
             can_settle_retreat = False
             can_settle_defeat = True
+            current_scene_kind = "defeat"
+            current_scene_floor = latest_floor_result
         elif decision_floor is not None:
             phase = "decision"
-            phase_label = f"第 {decision_floor} 层决策点"
+            phase_label = f"第 {decision_floor} 层节点抉择"
             stopped_floor = decision_floor
             next_floor = run_status.current_floor
             can_continue = True
             can_settle_retreat = True
             can_settle_defeat = False
+            current_scene_kind = "decision"
+            current_scene_floor = latest_floor_result
         else:
             phase = "running"
-            phase_label = "待继续挑战"
             stopped_floor = None if latest_floor_result is None else latest_floor_result.floor
             next_floor = run_status.current_floor
             can_continue = True
             can_settle_retreat = False
             can_settle_defeat = False
-            if not recent_floor_results:
-                phase_label = "待开始挑战"
+            if latest_floor_result is not None:
+                phase_label = f"第 {latest_floor_result.floor} 层已击破"
+                current_scene_kind = "floor_result"
+                current_scene_floor = latest_floor_result
+            else:
+                phase_label = (
+                    "待开始挑战"
+                    if run_status.current_floor is None
+                    else f"第 {run_status.current_floor} 层待开战"
+                )
+                current_scene_kind = "upcoming_preview"
+                current_scene_floor = upcoming_floor_preview
         return EndlessRunPresentationSnapshot(
             phase=phase,
             phase_label=phase_label,
@@ -417,19 +426,14 @@ class EndlessPanelQueryService:
             can_continue=can_continue,
             can_settle_retreat=can_settle_retreat,
             can_settle_defeat=can_settle_defeat,
-            battle_count=len(recent_floor_results),
+            battle_count=len(run_status.encounter_history),
             advanced_floor_count=0 if reward_ledger is None else reward_ledger.advanced_floor_count,
             pending_drop_progress=0 if reward_ledger is None else reward_ledger.pending_drop_progress,
             claimable_drop_count=0 if reward_ledger is None else reward_ledger.drop_count,
+            current_scene_kind=current_scene_kind,
+            current_scene_floor=current_scene_floor,
             latest_floor_result=latest_floor_result,
-            recent_floor_results=tuple(recent_floor_results),
-            upcoming_floor_preview=self._build_upcoming_floor_preview(
-                character_id=character_id,
-                overview=overview,
-                run_status=run_status,
-                current_pending_drop_progress=0 if reward_ledger is None else reward_ledger.pending_drop_progress,
-                current_claimable_drop_count=0 if reward_ledger is None else reward_ledger.drop_count,
-            ),
+            upcoming_floor_preview=upcoming_floor_preview,
         )
 
     def _build_upcoming_floor_preview(

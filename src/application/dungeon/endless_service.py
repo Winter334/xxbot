@@ -322,7 +322,7 @@ class EndlessRunStatusSnapshot:
 
 @dataclass(frozen=True, slots=True)
 class EndlessFloorAdvanceResult:
-    """无尽副本自动推进结果。"""
+    """无尽副本单层推进结果。"""
 
     character_id: int
     cleared_floor: int
@@ -539,7 +539,7 @@ class EndlessDungeonService:
         character_id: int,
         persist_battle_report: bool = True,
     ) -> EndlessFloorAdvanceResult:
-        """自动推进当前运行态，直到抵达决策点或战败。"""
+        """推进当前无尽运行一层，并在节点或战败后停驻。"""
         aggregate = self._require_character_aggregate(character_id)
         progress = self._require_progress(aggregate)
         endless_run_state = self._require_advancable_run_state(character_id)
@@ -552,144 +552,128 @@ class EndlessDungeonService:
             existing_run_snapshot_payload.get("record_floor_before_run"),
             default=progress.highest_endless_floor,
         )
-        advanced_results: list[dict[str, Any]] = []
-        final_anchor_unlock_result: dict[str, Any] | None = None
-        final_latest_node_result: dict[str, Any] | None = None
-        stopped_reason = "decision"
-        decision_floor: int | None = None
-        next_floor: int | None = None
+        highest_unlocked_anchor_floor = self._resolve_highest_unlocked_anchor_floor(progress)
+        floor_snapshot = self._resolve_floor(
+            current_floor=endless_run_state.current_floor,
+            highest_unlocked_anchor_floor=highest_unlocked_anchor_floor,
+        )
+        encounter = self._encounter_generator.generate(
+            floor=floor_snapshot.floor,
+            seed=endless_run_state.run_seed,
+        )
+        request = self._build_auto_battle_request(
+            aggregate=aggregate,
+            progress=progress,
+            floor_snapshot=floor_snapshot,
+            encounter=encounter,
+            run_seed=endless_run_state.run_seed,
+        )
+        execution_result = self._auto_battle_service.execute(
+            request=request,
+            persist=persist_battle_report,
+        )
+        self._apply_progress_writeback(
+            progress=progress,
+            current_hp_ratio=execution_result.persistence_mapping.progress_writeback.current_hp_ratio,
+            current_mp_ratio=execution_result.persistence_mapping.progress_writeback.current_mp_ratio,
+        )
+        battle_outcome = self._extract_battle_outcome(execution_result)
+        reward_granted = battle_outcome is BattleOutcome.ALLY_VICTORY
+        reward_breakdown = None
 
-        while True:
-            highest_unlocked_anchor_floor = self._resolve_highest_unlocked_anchor_floor(progress)
-            floor_snapshot = self._resolve_floor(
-                current_floor=endless_run_state.current_floor,
-                highest_unlocked_anchor_floor=highest_unlocked_anchor_floor,
+        previous_highest_unlocked_anchor_floor = highest_unlocked_anchor_floor
+        new_highest_unlocked_anchor_floor = highest_unlocked_anchor_floor
+        if reward_granted:
+            reward_breakdown = self._progression.build_reward_breakdown(
+                floor_snapshot.floor,
+                realm_id=progress.realm_id,
             )
-            encounter = self._encounter_generator.generate(
-                floor=floor_snapshot.floor,
-                seed=endless_run_state.run_seed,
+            progress.highest_endless_floor = max(progress.highest_endless_floor, floor_snapshot.floor)
+            new_highest_unlocked_anchor_floor = self._resolve_highest_unlocked_anchor_floor(progress)
+
+        enemy_units = self._build_enemy_unit_payloads(request.snapshot.enemies)
+        battle_summary = execution_result.report_artifacts.summary.to_payload()
+        anchor_unlock_result = self._build_anchor_unlock_result_payload(
+            cleared_floor=floor_snapshot.floor,
+            previous_highest_unlocked_anchor_floor=previous_highest_unlocked_anchor_floor,
+            new_highest_unlocked_anchor_floor=new_highest_unlocked_anchor_floor,
+        )
+        latest_node_result = self._build_latest_node_result_payload(
+            floor_snapshot=floor_snapshot,
+            encounter=encounter,
+            battle_outcome=battle_outcome,
+            battle_report_id=execution_result.persisted_battle_report_id,
+            reward_breakdown=reward_breakdown,
+            reward_granted=reward_granted,
+            current_hp_ratio=progress.current_hp_ratio,
+            current_mp_ratio=progress.current_mp_ratio,
+            enemy_units=enemy_units,
+            battle_summary=battle_summary,
+        )
+        encounter_history_entry = self._build_encounter_history_entry(node_result=latest_node_result)
+        self._merge_reward_ledger_payload(
+            payload=reward_payload,
+            reward_breakdown=reward_breakdown,
+            encounter_history_entry=encounter_history_entry,
+            latest_node_result=latest_node_result,
+            anchor_unlock_result=anchor_unlock_result,
+            encounter=encounter,
+        )
+        endless_run_state.last_region_bias_id = encounter.region_bias_id
+        endless_run_state.last_enemy_template_id = encounter.template_id
+
+        decision_floor = floor_snapshot.floor if reward_granted and self._is_decision_floor(floor_snapshot.floor) else None
+        if not reward_granted:
+            endless_run_state.status = _ENDLESS_STATUS_PENDING_DEFEAT_SETTLEMENT
+            endless_run_state.current_floor = floor_snapshot.floor
+            endless_run_state.highest_floor_reached = max(
+                _read_int(endless_run_state.highest_floor_reached),
+                floor_snapshot.floor,
             )
-            request = self._build_auto_battle_request(
-                aggregate=aggregate,
-                progress=progress,
-                floor_snapshot=floor_snapshot,
-                encounter=encounter,
+            endless_run_state.current_node_type = floor_snapshot.node_type.value
+            endless_run_state.pending_rewards_json = reward_payload
+            endless_run_state.run_snapshot_json = self._build_run_snapshot_payload(
+                status=_ENDLESS_STATUS_PENDING_DEFEAT_SETTLEMENT,
+                selected_start_floor=endless_run_state.selected_start_floor,
+                current_floor=floor_snapshot.floor,
+                current_node_type=floor_snapshot.node_type,
+                current_region=floor_snapshot.region,
+                highest_unlocked_anchor_floor=new_highest_unlocked_anchor_floor,
+                available_start_floors=self._progression.get_available_start_floors(new_highest_unlocked_anchor_floor),
+                current_anchor_floor=floor_snapshot.anchor_floor,
+                next_anchor_floor=floor_snapshot.next_anchor_floor,
                 run_seed=endless_run_state.run_seed,
+                encounter_history=reward_payload["encounter_history"],
+                record_floor_before_run=record_floor_before_run,
             )
-            execution_result = self._auto_battle_service.execute(
-                request=request,
-                persist=persist_battle_report,
-            )
-            self._apply_progress_writeback(
-                progress=progress,
-                current_hp_ratio=execution_result.persistence_mapping.progress_writeback.current_hp_ratio,
-                current_mp_ratio=execution_result.persistence_mapping.progress_writeback.current_mp_ratio,
-            )
-            battle_outcome = self._extract_battle_outcome(execution_result)
-            reward_granted = battle_outcome is BattleOutcome.ALLY_VICTORY
-            reward_breakdown = None
-
-            previous_highest_unlocked_anchor_floor = highest_unlocked_anchor_floor
-            new_highest_unlocked_anchor_floor = highest_unlocked_anchor_floor
-            if reward_granted:
-                reward_breakdown = self._progression.build_reward_breakdown(
-                    floor_snapshot.floor,
-                    realm_id=progress.realm_id,
-                )
-                progress.highest_endless_floor = max(progress.highest_endless_floor, floor_snapshot.floor)
-                new_highest_unlocked_anchor_floor = self._resolve_highest_unlocked_anchor_floor(progress)
-
-            enemy_units = self._build_enemy_unit_payloads(request.snapshot.enemies)
-            battle_summary = execution_result.report_artifacts.summary.to_payload()
-            anchor_unlock_result = self._build_anchor_unlock_result_payload(
-                cleared_floor=floor_snapshot.floor,
-                previous_highest_unlocked_anchor_floor=previous_highest_unlocked_anchor_floor,
-                new_highest_unlocked_anchor_floor=new_highest_unlocked_anchor_floor,
-            )
-            latest_node_result = self._build_latest_node_result_payload(
-                floor_snapshot=floor_snapshot,
-                encounter=encounter,
-                battle_outcome=battle_outcome,
-                battle_report_id=execution_result.persisted_battle_report_id,
-                reward_breakdown=reward_breakdown,
-                reward_granted=reward_granted,
-                current_hp_ratio=progress.current_hp_ratio,
-                current_mp_ratio=progress.current_mp_ratio,
-                enemy_units=enemy_units,
-                battle_summary=battle_summary,
-            )
-            encounter_history_entry = self._build_encounter_history_entry(node_result=latest_node_result)
-            self._merge_reward_ledger_payload(
-                payload=reward_payload,
-                reward_breakdown=reward_breakdown,
-                encounter_history_entry=encounter_history_entry,
-                latest_node_result=latest_node_result,
-                anchor_unlock_result=anchor_unlock_result,
-                encounter=encounter,
-            )
-            advanced_results.append(dict(latest_node_result))
-            final_anchor_unlock_result = anchor_unlock_result
-            final_latest_node_result = latest_node_result
-            endless_run_state.last_region_bias_id = encounter.region_bias_id
-            endless_run_state.last_enemy_template_id = encounter.template_id
-
-            if not reward_granted:
-                endless_run_state.status = _ENDLESS_STATUS_PENDING_DEFEAT_SETTLEMENT
-                endless_run_state.current_floor = floor_snapshot.floor
-                endless_run_state.highest_floor_reached = max(
-                    _read_int(endless_run_state.highest_floor_reached),
-                    floor_snapshot.floor,
-                )
-                endless_run_state.current_node_type = floor_snapshot.node_type.value
-                endless_run_state.pending_rewards_json = reward_payload
-                endless_run_state.run_snapshot_json = self._build_run_snapshot_payload(
-                    status=_ENDLESS_STATUS_PENDING_DEFEAT_SETTLEMENT,
-                    selected_start_floor=endless_run_state.selected_start_floor,
-                    current_floor=floor_snapshot.floor,
-                    current_node_type=floor_snapshot.node_type,
-                    current_region=floor_snapshot.region,
-                    highest_unlocked_anchor_floor=new_highest_unlocked_anchor_floor,
-                    available_start_floors=self._progression.get_available_start_floors(new_highest_unlocked_anchor_floor),
-                    current_anchor_floor=floor_snapshot.anchor_floor,
-                    next_anchor_floor=floor_snapshot.next_anchor_floor,
-                    run_seed=endless_run_state.run_seed,
-                    encounter_history=reward_payload["encounter_history"],
-                    record_floor_before_run=record_floor_before_run,
-                )
-                stopped_reason = "defeat"
-                next_floor = None
-                break
-
+            stopped_reason = "defeat"
+            next_floor = None
+        else:
             next_floor = floor_snapshot.floor + 1
-            endless_run_state.highest_floor_reached = max(_read_int(endless_run_state.highest_floor_reached), next_floor)
-            if self._is_decision_floor(floor_snapshot.floor):
-                next_floor_snapshot = self._resolve_floor(
-                    current_floor=next_floor,
-                    highest_unlocked_anchor_floor=new_highest_unlocked_anchor_floor,
-                )
-                endless_run_state.status = _ENDLESS_STATUS_RUNNING
-                endless_run_state.current_floor = next_floor
-                endless_run_state.current_node_type = next_floor_snapshot.node_type.value
-                endless_run_state.pending_rewards_json = reward_payload
-                endless_run_state.run_snapshot_json = self._build_run_snapshot_payload(
-                    status=_ENDLESS_STATUS_RUNNING,
-                    selected_start_floor=endless_run_state.selected_start_floor,
-                    current_floor=next_floor,
-                    current_node_type=next_floor_snapshot.node_type,
-                    current_region=next_floor_snapshot.region,
-                    highest_unlocked_anchor_floor=new_highest_unlocked_anchor_floor,
-                    available_start_floors=self._progression.get_available_start_floors(new_highest_unlocked_anchor_floor),
-                    current_anchor_floor=next_floor_snapshot.anchor_floor,
-                    next_anchor_floor=next_floor_snapshot.next_anchor_floor,
-                    run_seed=endless_run_state.run_seed,
-                    encounter_history=reward_payload["encounter_history"],
-                    record_floor_before_run=record_floor_before_run,
-                )
-                stopped_reason = "decision"
-                decision_floor = floor_snapshot.floor
-                break
-
+            next_floor_snapshot = self._resolve_floor(
+                current_floor=next_floor,
+                highest_unlocked_anchor_floor=new_highest_unlocked_anchor_floor,
+            )
+            endless_run_state.status = _ENDLESS_STATUS_RUNNING
             endless_run_state.current_floor = next_floor
+            endless_run_state.highest_floor_reached = max(_read_int(endless_run_state.highest_floor_reached), next_floor)
+            endless_run_state.current_node_type = next_floor_snapshot.node_type.value
+            endless_run_state.pending_rewards_json = reward_payload
+            endless_run_state.run_snapshot_json = self._build_run_snapshot_payload(
+                status=_ENDLESS_STATUS_RUNNING,
+                selected_start_floor=endless_run_state.selected_start_floor,
+                current_floor=next_floor,
+                current_node_type=next_floor_snapshot.node_type,
+                current_region=next_floor_snapshot.region,
+                highest_unlocked_anchor_floor=new_highest_unlocked_anchor_floor,
+                available_start_floors=self._progression.get_available_start_floors(new_highest_unlocked_anchor_floor),
+                current_anchor_floor=next_floor_snapshot.anchor_floor,
+                next_anchor_floor=next_floor_snapshot.next_anchor_floor,
+                run_seed=endless_run_state.run_seed,
+                encounter_history=reward_payload["encounter_history"],
+                record_floor_before_run=record_floor_before_run,
+            )
+            stopped_reason = "decision" if decision_floor is not None else "advanced"
 
         self._character_repository.save_progress(progress)
         self._state_repository.save_endless_run_state(endless_run_state)
@@ -698,21 +682,18 @@ class EndlessDungeonService:
             progress=progress,
             endless_run_state=endless_run_state,
         )
-        if not advanced_results or final_latest_node_result is None:
-            raise EndlessRunStateError("无尽副本自动推进结果为空")
-        last_result = advanced_results[-1]
         return EndlessFloorAdvanceResult(
             character_id=character_id,
-            cleared_floor=_read_int(last_result.get("floor"), default=endless_run_state.current_floor),
+            cleared_floor=floor_snapshot.floor,
             next_floor=next_floor,
-            encounter=dict(_normalize_optional_mapping(last_result.get("encounter")) or {}),
-            battle_outcome=str(last_result.get("battle_outcome") or ""),
-            battle_report_id=_read_optional_int(last_result.get("battle_report_id")),
-            reward_granted=bool(last_result.get("reward_granted")),
-            anchor_unlock_result=final_anchor_unlock_result,
-            latest_node_result=final_latest_node_result,
-            advanced_results=tuple(advanced_results),
-            stopped_floor=_read_int(last_result.get("floor"), default=endless_run_state.current_floor),
+            encounter=dict(_normalize_optional_mapping(latest_node_result.get("encounter")) or {}),
+            battle_outcome=str(latest_node_result.get("battle_outcome") or ""),
+            battle_report_id=_read_optional_int(latest_node_result.get("battle_report_id")),
+            reward_granted=reward_granted,
+            anchor_unlock_result=anchor_unlock_result,
+            latest_node_result=latest_node_result,
+            advanced_results=(dict(latest_node_result),),
+            stopped_floor=floor_snapshot.floor,
             stopped_reason=stopped_reason,
             decision_floor=decision_floor,
             run_status=status_snapshot,

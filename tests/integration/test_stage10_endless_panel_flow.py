@@ -219,7 +219,7 @@ def _build_panel_snapshot(*, phase: str) -> EndlessPanelSnapshot:
         status = "running"
         presentation = EndlessRunPresentationSnapshot(
             phase="decision",
-            phase_label="第 5 层决策点",
+            phase_label="第 5 层节点抉择",
             stopped_floor=5,
             decision_floor=5,
             next_floor=6,
@@ -230,8 +230,9 @@ def _build_panel_snapshot(*, phase: str) -> EndlessPanelSnapshot:
             advanced_floor_count=5,
             pending_drop_progress=12,
             claimable_drop_count=1,
+            current_scene_kind="decision",
+            current_scene_floor=latest_floor,
             latest_floor_result=latest_floor,
-            recent_floor_results=(latest_floor,),
             upcoming_floor_preview=preview_floor,
         )
         run_status = EndlessRunStatusSnapshot(
@@ -290,8 +291,9 @@ def _build_panel_snapshot(*, phase: str) -> EndlessPanelSnapshot:
             advanced_floor_count=4,
             pending_drop_progress=8,
             claimable_drop_count=0,
+            current_scene_kind="defeat",
+            current_scene_floor=failed_floor,
             latest_floor_result=failed_floor,
-            recent_floor_results=(failed_floor,),
             upcoming_floor_preview=None,
         )
         run_status = EndlessRunStatusSnapshot(
@@ -334,7 +336,7 @@ def _build_panel_snapshot(*, phase: str) -> EndlessPanelSnapshot:
         status = "running"
         presentation = EndlessRunPresentationSnapshot(
             phase="running",
-            phase_label="待继续挑战",
+            phase_label="第 2 层已击破",
             stopped_floor=2,
             decision_floor=None,
             next_floor=3,
@@ -345,8 +347,9 @@ def _build_panel_snapshot(*, phase: str) -> EndlessPanelSnapshot:
             advanced_floor_count=2,
             pending_drop_progress=4,
             claimable_drop_count=0,
+            current_scene_kind="floor_result",
+            current_scene_floor=non_decision_floor,
             latest_floor_result=non_decision_floor,
-            recent_floor_results=(non_decision_floor,),
             upcoming_floor_preview=next_floor,
         )
         run_status = EndlessRunStatusSnapshot(
@@ -399,11 +402,11 @@ def _flatten_embed(embed) -> str:
     return "\n".join(parts)
 
 
-def test_endless_panel_query_service_maps_auto_advance_results_and_enemy_battle_digests(
+def test_endless_panel_query_service_maps_single_floor_scene_and_enemy_battle_digests(
     tmp_path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """查询层应映射统一掉落进度、多层推进结果、敌人信息与战斗摘要。"""
+    """查询层应映射当前层场景、敌人信息与单层战斗摘要。"""
     database_url = _build_sqlite_url(tmp_path / "endless_panel_query.db")
     _upgrade_database(database_url, monkeypatch)
     session_factory = create_session_factory(database_url)
@@ -447,7 +450,14 @@ def test_endless_panel_query_service_maps_auto_advance_results_and_enemy_battle_
             seed=20260329,
             now=_NOW.replace(tzinfo=None),
         )
-        result = endless_service.advance_next_floor(character_id=created.character_id)
+        first_result = endless_service.advance_next_floor(character_id=created.character_id)
+        first_snapshot = panel_query_service.get_panel_snapshot(character_id=created.character_id)
+        assert first_snapshot.run_presentation.decision_floor is None
+        assert first_snapshot.run_presentation.current_scene_kind == "floor_result"
+        assert first_snapshot.run_presentation.can_settle_retreat is False
+
+        for _ in range(4):
+            result = endless_service.advance_next_floor(character_id=created.character_id)
         advance_presentation = panel_query_service.build_advance_presentation(
             character_id=created.character_id,
             result=result,
@@ -457,8 +467,8 @@ def test_endless_panel_query_service_maps_auto_advance_results_and_enemy_battle_
 
         assert snapshot.run_presentation.decision_floor == 5
         assert snapshot.run_presentation.can_settle_retreat is True
+        assert snapshot.run_presentation.current_scene_kind == "decision"
         assert snapshot.run_presentation.pending_drop_progress == result.run_status.reward_ledger.pending_drop_progress
-        assert len(snapshot.run_presentation.recent_floor_results) == 5
         latest_floor = snapshot.run_presentation.latest_floor_result
         assert latest_floor is not None
         assert latest_floor.template_name != ""
@@ -471,8 +481,10 @@ def test_endless_panel_query_service_maps_auto_advance_results_and_enemy_battle_
         assert preview.floor == 6
         assert preview.battle_outcome is None
 
-        assert [item.floor for item in advance_presentation.floor_results] == [1, 2, 3, 4, 5]
-        assert any(item.battle_report_digest is not None for item in advance_presentation.floor_results)
+        assert advance_presentation.floor_result.floor == 5
+        assert advance_presentation.floor_result.battle_report_digest is not None
+        assert advance_presentation.upcoming_floor_preview is not None
+        assert advance_presentation.upcoming_floor_preview.floor == 6
         assert advance_presentation.pending_drop_progress == snapshot.run_presentation.pending_drop_progress
         assert advance_presentation.claimable_drop_count == snapshot.run_presentation.claimable_drop_count
 
@@ -542,22 +554,106 @@ async def test_endless_panel_view_shows_defeat_settlement_only_after_failure() -
     assert view.settle_defeat.disabled is False
 
 
-def test_endless_hub_embed_uses_unified_drop_progress_and_no_legacy_score_terms() -> None:
-    """主面板文案应使用统一掉落进度语义，并去除旧分数与锚点主文案。"""
+@pytest.mark.asyncio
+async def test_endless_panel_view_does_not_expose_recent_settlement_entry_after_run_end() -> None:
+    """非运行态主交互层不应再暴露最近结算入口。"""
+    base_snapshot = _build_panel_snapshot(phase="decision")
+    settlement = EndlessRunSettlementResult(
+        character_id=base_snapshot.overview.character_id,
+        settlement_type="retreat",
+        terminated_floor=5,
+        current_region=base_snapshot.run_status.current_region,
+        stable_rewards=EndlessSettlementRewardSection(
+            original={"cultivation": 2400, "insight": 4, "refining_essence": 2},
+            deducted={"cultivation": 0, "insight": 0, "refining_essence": 0},
+            settled={"cultivation": 2400, "insight": 4, "refining_essence": 2},
+        ),
+        pending_rewards=EndlessSettlementRewardSection(
+            original={"drop_progress": 12},
+            deducted={"drop_progress": 0},
+            settled={"drop_progress": 12},
+        ),
+        final_drop_list=(),
+        accounting_completed=True,
+        can_repeat_read=True,
+        settled_at=_NOW,
+    )
+    snapshot = replace(
+        base_snapshot,
+        run_status=replace(
+            base_snapshot.run_status,
+            has_active_run=False,
+            status=None,
+            current_floor=None,
+            reward_ledger=None,
+            started_at=None,
+        ),
+        run_presentation=EndlessRunPresentationSnapshot(
+            phase="idle",
+            phase_label="未运行",
+            stopped_floor=None,
+            decision_floor=None,
+            next_floor=None,
+            can_continue=False,
+            can_settle_retreat=False,
+            can_settle_defeat=False,
+            battle_count=0,
+            advanced_floor_count=0,
+            pending_drop_progress=0,
+            claimable_drop_count=0,
+            current_scene_kind="idle",
+            current_scene_floor=None,
+            latest_floor_result=None,
+            upcoming_floor_preview=None,
+        ),
+        recent_settlement=EndlessRecentSettlementSnapshot(
+            settlement_result=settlement,
+            selected_start_floor=1,
+            advanced_floor_count=5,
+            record_floor_before_run=0,
+            last_floor_result=base_snapshot.run_presentation.latest_floor_result,
+        ),
+    )
+    view = EndlessPanelView(
+        controller=SimpleNamespace(),
+        owner_user_id=30001,
+        character_id=snapshot.overview.character_id,
+        snapshot=snapshot,
+        selected_start_floor=1,
+        display_mode=EndlessDisplayMode.HUB,
+    )
+
+    child_labels = [item.label for item in view.children if hasattr(item, "label") and item.label is not None]
+    text = _flatten_embed(view.build_embed())
+
+    assert "查看最近结算" not in child_labels
+    assert "返回入口" not in child_labels
+    assert "无涯渊境结算" not in text
+    assert "结算概览" not in text
+
+
+def test_endless_hub_embed_focuses_current_floor_scene_and_removes_history_overview_terms() -> None:
+    """主面板应聚焦当前层场景，移除历史/总览式字段与旧分数字段。"""
     snapshot = _build_panel_snapshot(phase="decision")
 
     embed = EndlessPanelPresenter.build_hub_embed(snapshot=snapshot, selected_start_floor=1)
     text = _flatten_embed(embed)
 
-    assert "统一掉落进度" in text
-    assert "可结算掉落" in text
-    assert "下一战敌阵" in text
-    assert "灵巧型" in text
+    assert "遭遇 / 敌阵" in text
+    assert "自身状态 / 风险" in text
+    assert "本层战况" in text
+    assert "结果 / 收益 / 掉落进度" in text
+    assert "节点抉择" in text
+    assert "统一掉落进度" not in text
+    assert "累计掉落进度" in text
+    assert "当前选择起始层" not in text
+    assert "起始层：" not in text
+    assert "最近战斗记录" not in text
+    assert "最近结算摘要" not in text
+    assert "下一战敌阵" not in text
     assert "装备分" not in text
     assert "法宝分" not in text
     assert "功法分" not in text
-    assert "推进一层" not in text
-    assert "主动撤离" not in text
     assert "锚点" not in text
 
 
@@ -643,8 +739,8 @@ def test_endless_public_settlement_embed_uses_source_progress_for_highlight_drop
     assert "凡铁短刃" not in text
 
 
-def test_endless_advance_lines_show_multi_floor_results_and_battle_process() -> None:
-    """自动推进回执应体现多层结果、敌人信息与战斗过程信号。"""
+def test_endless_advance_lines_show_single_floor_result_and_next_scene() -> None:
+    """单层推进回执应体现本层结果、战斗过程与下一层等待。"""
     battle_digest = _build_battle_digest()
     advance_presentation = EndlessAdvancePresentation(
         stopped_reason="decision",
@@ -655,17 +751,15 @@ def test_endless_advance_lines_show_multi_floor_results_and_battle_process() -> 
         can_settle_retreat=True,
         pending_drop_progress=12,
         claimable_drop_count=1,
-        floor_results=(
-            _build_floor_snapshot(floor=4, cumulative_progress=8, claimable_drop_count=0, battle_digest=battle_digest),
-            _build_floor_snapshot(floor=5, cumulative_progress=12, claimable_drop_count=1, battle_digest=battle_digest),
-        ),
+        floor_result=_build_floor_snapshot(floor=5, cumulative_progress=12, claimable_drop_count=1, battle_digest=battle_digest),
+        upcoming_floor_preview=_build_floor_snapshot(floor=6, cumulative_progress=12, claimable_drop_count=1, battle_digest=None),
     )
 
     lines = EndlessPanelController._build_advance_lines(advance_presentation=advance_presentation)
     text = "\n".join(lines)
 
-    assert "自动推进：第 4-5 层" in text
-    assert "统一掉落进度" in text
+    assert "推进完成：第 5 层" in text
+    assert "累计掉落进度" in text
     assert "灵体·灵巧型×2" in text
     assert "关键技能：" in text or "第 1 回合：" in text
     assert "可继续挑战或结算撤离" in text
