@@ -137,6 +137,33 @@ async def test_open_public_home_without_character_sends_private_creation_guide()
 
 
 @pytest.mark.asyncio
+async def test_open_public_home_uses_five_minute_public_panel_timeout() -> None:
+    """公开角色面板应收敛到约五分钟的回收时长。"""
+    controller = _build_controller()
+    interaction = _build_interaction()
+    controller.responder.send_message = AsyncMock()
+    controller._load_overview_by_discord_user_id = lambda discord_user_id: SimpleNamespace(character_id=1001)
+    controller._build_home_view = lambda owner_user_id, character_id: SimpleNamespace(timeout=5 * 60)
+    original_build_public_home_embed = CharacterPanelPresenter.build_public_home_embed
+    CharacterPanelPresenter.build_public_home_embed = classmethod(
+        lambda cls, *, overview, discord_display_name, avatar_url: SimpleNamespace(
+            title="角色面板",
+            description="测试桩",
+        )
+    )
+
+    try:
+        await controller.open_public_home(interaction)
+    finally:
+        CharacterPanelPresenter.build_public_home_embed = original_build_public_home_embed
+
+    _, kwargs = controller.responder.send_message.await_args
+    payload = kwargs["payload"]
+    assert kwargs["visibility"] is PanelVisibility.PUBLIC
+    assert payload.view.timeout == 5 * 60
+
+
+@pytest.mark.asyncio
 async def test_submit_character_creation_calls_growth_service_create_character() -> None:
     """显式提交流程应调用角色成长服务完成建号。"""
     growth_service = _GrowthServiceStub(

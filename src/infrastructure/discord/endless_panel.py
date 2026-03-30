@@ -481,8 +481,8 @@ class EndlessPanelPresenter:
             ):
                 return None
             if not quality_name:
-                return ("法宝实例：" if is_artifact else "装备实例：") + display_name
-            return ("法宝实例：" if is_artifact else "装备实例：") + f"{display_name}｜{quality_name}"
+                return ("法宝" if is_artifact else "异宝") + f"“{display_name}”"
+            return ("法宝" if is_artifact else "异宝") + f"“{display_name}”({quality_name})"
         parts = [display_name]
         rank_name = str(entry.get("rank_name") or "").strip()
         slot_name = str(entry.get("slot_name") or "").strip()
@@ -566,27 +566,13 @@ class EndlessPublicSettlementPresenter:
             return None
         settlement = recent_settlement.settlement_result
         embed = discord.Embed(
-            title=f"{snapshot.overview.character_name}｜无涯渊境高光战绩",
-            description="公开频道播报",
+            title=f"{snapshot.overview.character_name}｜无涯渊境见闻",
+            description=cls._build_public_story(snapshot=snapshot, recent_settlement=recent_settlement),
             color=discord.Color.orange(),
         )
-        embed.add_field(name="高光结果", value="\n".join(highlight_lines), inline=False)
-        embed.add_field(
-            name="本次结算摘要",
-            value=cls._build_public_result_block(recent_settlement=recent_settlement),
-            inline=False,
-        )
-        public_drop_lines = EndlessPanelPresenter._extract_final_drop_lines(
-            settlement=settlement,
-            public_mode=True,
-        )
-        if public_drop_lines:
-            embed.add_field(name="高价值掉落", value="\n".join(public_drop_lines), inline=False)
-        embed.add_field(
-            name="关键资源摘要",
-            value=cls._build_public_resource_block(settlement=settlement),
-            inline=False,
-        )
+        resource_summary = cls._build_public_resource_block(settlement=settlement)
+        if resource_summary:
+            embed.set_footer(text=resource_summary)
         return embed
 
     @classmethod
@@ -605,17 +591,33 @@ class EndlessPublicSettlementPresenter:
             lines.append("本轮出现主要掉落")
         return tuple(lines)
 
-    @staticmethod
-    def _build_public_result_block(*, recent_settlement: EndlessRecentSettlementSnapshot) -> str:
+    @classmethod
+    def _build_public_story(
+        cls,
+        *,
+        snapshot: EndlessPanelSnapshot,
+        recent_settlement: EndlessRecentSettlementSnapshot,
+    ) -> str:
         settlement = recent_settlement.settlement_result
-        lines = [
-            f"结算类型：{_SETTLEMENT_NAME_BY_VALUE.get(settlement.settlement_type, settlement.settlement_type)}",
-            f"终止层数：第 {settlement.terminated_floor} 层",
-            f"区域：{settlement.current_region.region_name}",
+        segments = [
+            (
+                f"渊境见闻：{snapshot.overview.character_name}一路闯到第 {settlement.terminated_floor} 层，"
+                f"自{settlement.current_region.region_name}带回一身未散的战意"
+            )
         ]
+        if settlement.terminated_floor > recent_settlement.record_floor_before_run:
+            segments.append(
+                f"更将个人旧纪录从第 {recent_settlement.record_floor_before_run} 层推至第 {settlement.terminated_floor} 层"
+            )
         if recent_settlement.advanced_floor_count > 0:
-            lines.append(f"本轮推进战斗：{recent_settlement.advanced_floor_count} 场")
-        return "\n".join(lines)
+            segments.append(f"本轮连破 {recent_settlement.advanced_floor_count} 场恶战")
+        public_drop_lines = EndlessPanelPresenter._extract_final_drop_lines(
+            settlement=settlement,
+            public_mode=True,
+        )
+        if public_drop_lines:
+            segments.append("并得" + "、".join(public_drop_lines))
+        return "，".join(segments) + "。"
 
     @staticmethod
     def _build_public_resource_block(*, settlement: EndlessRunSettlementResult) -> str:
@@ -626,8 +628,9 @@ class EndlessPublicSettlementPresenter:
         )
         drop_progress = max(0, _read_int(settlement.pending_rewards.settled.get("drop_progress")))
         if drop_progress <= 0:
-            return f"稳定入账：{stable_summary}"
-        return f"稳定入账：{stable_summary}\n掉落进度兑现：{drop_progress}"
+            return f"带回：{stable_summary}"
+        return f"带回：{stable_summary}｜落宝机缘 {drop_progress}"
+        return f"带回：{stable_summary}｜落宝机缘 {drop_progress}"
 
 
 class EndlessStartFloorSelect(discord.ui.Select):
@@ -1123,7 +1126,7 @@ class EndlessPanelController:
         if embed is None or interaction.channel is None:
             return
         try:
-            await interaction.channel.send(embed=embed)
+            await self.responder.send_public_broadcast(interaction.channel, embed=embed)
         except (discord.Forbidden, discord.HTTPException):
             return
 

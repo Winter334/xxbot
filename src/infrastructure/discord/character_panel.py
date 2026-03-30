@@ -24,8 +24,9 @@ from infrastructure.db.session import session_scope
 
 logger = logging.getLogger(__name__)
 
-_PUBLIC_PANEL_TIMEOUT_SECONDS = 20 * 60
+_PUBLIC_PANEL_TIMEOUT_SECONDS = 5 * 60
 _PRIVATE_PANEL_TIMEOUT_SECONDS = 14 * 60
+_PUBLIC_BROADCAST_DELETE_AFTER_SECONDS = 60
 _EXPIRED_PANEL_FOOTER_TEXT = "交互已过期，请重新打开最新面板。"
 _VIEW_MESSAGE_REGISTRY: WeakKeyDictionary[discord.ui.View, discord.Message] = WeakKeyDictionary()
 
@@ -65,6 +66,15 @@ def _cap_private_view_timeout(view: discord.ui.View | None) -> None:
     current_timeout = view.timeout
     if current_timeout is None or current_timeout > _PRIVATE_PANEL_TIMEOUT_SECONDS:
         view.timeout = _PRIVATE_PANEL_TIMEOUT_SECONDS
+
+
+
+def _cap_public_view_timeout(view: discord.ui.View | None) -> None:
+    if view is None:
+        return
+    current_timeout = view.timeout
+    if current_timeout is None or current_timeout > _PUBLIC_PANEL_TIMEOUT_SECONDS:
+        view.timeout = _PUBLIC_PANEL_TIMEOUT_SECONDS
 
 
 def _bind_view_message(view: discord.ui.View | None, message: discord.Message) -> None:
@@ -122,6 +132,8 @@ class DiscordInteractionVisibilityResponder:
     ) -> None:
         if visibility is PanelVisibility.PRIVATE:
             _cap_private_view_timeout(payload.view)
+        else:
+            _cap_public_view_timeout(payload.view)
         await interaction.response.send_message(
             embed=payload.embed,
             view=payload.view,
@@ -139,6 +151,7 @@ class DiscordInteractionVisibilityResponder:
         *,
         payload: PanelMessagePayload,
     ) -> None:
+        _cap_public_view_timeout(payload.view)
         await interaction.response.edit_message(embed=payload.embed, view=payload.view)
         if interaction.message is not None:
             _bind_view_message(payload.view, interaction.message)
@@ -153,6 +166,9 @@ class DiscordInteractionVisibilityResponder:
         await interaction.response.edit_message(embed=payload.embed, view=payload.view)
         if interaction.message is not None:
             _bind_view_message(payload.view, interaction.message)
+
+    async def send_public_broadcast(self, channel: discord.abc.Messageable, *, embed: discord.Embed) -> None:
+        await channel.send(embed=embed, delete_after=_PUBLIC_BROADCAST_DELETE_AFTER_SECONDS)
 
     async def send_private_error(self, interaction: discord.Interaction, *, message: str) -> None:
         embed = discord.Embed(title="角色主面板", description=message, color=discord.Color.red())

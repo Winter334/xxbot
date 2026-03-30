@@ -112,5 +112,17 @@ async def test_public_send_message_binds_message_for_timeout_cleanup() -> None:
 
     interaction.response.send_message.assert_awaited_once()
     assert interaction.response.send_message.await_args.kwargs["ephemeral"] is False
+    assert view.timeout == 5 * 60
     message.delete.assert_awaited_once()
     message.edit.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_public_broadcast_send_uses_delete_after_policy() -> None:
+    responder = DiscordInteractionVisibilityResponder()
+    channel = SimpleNamespace(send=AsyncMock())
+    embed = discord.Embed(title="江湖见闻")
+
+    await responder.send_public_broadcast(channel, embed=embed)
+
+    channel.send.assert_awaited_once_with(embed=embed, delete_after=60)

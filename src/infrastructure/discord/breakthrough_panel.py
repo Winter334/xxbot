@@ -365,21 +365,11 @@ class BreakthroughPublicSettlementPresenter:
         highlight_lines = cls._collect_highlight_lines(snapshot=snapshot, recent_settlement=recent_settlement)
         if not highlight_lines:
             return None
-        embed = discord.Embed(
-            title=f"{snapshot.overview.character_name}｜突破秘境高光播报",
-            description="公开频道播报",
+        return discord.Embed(
+            title=f"{snapshot.overview.character_name}｜突破秘境见闻",
+            description=cls._build_public_story(snapshot=snapshot, recent_settlement=recent_settlement),
             color=discord.Color.orange(),
         )
-        embed.add_field(name="高光结果", value="\n".join(highlight_lines), inline=False)
-        embed.add_field(
-            name="本次结算摘要",
-            value=cls._build_public_result_block(snapshot=snapshot, recent_settlement=recent_settlement),
-            inline=False,
-        )
-        reward_lines = cls._build_public_reward_lines(recent_settlement=recent_settlement)
-        if reward_lines:
-            embed.add_field(name="公开奖励摘要", value="\n".join(reward_lines), inline=False)
-        return embed
 
     @classmethod
     def _collect_highlight_lines(
@@ -398,21 +388,28 @@ class BreakthroughPublicSettlementPresenter:
             lines.append("本次获得可公开展示的高价值奖励")
         return tuple(lines)
 
-    @staticmethod
-    def _build_public_result_block(
+    @classmethod
+    def _build_public_story(
+        cls,
         *,
         snapshot: BreakthroughPanelSnapshot,
         recent_settlement: BreakthroughRecentSettlementSnapshot,
     ) -> str:
         settlement = recent_settlement.settlement
-        lines = [
-            f"关卡：{recent_settlement.trial_name}",
-            f"结果：{'胜利' if settlement.victory else '失败'}｜{_SETTLEMENT_NAME_BY_VALUE.get(settlement.settlement_type, settlement.settlement_type)}",
-            f"当前境界：{snapshot.overview.realm_name}·{snapshot.overview.stage_name}",
+        segments = [
+            (
+                f"宗门快报：{snapshot.overview.character_name}闯过“{recent_settlement.trial_name}”，"
+                f"在{snapshot.overview.realm_name}·{snapshot.overview.stage_name}之上又向前踏出一步"
+            )
         ]
         if settlement.qualification_granted:
-            lines.append("资格状态：已获得下一境界突破资格")
-        return "\n".join(lines)
+            target_realm_name = snapshot.precheck.target_realm_name or recent_settlement.trial_name
+            segments.append(f"已得突破{target_realm_name}的资格")
+        reward_lines = cls._build_public_reward_lines(recent_settlement=recent_settlement)
+        reward_mentions = [line for line in reward_lines if line != "突破资格：已达成"]
+        if reward_mentions:
+            segments.append("并带回" + "、".join(reward_mentions))
+        return "，".join(segments) + "。"
 
     @staticmethod
     def _build_public_reward_lines(*, recent_settlement: BreakthroughRecentSettlementSnapshot) -> list[str]:
@@ -984,7 +981,7 @@ class BreakthroughPanelController:
         if embed is None or interaction.channel is None:
             return
         try:
-            await interaction.channel.send(embed=embed)
+            await self.responder.send_public_broadcast(interaction.channel, embed=embed)
         except (discord.Forbidden, discord.HTTPException):
             return
 

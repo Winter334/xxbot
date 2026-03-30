@@ -362,24 +362,13 @@ class PvpPublicSettlementPresenter:
         highlight_lines: Sequence[str],
         unlocked_rewards: Sequence[Mapping[str, Any]],
     ) -> discord.Embed:
-        embed = discord.Embed(
-            title=f"{snapshot.overview.character_name}｜仙榜论道高光播报",
-            description="公开频道播报",
+        del highlight_lines
+        return cls._build_story_embed(
+            snapshot=snapshot,
+            recent_settlement=recent_settlement,
+            unlocked_rewards=unlocked_rewards,
             color=discord.Color.orange(),
         )
-        embed.add_field(name="高光结果", value="\n".join(highlight_lines), inline=False)
-        embed.add_field(
-            name="本次结算摘要",
-            value=cls._build_public_result_block(snapshot=snapshot, recent_settlement=recent_settlement),
-            inline=False,
-        )
-        if unlocked_rewards:
-            embed.add_field(
-                name="新获得展示奖励",
-                value="\n".join(PvpPanelPresenter._format_visible_rewards(unlocked_rewards)),
-                inline=False,
-            )
-        return embed
 
     @classmethod
     def _build_normal_embed(
@@ -388,17 +377,12 @@ class PvpPublicSettlementPresenter:
         snapshot: PvpPanelSnapshot,
         recent_settlement: PvpRecentSettlementSnapshot,
     ) -> discord.Embed:
-        embed = discord.Embed(
-            title=f"{snapshot.overview.character_name}｜仙榜论道结果播报",
-            description="公开频道播报",
+        return cls._build_story_embed(
+            snapshot=snapshot,
+            recent_settlement=recent_settlement,
+            unlocked_rewards=(),
             color=discord.Color.blue(),
         )
-        embed.add_field(
-            name="本次结算摘要",
-            value=cls._build_public_result_block(snapshot=snapshot, recent_settlement=recent_settlement),
-            inline=False,
-        )
-        return embed
 
     @staticmethod
     def _resolve_broadcast_mode(
@@ -455,22 +439,78 @@ class PvpPublicSettlementPresenter:
             lines.append("获得可公开展示的称号或徽记")
         return tuple(lines), unlocked_rewards
 
-    @staticmethod
-    def _build_public_result_block(
+    @classmethod
+    def _build_story_embed(
+        cls,
         *,
         snapshot: PvpPanelSnapshot,
         recent_settlement: PvpRecentSettlementSnapshot,
-    ) -> str:
-        defender_name = recent_settlement.defender_summary.get("character_name") or f"角色{recent_settlement.defender_character_id}"
-        return "\n".join(
-            (
-                f"结果：{_OUTCOME_NAME_BY_VALUE.get(recent_settlement.battle_outcome, recent_settlement.battle_outcome)}",
-                f"对手：{defender_name}｜挑战前第 {recent_settlement.rank_before_defender} 名",
-                f"名次：第 {recent_settlement.rank_before_attacker} 名 → 第 {recent_settlement.rank_after_attacker} 名",
-                f"当前奖励档位：{snapshot.current_reward_tier_name or snapshot.current_challenge_tier or '-'}",
-                f"荣誉币：{_format_signed(recent_settlement.honor_coin_delta)}",
-            )
+        unlocked_rewards: Sequence[Mapping[str, Any]],
+        color: discord.Color,
+    ) -> discord.Embed:
+        embed = discord.Embed(
+            title=f"{snapshot.overview.character_name}｜仙榜论道见闻",
+            description=cls._build_public_story(
+                snapshot=snapshot,
+                recent_settlement=recent_settlement,
+                unlocked_rewards=unlocked_rewards,
+            ),
+            color=color,
         )
+        return embed
+
+    @classmethod
+    def _build_public_story(
+        cls,
+        *,
+        snapshot: PvpPanelSnapshot,
+        recent_settlement: PvpRecentSettlementSnapshot,
+        unlocked_rewards: Sequence[Mapping[str, Any]],
+    ) -> str:
+        defender_name = str(
+            recent_settlement.defender_summary.get("character_name") or f"角色{recent_settlement.defender_character_id}"
+        )
+        segments = [
+            (
+                f"仙榜传闻：{snapshot.overview.character_name}此番论道胜过原列第 "
+                f"{recent_settlement.rank_before_defender} 名的{defender_name}，"
+                f"自身也由第 {recent_settlement.rank_before_attacker} 名跃至第 {recent_settlement.rank_after_attacker} 名"
+            )
+        ]
+        honor_coin_delta = recent_settlement.honor_coin_delta
+        if honor_coin_delta > 0:
+            segments.append(f"赢得荣誉币 +{honor_coin_delta}")
+        before_tier_name, after_tier_name = cls._resolve_reward_tier_shift(
+            snapshot=snapshot,
+            recent_settlement=recent_settlement,
+        )
+        if before_tier_name is not None and after_tier_name is not None and before_tier_name != after_tier_name:
+            segments.append(f"连带将赏格由{before_tier_name}抬入{after_tier_name}")
+        reward_mentions = cls._build_reward_mentions(unlocked_rewards)
+        if reward_mentions:
+            segments.append("又得" + "、".join(reward_mentions))
+        return "，".join(segments) + "。"
+
+    @staticmethod
+    def _build_reward_mentions(rewards: Sequence[Mapping[str, Any]]) -> tuple[str, ...]:
+        mentions: list[str] = []
+        for reward in rewards:
+            reward_type = _read_optional_str(reward.get("reward_type")) or "reward"
+            reward_name = _read_optional_str(reward.get("name")) or "无名之物"
+            reward_type_name = _REWARD_TYPE_NAME_BY_VALUE.get(reward_type, reward_type)
+            mentions.append(f"{reward_type_name}“{reward_name}”")
+        return tuple(mentions)
+
+    @staticmethod
+    def _resolve_reward_tier_shift(
+        *,
+        snapshot: PvpPanelSnapshot,
+        recent_settlement: PvpRecentSettlementSnapshot,
+    ) -> tuple[str | None, str | None]:
+        reward_preview = recent_settlement.reward_preview or {}
+        before_tier_name = _read_optional_str(reward_preview.get("summary"))
+        after_tier_name = snapshot.current_reward_tier_name or snapshot.current_challenge_tier
+        return before_tier_name, after_tier_name
 
 
 class PvpTargetSelect(discord.ui.Select):
@@ -933,7 +973,7 @@ class PvpPanelController:
         if embed is None or interaction.channel is None:
             return
         try:
-            await interaction.channel.send(embed=embed)
+            await self.responder.send_public_broadcast(interaction.channel, embed=embed)
         except (discord.Forbidden, discord.HTTPException):
             return
 

@@ -784,11 +784,14 @@ def test_endless_public_settlement_embed_uses_source_progress_for_highlight_drop
 
     assert embed is not None
     text = _flatten_embed(embed)
-    assert "高价值掉落" in text
-    assert "太虚战铠｜史诗" in text
-    assert "星辉镜｜稀有" in text
+    assert "渊境见闻：青玄一路闯到第 25 层" in text
+    assert "更将个人旧纪录从第 20 层推至第 25 层" in text
+    assert "并得异宝“太虚战铠”(史诗)、法宝“星辉镜”(稀有)" in text
+    assert "带回：修为 6300｜感悟 13｜炼华精粹 14｜落宝机缘 20" in text
     assert "旧分残留剑" not in text
     assert "凡铁短刃" not in text
+    assert "高价值掉落" not in text
+    assert "摘要" not in text
 
 
 def test_endless_advance_lines_show_single_floor_result_and_next_scene() -> None:

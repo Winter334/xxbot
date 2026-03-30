@@ -444,14 +444,14 @@ def test_public_highlight_broadcast_keeps_highlight_path_and_filters_frame_rewar
     )
 
     assert embed is not None
-    assert embed.title == "青玄｜仙榜论道高光播报"
-    highlight_value = _find_field_value(embed, "高光结果")
-    assert highlight_value is not None
-    assert "排名显著上升：第 18 名 → 第 12 名" in highlight_value
-    reward_value = _find_field_value(embed, "新获得展示奖励")
-    assert reward_value is not None
-    assert "徽记：天榜新秀（本次获得）" in reward_value
-    assert "流光边框" not in reward_value
+    assert embed.title == "青玄｜仙榜论道见闻"
+    public_text = _build_embed_text(embed)
+    assert "仙榜传闻：青玄此番论道胜过原列第 12 名的寒川" in public_text
+    assert "自身也由第 18 名跃至第 12 名" in public_text
+    assert "又得徽记“天榜新秀”" in public_text
+    assert "流光边框" not in public_text
+    assert "高光结果" not in public_text
+    assert "摘要" not in public_text
 
 
 def test_public_normal_broadcast_for_small_rank_up_without_highlight_condition() -> None:
@@ -472,10 +472,13 @@ def test_public_normal_broadcast_for_small_rank_up_without_highlight_condition()
     )
 
     assert embed is not None
-    assert embed.title == "青玄｜仙榜论道结果播报"
-    assert _find_field_value(embed, "高光结果") is None
-    assert _find_field_value(embed, "新获得展示奖励") is None
-    assert "流光边框" not in _build_embed_text(embed)
+    assert embed.title == "青玄｜仙榜论道见闻"
+    public_text = _build_embed_text(embed)
+    assert "仙榜传闻：青玄此番论道胜过原列第 18 名的寒川" in public_text
+    assert "自身也由第 20 名跃至第 18 名" in public_text
+    assert "流光边框" not in public_text
+    assert "高光结果" not in public_text
+    assert "摘要" not in public_text
 
 
 @pytest.mark.parametrize(
