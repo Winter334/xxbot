@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta
+from decimal import Decimal
 from pathlib import Path
 
 from alembic import command
@@ -58,7 +59,7 @@ def _build_services(session, static_config):
 
 
 def test_start_retreat_and_read_status(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """开始闭关后应写入状态，并能读取未完成状态。"""
+    """开始闭关后应允许主动结束，并按 30 分钟门槛与 12 小时进度展示收益。"""
     database_url = _build_sqlite_url(tmp_path / "retreat_start.db")
     _upgrade_database(database_url, monkeypatch)
     session_factory = create_session_factory(database_url)
@@ -84,7 +85,14 @@ def test_start_retreat_and_read_status(tmp_path, monkeypatch: pytest.MonkeyPatch
         assert started.started_at == start_time
         assert started.scheduled_end_at == start_time + timedelta(hours=12)
         assert started.settled_at is None
-        assert started.can_settle is False
+        assert started.can_settle is True
+        assert started.reward_available is False
+        assert started.elapsed_seconds == 0
+        assert started.settlement_seconds == 0
+        assert started.minimum_reward_seconds == 30 * 60
+        assert started.full_yield_seconds == 12 * 60 * 60
+        assert started.yield_progress == Decimal("0.0000")
+        assert "30 分钟" in started.status_hint
         assert started.pending_cultivation == 0
         assert started.pending_comprehension == 0
         assert started.pending_spirit_stone == 0
@@ -95,8 +103,17 @@ def test_start_retreat_and_read_status(tmp_path, monkeypatch: pytest.MonkeyPatch
         )
         assert status is not None
         assert status.status == "running"
-        assert status.can_settle is False
-        assert status.pending_cultivation == 0
+        assert status.can_settle is True
+        assert status.reward_available is True
+        assert status.elapsed_seconds == 6 * 60 * 60
+        assert status.settlement_seconds == 6 * 60 * 60
+        assert status.minimum_reward_seconds == 30 * 60
+        assert status.full_yield_seconds == 12 * 60 * 60
+        assert status.yield_progress == Decimal("0.5000")
+        assert "50.0%" in status.status_hint
+        assert status.pending_cultivation == 17
+        assert status.pending_comprehension == 1
+        assert status.pending_spirit_stone == 0
 
         with pytest.raises(RetreatAlreadyRunningError):
             retreat_service.start_retreat(
@@ -106,14 +123,17 @@ def test_start_retreat_and_read_status(tmp_path, monkeypatch: pytest.MonkeyPatch
             )
 
 
-def test_settle_retreat_applies_rewards_and_marks_completed(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """闭关完成后应按配置结算修为、感悟与灵石，并避免重复结算。"""
-    database_url = _build_sqlite_url(tmp_path / "retreat_settle.db")
+def test_settle_retreat_at_minimum_threshold_applies_minimum_reward_and_marks_completed(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """达到 30 分钟起算门槛后主动脱离，应按比例结算最小一档收益。"""
+    database_url = _build_sqlite_url(tmp_path / "retreat_minimum_reward.db")
     _upgrade_database(database_url, monkeypatch)
     session_factory = create_session_factory(database_url)
     static_config = load_static_config()
     start_time = datetime(2026, 3, 26, 9, 0, 0)
-    settle_time = start_time + timedelta(days=1)
+    settle_time = start_time + timedelta(minutes=30)
 
     with session_scope(session_factory) as session:
         growth_service, retreat_service = _build_services(session, static_config)
@@ -123,23 +143,32 @@ def test_settle_retreat_applies_rewards_and_marks_completed(tmp_path, monkeypatc
             character_name="闻道",
         )
 
-        retreat_service.start_retreat(character_id=created.character_id, now=start_time)
+        retreat_service.start_retreat(
+            character_id=created.character_id,
+            now=start_time,
+            duration=timedelta(hours=12),
+        )
         result = retreat_service.settle_retreat(character_id=created.character_id, now=settle_time)
 
         assert result.character_id == created.character_id
         assert result.realm_id == "mortal"
         assert result.started_at == start_time
-        assert result.scheduled_end_at == settle_time
+        assert result.scheduled_end_at == start_time + timedelta(hours=12)
         assert result.settled_at == settle_time
-        assert result.reward.elapsed_seconds == 86400
-        assert result.reward.cultivation_amount == 35
-        assert result.reward.comprehension_amount == 2
-        assert result.reward.spirit_stone_amount == 1
-        assert result.applied_cultivation == 35
-        assert result.growth_snapshot.cultivation_value == 35
-        assert result.growth_snapshot.comprehension_value == 2
-        assert result.growth_snapshot.spirit_stone == 1
-        assert result.growth_snapshot.stage_id == "perfect"
+        assert result.reward.actual_elapsed_seconds == 30 * 60
+        assert result.reward.elapsed_seconds == 30 * 60
+        assert result.reward.reward_seconds == 30 * 60
+        assert result.reward.cultivation_amount == 1
+        assert result.reward.comprehension_amount == 0
+        assert result.reward.spirit_stone_amount == 0
+        assert result.applied_cultivation == 1
+        assert result.growth_snapshot.cultivation_value == 1
+        assert result.growth_snapshot.comprehension_value == 0
+        assert result.growth_snapshot.spirit_stone == 0
+        assert result.growth_snapshot.stage_id == "early"
+        assert result.reward_available is True
+        assert result.minimum_reward_seconds == 30 * 60
+        assert result.full_yield_seconds == 12 * 60 * 60
 
         status = retreat_service.get_retreat_status(character_id=created.character_id, now=settle_time)
         assert status is not None
@@ -154,8 +183,11 @@ def test_settle_retreat_applies_rewards_and_marks_completed(tmp_path, monkeypatc
             retreat_service.settle_retreat(character_id=created.character_id, now=settle_time)
 
 
-def test_settle_retreat_respects_max_claim_days(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """闭关收益结算应受配置中的最大结算天数限制。"""
+def test_settle_retreat_caps_rewards_after_twelve_hours_even_if_elapsed_longer(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """闭关超过 12 小时后单次收益不再增长，即使计划时长与实际脱离时间更长。"""
     database_url = _build_sqlite_url(tmp_path / "retreat_cap.db")
     _upgrade_database(database_url, monkeypatch)
     session_factory = create_session_factory(database_url)
@@ -178,24 +210,34 @@ def test_settle_retreat_respects_max_claim_days(tmp_path, monkeypatch: pytest.Mo
         )
         result = retreat_service.settle_retreat(character_id=created.character_id, now=settle_time)
 
-        assert result.reward.elapsed_seconds == 259200
-        assert result.reward.cultivation_amount == 105
-        assert result.reward.comprehension_amount == 8
-        assert result.reward.spirit_stone_amount == 5
-        assert result.applied_cultivation == 50
-        assert result.growth_snapshot.cultivation_value == 50
-        assert result.growth_snapshot.comprehension_value == 8
-        assert result.growth_snapshot.spirit_stone == 5
-        assert result.settled_at == start_time + timedelta(days=3)
+        assert result.reward.actual_elapsed_seconds == 5 * 24 * 60 * 60
+        assert result.reward.elapsed_seconds == 3 * 24 * 60 * 60
+        assert result.reward.reward_seconds == 12 * 60 * 60
+        assert result.reward.cultivation_amount == 35
+        assert result.reward.comprehension_amount == 2
+        assert result.reward.spirit_stone_amount == 1
+        assert result.applied_cultivation == 35
+        assert result.growth_snapshot.cultivation_value == 35
+        assert result.growth_snapshot.comprehension_value == 2
+        assert result.growth_snapshot.spirit_stone == 1
+        assert result.growth_snapshot.stage_id == "perfect"
+        assert result.scheduled_end_at == start_time + timedelta(days=3)
+        assert result.settled_at == settle_time
+        assert result.minimum_reward_seconds == 30 * 60
+        assert result.full_yield_seconds == 12 * 60 * 60
 
 
-def test_retreat_duration_validation_and_early_settlement_guard(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """闭关持续时间非法或未到结束时间时应拒绝操作。"""
+def test_retreat_duration_validation_and_sub_threshold_settlement_end_without_rewards(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """非法持续时间应拒绝开始，不足 30 分钟主动脱离则结束闭关但不给收益。"""
     database_url = _build_sqlite_url(tmp_path / "retreat_validation.db")
     _upgrade_database(database_url, monkeypatch)
     session_factory = create_session_factory(database_url)
     static_config = load_static_config()
     start_time = datetime(2026, 3, 26, 11, 0, 0)
+    settle_time = start_time + timedelta(minutes=29)
 
     with session_scope(session_factory) as session:
         growth_service, retreat_service = _build_services(session, static_config)
@@ -225,13 +267,39 @@ def test_retreat_duration_validation_and_early_settlement_guard(tmp_path, monkey
             duration=timedelta(hours=10),
         )
 
-        assert retreat_service.can_settle(
+        status = retreat_service.get_retreat_status(
             character_id=created.character_id,
-            now=start_time + timedelta(hours=9),
-        ) is False
+            now=settle_time,
+        )
+        assert status is not None
+        assert status.can_settle is True
+        assert status.reward_available is False
+        assert status.elapsed_seconds == 29 * 60
+        assert status.settlement_seconds == 29 * 60
+        assert status.pending_cultivation == 0
+        assert status.pending_comprehension == 0
+        assert status.pending_spirit_stone == 0
+        assert "无收益" in status.status_hint
+
+        result = retreat_service.settle_retreat(character_id=created.character_id, now=settle_time)
+        assert result.reward.actual_elapsed_seconds == 29 * 60
+        assert result.reward.elapsed_seconds == 29 * 60
+        assert result.reward.reward_seconds == 29 * 60
+        assert result.reward.cultivation_amount == 0
+        assert result.reward.comprehension_amount == 0
+        assert result.reward.spirit_stone_amount == 0
+        assert result.applied_cultivation == 0
+        assert result.growth_snapshot.cultivation_value == 0
+        assert result.growth_snapshot.comprehension_value == 0
+        assert result.growth_snapshot.spirit_stone == 0
+        assert result.scheduled_end_at == start_time + timedelta(hours=10)
+        assert result.settled_at == settle_time
+        assert result.reward_available is False
+
+        completed = retreat_service.get_retreat_status(character_id=created.character_id, now=settle_time)
+        assert completed is not None
+        assert completed.status == "completed"
+        assert completed.can_settle is False
 
         with pytest.raises(RetreatNotReadyError):
-            retreat_service.settle_retreat(
-                character_id=created.character_id,
-                now=start_time + timedelta(hours=9),
-            )
+            retreat_service.settle_retreat(character_id=created.character_id, now=settle_time)

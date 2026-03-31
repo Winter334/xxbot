@@ -10,6 +10,7 @@ from zoneinfo import ZoneInfo
 from application.battle import AutoBattleRequest, AutoBattleService
 from application.character.current_attribute_service import CurrentAttributeService
 from application.character.growth_service import CharacterGrowthStateError, CharacterNotFoundError
+from application.healing import HealingPanelService, RecoveryActionBlockedError
 from application.pvp.defense_snapshot_service import PvpDefenseSnapshotBundle, PvpDefenseSnapshotService
 from application.pvp.honor_coin_service import HonorCoinApplicationResult, HonorCoinService
 from domain.battle import BattleOutcome, BattleSide, BattleSnapshot, BattleUnitSnapshot
@@ -165,6 +166,7 @@ class PvpService:
         auto_battle_service: AutoBattleService,
         defense_snapshot_service: PvpDefenseSnapshotService,
         honor_coin_service: HonorCoinService,
+        healing_panel_service: HealingPanelService | None = None,
         static_config: StaticGameConfig | None = None,
         rule_service: PvpRuleService | None = None,
     ) -> None:
@@ -174,6 +176,7 @@ class PvpService:
         self._auto_battle_service = auto_battle_service
         self._defense_snapshot_service = defense_snapshot_service
         self._honor_coin_service = honor_coin_service
+        self._healing_panel_service = healing_panel_service
         self._static_config = static_config or get_static_config()
         self._rule_service = rule_service or PvpRuleService(self._static_config)
         self._cycle_timezone = ZoneInfo(self._static_config.pvp.anti_abuse.cycle_timezone)
@@ -318,6 +321,7 @@ class PvpService:
         """执行一次完整 PVP 挑战并完成结算写入。"""
         current_time = self._resolve_current_time(now)
         cycle_anchor_date = self._resolve_cycle_anchor_date(current_time)
+        self._ensure_recovery_not_running(character_id=character_id, action_label="PVP挑战")
         leaderboard_entries, _ = self._ensure_leaderboard_entry(
             character_id=character_id,
             now=current_time,
@@ -1029,6 +1033,17 @@ class PvpService:
                 break
             win_streak += 1
         return win_streak
+
+    def _ensure_recovery_not_running(self, *, character_id: int, action_label: str) -> None:
+        if self._healing_panel_service is None:
+            return
+        try:
+            self._healing_panel_service.ensure_action_not_blocked_by_recovery(
+                character_id=character_id,
+                action_label=action_label,
+            )
+        except RecoveryActionBlockedError as exc:
+            raise PvpChallengeNotAllowedError(str(exc)) from exc
 
     def _build_challenge_record_settlement_payload(
         self,

@@ -12,6 +12,7 @@ from application.battle import AutoBattleRequest, AutoBattleService
 from application.character.current_attribute_service import CurrentAttributeService
 from application.character.skill_drop_service import SkillDropService
 from application.dungeon.endless_drop_service import EndlessSettlementDropOrchestrator, EndlessSettlementDropOrchestratorError
+from application.healing import HealingPanelService, RecoveryActionBlockedError
 from application.equipment.equipment_service import EquipmentItemSnapshot, EquipmentService, EquipmentServiceError
 from application.naming import ItemNamingBatchService
 from domain.battle import BattleOutcome, BattleSide, BattleSnapshot, BattleUnitSnapshot
@@ -402,6 +403,7 @@ class EndlessDungeonService:
         skill_drop_service: SkillDropService | None = None,
         equipment_service: EquipmentService | None = None,
         naming_batch_service: ItemNamingBatchService | None = None,
+        healing_panel_service: HealingPanelService | None = None,
     ) -> None:
         self._state_repository = state_repository
         self._character_repository = character_repository
@@ -422,6 +424,7 @@ class EndlessDungeonService:
         )
         self._equipment_service = equipment_service
         self._naming_batch_service = naming_batch_service
+        self._healing_panel_service = healing_panel_service
         self._growth_progression = CharacterGrowthProgression(self._static_config)
         self._drop_orchestrator = None if self._equipment_service is None else EndlessSettlementDropOrchestrator(
             equipment_service=self._equipment_service,
@@ -450,6 +453,7 @@ class EndlessDungeonService:
         now: datetime | None = None,
     ) -> EndlessRunStatusSnapshot:
         """开始一条新的无尽副本运行。"""
+        self._ensure_recovery_not_running(character_id=character_id, action_label="无尽副本")
         aggregate = self._require_character_aggregate(character_id)
         progress = self._require_progress(aggregate)
         current_time = now or datetime.utcnow()
@@ -540,6 +544,7 @@ class EndlessDungeonService:
         persist_battle_report: bool = True,
     ) -> EndlessFloorAdvanceResult:
         """推进当前无尽运行一层，并在节点或战败后停驻。"""
+        self._ensure_recovery_not_running(character_id=character_id, action_label="无尽副本推进")
         aggregate = self._require_character_aggregate(character_id)
         progress = self._require_progress(aggregate)
         endless_run_state = self._require_advancable_run_state(character_id)
@@ -1144,6 +1149,17 @@ class EndlessDungeonService:
             if battle_report_id is not None:
                 return battle_report_id
         return None
+
+    def _ensure_recovery_not_running(self, *, character_id: int, action_label: str) -> None:
+        if self._healing_panel_service is None:
+            return
+        try:
+            self._healing_panel_service.ensure_action_not_blocked_by_recovery(
+                character_id=character_id,
+                action_label=action_label,
+            )
+        except RecoveryActionBlockedError as exc:
+            raise EndlessDungeonServiceError(str(exc)) from exc
 
     @staticmethod
     def _resolve_terminated_floor(

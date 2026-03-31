@@ -295,6 +295,11 @@ def build_application_service_bundle(
         current_attribute_service=current_attribute_service,
         static_config=static_config,
     )
+    healing_panel_service = HealingPanelService(
+        character_repository=character_repository,
+        state_repository=state_repository,
+        static_config=static_config,
+    )
     pvp_service = PvpService(
         character_repository=character_repository,
         snapshot_repository=snapshot_repository,
@@ -302,6 +307,7 @@ def build_application_service_bundle(
         auto_battle_service=auto_battle_service,
         defense_snapshot_service=pvp_defense_snapshot_service,
         honor_coin_service=honor_coin_service,
+        healing_panel_service=healing_panel_service,
         static_config=static_config,
     )
     leaderboard_refresh_service = LeaderboardRefreshService(
@@ -356,6 +362,7 @@ def build_application_service_bundle(
         skill_drop_service=skill_drop_service,
         equipment_service=equipment_service,
         naming_batch_service=naming_batch_service,
+        healing_panel_service=healing_panel_service,
     )
     endless_panel_query_service = EndlessPanelQueryService(
         character_panel_query_service=character_panel_query_service,
@@ -394,6 +401,7 @@ def build_application_service_bundle(
         growth_service=growth_service,
         progression_service=progression_service,
         retreat_service=retreat_service,
+        healing_panel_service=healing_panel_service,
         static_config=static_config,
     )
     profile_panel_query_service = ProfilePanelQueryService(
@@ -419,10 +427,6 @@ def build_application_service_bundle(
         inventory_repository=inventory_repository,
         profile_panel_query_service=profile_panel_query_service,
         static_config=static_config,
-    )
-    healing_panel_service = HealingPanelService(
-        character_repository=character_repository,
-        state_repository=state_repository,
     )
     pvp_panel_service = PvpPanelService(
         character_panel_query_service=character_panel_query_service,

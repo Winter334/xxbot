@@ -205,11 +205,14 @@ class RealmCoefficientConfig(VersionedSectionConfig):
 
 
 class ClosedDoorYieldConfig(VersionedSectionConfig):
-    """闭关附加产出边界。"""
+    """闭关与打坐规则配置。"""
 
     insight_gain_ratio: NonNegativeDecimal
     spirit_stone_gain_ratio: NonNegativeDecimal
     max_days_per_claim: PositiveInt
+    minimum_reward_minutes: PositiveInt
+    full_yield_hours: PositiveInt
+    recovery_full_minutes: PositiveInt
     allow_breakthrough_resource_drop: bool
 
     def collect_issues(self, *, filename: str, collector: StaticConfigIssueCollector) -> None:
@@ -220,6 +223,20 @@ class ClosedDoorYieldConfig(VersionedSectionConfig):
                 config_path="allow_breakthrough_resource_drop",
                 identifier="closed_door_reward_boundary",
                 reason="闭关修炼不得产出关键突破资源",
+            )
+        if self.full_yield_hours > self.max_days_per_claim * 24:
+            collector.add(
+                filename=filename,
+                config_path="full_yield_hours",
+                identifier="closed_door_full_yield_hours",
+                reason="闭关满收益时长不能超过单次闭关最大时长",
+            )
+        if self.minimum_reward_minutes >= self.full_yield_hours * 60:
+            collector.add(
+                filename=filename,
+                config_path="minimum_reward_minutes",
+                identifier="closed_door_minimum_reward_minutes",
+                reason="闭关最小结算时长必须小于满收益时长",
             )
 
 

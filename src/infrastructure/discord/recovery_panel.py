@@ -55,6 +55,7 @@ class RecoveryPanelPresenter:
         embed.add_field(name="相关状态", value=cls._build_related_block(snapshot=snapshot), inline=False)
         if action_note is not None and action_note.lines:
             embed.add_field(name=action_note.title, value="\n".join(action_note.lines), inline=False)
+        embed.set_footer(text="规则：20 分钟恢复 100%，中途结束按比例恢复")
         return embed
 
     @classmethod
@@ -65,30 +66,43 @@ class RecoveryPanelPresenter:
             f"推断伤势：{cls._format_injury(snapshot.inferred_injury_level)}",
             f"恢复状态：{cls._format_healing_status(snapshot.healing_status)}",
         ]
-        if snapshot.healing_status != "none":
+        if snapshot.healing_status == _HEALING_STATUS_RUNNING:
             lines.extend(
                 (
-                    f"记录伤势：{cls._format_injury(snapshot.healing_injury_level)}",
                     f"开始时间：{cls._format_datetime(snapshot.started_at)}",
-                    f"结束时间：{cls._format_datetime(snapshot.scheduled_end_at)}",
+                    f"满恢复时间：{cls._format_datetime(snapshot.scheduled_end_at)}",
+                    f"恢复进度：{float(snapshot.recovery_progress) * 100:.1f}%",
+                    f"预计生命：{cls._format_ratio(snapshot.expected_hp_ratio)}",
+                    f"预计灵力：{cls._format_ratio(snapshot.expected_mp_ratio)}",
+                    f"剩余时间：{cls._format_duration(snapshot.remaining_recovery_seconds)}",
+                    f"提示：{snapshot.status_hint}",
                 )
             )
+        else:
+            lines.append(f"提示：{snapshot.status_hint}")
         return "\n".join(lines)
 
     @classmethod
     def _build_related_block(cls, *, snapshot: HealingPanelSnapshot) -> str:
-        action_text = "不可执行"
         if snapshot.can_complete_recovery:
-            action_text = "可完成恢复"
+            action_text = "可完成恢复并回满状态"
+        elif snapshot.can_interrupt_recovery:
+            action_text = "可结束恢复并按比例结算"
         elif snapshot.can_start_recovery:
             action_text = "可开始恢复"
+        else:
+            action_text = "当前不可执行"
         lines = [
             f"闭关中：{'是' if snapshot.retreat_running else '否'}",
             f"无尽运行中：{'是' if snapshot.endless_running else '否'}",
             f"当前动作：{action_text}",
         ]
-        if not snapshot.can_start_recovery and not snapshot.can_complete_recovery and snapshot.healing_status == _HEALING_STATUS_RUNNING:
-            lines.append("说明：疗伤尚未到结束时间")
+        if snapshot.healing_status == _HEALING_STATUS_RUNNING:
+            lines.append(
+                f"按钮行为：{'完成恢复' if snapshot.can_complete_recovery else '结束恢复并按比例结算'}"
+            )
+        else:
+            lines.append("按钮行为：开始恢复")
         return "\n".join(lines)
 
     @staticmethod
@@ -100,6 +114,21 @@ class RecoveryPanelPresenter:
         if value is None:
             return "-"
         return f"{discord.utils.format_dt(value, style='f')}｜{discord.utils.format_dt(value, style='R')}"
+
+    @staticmethod
+    def _format_duration(total_seconds: int) -> str:
+        if total_seconds <= 0:
+            return "0 分钟"
+        minutes = total_seconds // 60
+        if total_seconds % 60:
+            minutes += 1
+        hours, remaining_minutes = divmod(minutes, 60)
+        parts: list[str] = []
+        if hours > 0:
+            parts.append(f"{hours} 小时")
+        if remaining_minutes > 0 or not parts:
+            parts.append(f"{remaining_minutes} 分钟")
+        return "".join(parts)
 
     @staticmethod
     def _format_injury(value: str | None) -> str:
@@ -117,7 +146,7 @@ class RecoveryPanelPresenter:
     def _format_healing_status(value: str) -> str:
         mapping = {
             "none": "无疗伤记录",
-            _HEALING_STATUS_RUNNING: "疗伤中",
+            _HEALING_STATUS_RUNNING: "打坐恢复中",
             _HEALING_STATUS_COMPLETED: "已完成",
         }
         return mapping.get(value, value)
@@ -149,7 +178,20 @@ class RecoveryPanelView(discord.ui.View):
         return False
 
     def _sync_component_state(self) -> None:
-        self.execute_recovery.disabled = not (self.snapshot.can_start_recovery or self.snapshot.can_complete_recovery)
+        self.execute_recovery.disabled = not (
+            self.snapshot.can_start_recovery
+            or self.snapshot.can_complete_recovery
+            or self.snapshot.can_interrupt_recovery
+        )
+        if self.snapshot.can_complete_recovery:
+            self.execute_recovery.label = "完成恢复"
+            self.execute_recovery.style = discord.ButtonStyle.success
+        elif self.snapshot.can_interrupt_recovery:
+            self.execute_recovery.label = "结束恢复"
+            self.execute_recovery.style = discord.ButtonStyle.danger
+        else:
+            self.execute_recovery.label = "开始恢复"
+            self.execute_recovery.style = discord.ButtonStyle.success
 
     @discord.ui.button(label="执行恢复", style=discord.ButtonStyle.success)
     async def execute_recovery(  # type: ignore[override]
@@ -313,9 +355,15 @@ class RecoveryPanelController:
     def _build_action_lines(*, result: RecoveryActionResult) -> tuple[str, ...]:
         if result.action_type == "start":
             return (
-                "已开始恢复。",
-                f"当前生命：{RecoveryPanelPresenter._format_ratio(result.snapshot.current_hp_ratio)}",
+                "已开始打坐恢复。",
+                "规则：20 分钟恢复 100%，中途结束按比例恢复。",
                 f"预计结束：{RecoveryPanelPresenter._format_datetime(result.snapshot.scheduled_end_at)}",
+            )
+        if result.action_type == "interrupt":
+            return (
+                "已结束打坐恢复，并按当前进度结算。",
+                f"当前生命：{RecoveryPanelPresenter._format_ratio(result.snapshot.current_hp_ratio)}",
+                f"当前灵力：{RecoveryPanelPresenter._format_ratio(result.snapshot.current_mp_ratio)}",
             )
         return (
             "恢复已完成。",

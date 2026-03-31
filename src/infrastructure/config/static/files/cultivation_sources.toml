@@ -5,6 +5,9 @@ config_version = "1.0.0"
 insight_gain_ratio = "0.08"
 spirit_stone_gain_ratio = "0.05"
 max_days_per_claim = 3
+minimum_reward_minutes = 30
+full_yield_hours = 12
+recovery_full_minutes = 20
 allow_breakthrough_resource_drop = false
 
 [[sources]]

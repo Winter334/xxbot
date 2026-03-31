@@ -8,6 +8,7 @@ from decimal import Decimal, ROUND_DOWN
 from application.character.growth_service import CharacterGrowthSnapshot, CharacterGrowthService
 from application.character.progression_service import BreakthroughPrecheckResult, CharacterProgressionService
 from application.character.retreat_service import RetreatService, RetreatStatusSnapshot
+from application.healing import HealingPanelService, RecoveryActionBlockedError
 from infrastructure.config.static import StaticGameConfig, get_static_config
 
 _ACTIVE_PRACTICE_SOURCE_CATEGORY = "active_peak"
@@ -57,11 +58,13 @@ class CultivationPanelService:
         growth_service: CharacterGrowthService,
         progression_service: CharacterProgressionService,
         retreat_service: RetreatService,
+        healing_panel_service: HealingPanelService,
         static_config: StaticGameConfig | None = None,
     ) -> None:
         self._growth_service = growth_service
         self._progression_service = progression_service
         self._retreat_service = retreat_service
+        self._healing_panel_service = healing_panel_service
         self._static_config = static_config or get_static_config()
 
     def get_panel_snapshot(self, *, character_id: int) -> CultivationPanelSnapshot:
@@ -82,6 +85,13 @@ class CultivationPanelService:
         current_snapshot = self.get_panel_snapshot(character_id=character_id)
         if self._is_retreat_running(current_snapshot.retreat_status):
             raise CultivationPracticeBlockedError(f"角色闭关中，无法执行单次修炼：{character_id}")
+        try:
+            self._healing_panel_service.ensure_action_not_blocked_by_recovery(
+                character_id=character_id,
+                action_label="单次修炼",
+            )
+        except RecoveryActionBlockedError as exc:
+            raise CultivationPracticeBlockedError(str(exc)) from exc
 
         cultivation_result = self._growth_service.add_cultivation(
             character_id=character_id,

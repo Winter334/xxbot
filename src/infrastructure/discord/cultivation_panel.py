@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import timedelta
+from decimal import Decimal
 from typing import Protocol
 
 import discord
@@ -84,7 +85,7 @@ class CultivationPanelPresenter:
         )
         if action_note is not None and action_note.lines:
             embed.add_field(name=action_note.title, value="\n".join(action_note.lines), inline=False)
-        embed.set_footer(text=f"当前闭关时长：{selected_duration_hours} 小时")
+        embed.set_footer(text=f"当前闭关时长：{selected_duration_hours} 小时｜规则：30 分钟起算，12 小时吃满")
         return embed
 
     @classmethod
@@ -120,30 +121,29 @@ class CultivationPanelPresenter:
             return (
                 "状态：未开始\n"
                 f"建议时长：{selected_duration_hours} 小时\n"
-                "说明：开始后按到期时间结算闭关收益"
+                "规则：30 分钟起算，12 小时吃满；中途结束按实际时长比例结算"
             )
         if cls._is_retreat_running(retreat_status):
             lines = [
                 "状态：闭关中",
                 f"开始时间：{cls._format_datetime(retreat_status.started_at)}",
-                f"预计结束：{cls._format_datetime(retreat_status.scheduled_end_at)}",
+                f"计划结束：{cls._format_datetime(retreat_status.scheduled_end_at)}",
+                f"已闭关时长：{cls._format_duration(retreat_status.elapsed_seconds)}",
+                f"起算门槛：{cls._format_duration(retreat_status.minimum_reward_seconds)}",
+                f"满收益时长：{cls._format_duration(retreat_status.full_yield_seconds)}",
+                f"当前收益进度：{cls._format_percent(retreat_status.yield_progress)}",
+                f"奖励状态：{'已达到奖励门槛' if retreat_status.reward_available else '未达到奖励门槛'}",
+                f"提示：{retreat_status.status_hint}",
+                f"预计修为：{retreat_status.pending_cultivation}",
+                f"预计感悟：{retreat_status.pending_comprehension}",
+                f"预计灵石：{retreat_status.pending_spirit_stone}",
+                "可主动结束闭关并立即按当前进度结算。",
             ]
-            if retreat_status.can_settle:
-                lines.extend(
-                    (
-                        "当前可结束闭关并结算收益",
-                        f"待结算修为：{retreat_status.pending_cultivation}",
-                        f"待结算感悟：{retreat_status.pending_comprehension}",
-                        f"待结算灵石：{retreat_status.pending_spirit_stone}",
-                    )
-                )
-            else:
-                lines.append("结算状态：尚未到可结算时间")
             return "\n".join(lines)
         return (
             "状态：已结束\n"
             f"上次结束：{cls._format_datetime(retreat_status.settled_at)}\n"
-            f"建议时长：{selected_duration_hours} 小时"
+            f"上次提示：{retreat_status.status_hint}"
         )
 
     @classmethod
@@ -180,6 +180,25 @@ class CultivationPanelPresenter:
         if value is None:
             return "-"
         return f"{discord.utils.format_dt(value, style='f')}｜{discord.utils.format_dt(value, style='R')}"
+
+    @staticmethod
+    def _format_percent(value: Decimal) -> str:
+        return f"{float(value) * 100:.1f}%"
+
+    @staticmethod
+    def _format_duration(total_seconds: int) -> str:
+        if total_seconds <= 0:
+            return "0 分钟"
+        minutes = total_seconds // 60
+        if total_seconds % 60:
+            minutes += 1
+        hours, remaining_minutes = divmod(minutes, 60)
+        parts: list[str] = []
+        if hours > 0:
+            parts.append(f"{hours} 小时")
+        if remaining_minutes > 0 or not parts:
+            parts.append(f"{remaining_minutes} 分钟")
+        return "".join(parts)
 
 
 class RetreatDurationSelect(discord.ui.Select):
@@ -250,10 +269,9 @@ class CultivationPanelView(discord.ui.View):
 
     def _sync_component_state(self) -> None:
         is_retreat_running = CultivationPanelPresenter._is_retreat_running(self.snapshot.retreat_status)
-        can_settle = self.snapshot.retreat_status is not None and self.snapshot.retreat_status.can_settle
         self.practice_once.disabled = is_retreat_running
         self.start_retreat.disabled = is_retreat_running
-        self.finish_retreat.disabled = not can_settle
+        self.finish_retreat.disabled = not is_retreat_running
         for item in self.children:
             if isinstance(item, RetreatDurationSelect):
                 item.disabled = is_retreat_running
@@ -425,6 +443,7 @@ class CultivationPanelController:
             title="闭关已开始",
             lines=(
                 f"闭关时长：{selected_duration_hours} 小时",
+                "规则：30 分钟起算，12 小时吃满。",
                 f"预计结束：{CultivationPanelPresenter._format_datetime(snapshot.retreat_status.scheduled_end_at if snapshot.retreat_status else None)}",
             ),
         )
@@ -574,13 +593,19 @@ class CultivationPanelController:
 
     @staticmethod
     def _build_settlement_lines(*, settlement: RetreatSettlementResult) -> tuple[str, ...]:
+        reward = settlement.reward
         lines = [
-            f"闭关区间：{CultivationPanelPresenter._format_datetime(settlement.started_at)} 至 {CultivationPanelPresenter._format_datetime(settlement.scheduled_end_at)}",
+            f"闭关区间：{CultivationPanelPresenter._format_datetime(settlement.started_at)} 至 {CultivationPanelPresenter._format_datetime(settlement.settled_at)}",
+            f"实际闭关：{CultivationPanelPresenter._format_duration(reward.actual_elapsed_seconds)}",
+            f"结算时长：{CultivationPanelPresenter._format_duration(reward.settlement_seconds)}",
+            f"收益进度：{CultivationPanelPresenter._format_percent(Decimal('0') if settlement.full_yield_seconds <= 0 else Decimal(reward.reward_seconds) / Decimal(settlement.full_yield_seconds))}",
             f"修为：+{settlement.applied_cultivation}",
             f"感悟：+{settlement.reward.comprehension_amount}",
             f"灵石：+{settlement.reward.spirit_stone_amount}",
             f"当前总修为：{settlement.growth_snapshot.cultivation_value}",
         ]
+        if not settlement.reward_available:
+            lines.insert(3, f"未达到 {CultivationPanelPresenter._format_duration(settlement.minimum_reward_seconds)} 起算门槛，本次收益为 0")
         return tuple(lines)
 
 
