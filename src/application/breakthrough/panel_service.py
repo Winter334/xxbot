@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
 
+from application.battle import BattleReplayDisplayContext, BattleReplayPresentation, BattleReplayService
 from application.breakthrough.reward_service import BreakthroughRewardApplicationResult
 from application.breakthrough.trial_service import (
     BreakthroughTrialEntrySnapshot,
@@ -140,6 +141,7 @@ class BreakthroughRecentSettlementSnapshot:
     gap_card: BreakthroughGapCard
     recent_result_card: BreakthroughRecentResultCard
     battle_report_digest: BreakthroughBattleReportDigest | None
+    battle_replay_presentation: BattleReplayPresentation | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -173,6 +175,7 @@ class BreakthroughPanelService:
         breakthrough_repository: BreakthroughRepository,
         battle_record_repository: BattleRecordRepository,
         static_config: StaticGameConfig | None = None,
+        battle_replay_service: BattleReplayService | None = None,
     ) -> None:
         self._character_panel_query_service = character_panel_query_service
         self._progression_service = progression_service
@@ -180,6 +183,7 @@ class BreakthroughPanelService:
         self._breakthrough_repository = breakthrough_repository
         self._battle_record_repository = battle_record_repository
         self._static_config = static_config or get_static_config()
+        self._battle_replay_service = battle_replay_service or BattleReplayService()
         self._trial_by_mapping_id = {
             trial.mapping_id: trial for trial in self._static_config.breakthrough_trials.trials
         }
@@ -219,6 +223,18 @@ class BreakthroughPanelService:
             return None
         trial = self._require_trial(progress_entry.mapping_id)
         battle_report_id = _read_optional_int(payload.get("battle_report_id"))
+        battle_report_digest = self._load_battle_report_digest(
+            character_id=character_id,
+            battle_report_id=battle_report_id,
+        )
+        battle_replay_presentation = self._load_battle_replay_presentation(
+            character_id=character_id,
+            battle_report_id=battle_report_id,
+            trial_name=trial.name,
+            group_name=self._group_name_by_id.get(trial.group_id, trial.group_id),
+            environment_rule=trial.environment_rule,
+            focus_unit_name=None if battle_report_digest is None else battle_report_digest.focus_unit_name,
+        )
         settlement = self._build_application_result(progress_entry=progress_entry, payload=payload)
         reward_summary = self._build_compact_reward_summary(settlement=settlement)
         goal_card = self._build_goal_card(overview=overview, precheck=precheck, hub=hub)
@@ -248,10 +264,8 @@ class BreakthroughPanelService:
             status_card=status_card,
             gap_card=gap_card,
             recent_result_card=recent_result_card,
-            battle_report_digest=self._load_battle_report_digest(
-                character_id=character_id,
-                battle_report_id=battle_report_id,
-            ),
+            battle_report_digest=battle_report_digest,
+            battle_replay_presentation=battle_replay_presentation,
         )
 
     def _resolve_latest_settlement(
@@ -425,6 +439,36 @@ class BreakthroughPanelService:
         for battle_report in self._battle_record_repository.list_battle_reports(character_id):
             if battle_report.id == battle_report_id:
                 return self._build_battle_report_digest(battle_report)
+        return None
+
+    def _load_battle_replay_presentation(
+        self,
+        *,
+        character_id: int,
+        battle_report_id: int | None,
+        trial_name: str,
+        group_name: str,
+        environment_rule: str,
+        focus_unit_name: str | None,
+    ) -> BattleReplayPresentation | None:
+        if battle_report_id is None:
+            return None
+        for battle_report in self._battle_record_repository.list_battle_reports(character_id):
+            if battle_report.id != battle_report_id:
+                continue
+            return self._battle_replay_service.build_presentation(
+                battle_report_id=battle_report.id,
+                result=battle_report.result,
+                summary_payload=_normalize_mapping(battle_report.summary_json),
+                detail_payload=_normalize_mapping(battle_report.detail_log_json),
+                context=BattleReplayDisplayContext(
+                    source_name="突破秘境",
+                    scene_name=trial_name,
+                    group_name=group_name,
+                    environment_name=environment_rule,
+                    focus_unit_name=focus_unit_name,
+                ),
+            )
         return None
 
     @staticmethod

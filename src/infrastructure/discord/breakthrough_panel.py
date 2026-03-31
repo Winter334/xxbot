@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from dataclasses import dataclass
 from enum import StrEnum
+import logging
 from typing import Any, Protocol
 
 import discord
@@ -26,11 +27,14 @@ from application.character import (
 from application.character.panel_query_service import CharacterPanelQueryService, CharacterPanelQueryServiceError
 from infrastructure.config.static import get_static_config
 from infrastructure.db.session import session_scope
+from infrastructure.discord.battle_replay_message import BattleReplayMessagePlayer
 from infrastructure.discord.character_panel import (
     DiscordInteractionVisibilityResponder,
     PanelMessagePayload,
     PanelVisibility,
 )
+
+logger = logging.getLogger(__name__)
 
 _PANEL_TIMEOUT_SECONDS = 20 * 60
 _PUBLIC_SPIRIT_STONE_THRESHOLD = 2000
@@ -614,11 +618,15 @@ class BreakthroughPanelController:
         session_factory: sessionmaker[Session],
         service_bundle_factory,
         responder: DiscordInteractionVisibilityResponder | None = None,
+        replay_message_player: BattleReplayMessagePlayer | None = None,
         panel_timeout: float = _PANEL_TIMEOUT_SECONDS,
     ) -> None:
         self._session_factory = session_factory
         self._service_bundle_factory = service_bundle_factory
         self.responder = responder or DiscordInteractionVisibilityResponder()
+        self._battle_replay_message_player = replay_message_player or BattleReplayMessagePlayer(
+            responder=self.responder,
+        )
         self._panel_timeout = panel_timeout
 
     async def open_panel_by_discord_user_id(self, interaction: discord.Interaction) -> None:
@@ -744,6 +752,7 @@ class BreakthroughPanelController:
             display_mode=BreakthroughDisplayMode.SETTLEMENT,
             action_note=action_note,
         )
+        await self._play_battle_replay_if_available(interaction, snapshot=snapshot)
         await self._send_public_highlight_if_needed(interaction, snapshot=snapshot)
 
     async def execute_breakthrough(
@@ -970,6 +979,32 @@ class BreakthroughPanelController:
         if selectable_trials:
             return selectable_trials[0].mapping_id
         return None
+
+    async def _play_battle_replay_if_available(
+        self,
+        interaction: discord.Interaction,
+        *,
+        snapshot: BreakthroughPanelSnapshot,
+    ) -> None:
+        recent_settlement = snapshot.recent_settlement
+        if recent_settlement is None or recent_settlement.battle_replay_presentation is None:
+            return
+        try:
+            await self._battle_replay_message_player.play(
+                interaction,
+                presentation=recent_settlement.battle_replay_presentation,
+            )
+        except (discord.Forbidden, discord.HTTPException):
+            return
+        except Exception:
+            logger.exception(
+                "突破秘境战斗回放发送失败",
+                extra={
+                    "character_id": snapshot.overview.character_id,
+                    "battle_report_id": recent_settlement.battle_replay_presentation.battle_report_id,
+                },
+            )
+            return
 
     async def _send_public_highlight_if_needed(
         self,

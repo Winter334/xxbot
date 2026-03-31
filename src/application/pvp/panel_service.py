@@ -7,6 +7,12 @@ from dataclasses import dataclass
 from datetime import date, datetime
 from typing import Any
 
+from application.battle import (
+    BattleReplayDisplayContext,
+    BattleReplayFrame,
+    BattleReplayPresentation,
+    BattleReplayService,
+)
 from application.character.panel_query_service import CharacterPanelOverview, CharacterPanelQueryService
 from application.pvp.pvp_service import PvpHubSnapshot, PvpService, PvpTargetView
 from domain.ranking import LeaderboardBoardType
@@ -18,6 +24,12 @@ _PVP_BOARD_TYPE = LeaderboardBoardType.PVP_CHALLENGE.value
 _VISIBLE_REWARD_TYPE_NAME_BY_VALUE = {
     "title": "称号",
     "badge": "徽记",
+}
+_REPLAY_ANTI_ABUSE_TEXT_BY_VALUE = {
+    "daily_quota_exhausted": "此战过后今日有效论道次数将尽",
+    "repeat_target_limit_reached": "此战过后同一对手的有效论道将触顶",
+    "defense_failure_cap_reached": "此战过后对手会触发防守失败保护",
+    "rank_unchanged": "即便胜出，榜位也不会继续前推",
 }
 
 
@@ -126,6 +138,7 @@ class PvpRecentSettlementSnapshot:
     settlement_payload: dict[str, object]
     battle_report_digest: PvpBattleReportDigest | None
     defender_summary: dict[str, object]
+    battle_replay_presentation: BattleReplayPresentation | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -163,6 +176,7 @@ class PvpPanelService:
         pvp_challenge_repository: PvpChallengeRepository,
         battle_record_repository: BattleRecordRepository,
         static_config: StaticGameConfig | None = None,
+        battle_replay_service: BattleReplayService | None = None,
     ) -> None:
         self._character_panel_query_service = character_panel_query_service
         self._pvp_service = pvp_service
@@ -170,6 +184,7 @@ class PvpPanelService:
         self._pvp_challenge_repository = pvp_challenge_repository
         self._battle_record_repository = battle_record_repository
         self._static_config = static_config or get_static_config()
+        self._battle_replay_service = battle_replay_service or BattleReplayService()
         self._reward_tier_name_by_id = {
             tier.reward_tier_id: tier.name for tier in self._static_config.pvp.ordered_reward_tiers
         }
@@ -226,6 +241,7 @@ class PvpPanelService:
         honor_coin_payload = _normalize_optional_mapping(settlement_payload.get("honor_coin")) or {}
         reward_preview = _normalize_optional_mapping(settlement_payload.get("reward_preview"))
         display_rewards = tuple(_normalize_mapping_sequence(settlement_payload.get("display_rewards")))
+        anti_abuse_flags = _normalize_str_sequence(settlement_payload.get("anti_abuse_flags"))
         defender_summary = self._load_defender_summary(snapshot_id=challenge_record.defender_snapshot_id)
         reward_card = self._build_reward_card(
             reward_preview=reward_preview,
@@ -248,6 +264,23 @@ class PvpPanelService:
             rank_after=challenge_record.rank_after_attacker,
             honor_coin_delta=challenge_record.honor_coin_delta,
         )
+        battle_report_digest = self._load_battle_report_digest(
+            character_id=character_id,
+            battle_report_id=challenge_record.battle_report_id,
+        )
+        battle_replay_presentation = self._load_battle_replay_presentation(
+            character_id=character_id,
+            battle_report_id=challenge_record.battle_report_id,
+            battle_outcome=challenge_record.battle_outcome,
+            rank_before_attacker=challenge_record.rank_before_attacker,
+            rank_after_attacker=challenge_record.rank_after_attacker,
+            rank_before_defender=challenge_record.rank_before_defender,
+            rank_effect_applied=bool(challenge_record.rank_effect_applied),
+            honor_coin_delta=challenge_record.honor_coin_delta,
+            anti_abuse_flags=anti_abuse_flags,
+            opponent_card=opponent_card,
+            focus_unit_name=None if battle_report_digest is None else battle_report_digest.focus_unit_name,
+        )
         return PvpRecentSettlementSnapshot(
             challenge_record_id=challenge_record.id,
             occurred_at=challenge_record.created_at,
@@ -265,18 +298,173 @@ class PvpPanelService:
             rank_effect_applied=bool(challenge_record.rank_effect_applied),
             honor_coin_delta=challenge_record.honor_coin_delta,
             honor_coin_balance_after=_read_optional_int(honor_coin_payload.get("balance_after")),
-            anti_abuse_flags=_normalize_str_sequence(settlement_payload.get("anti_abuse_flags")),
+            anti_abuse_flags=anti_abuse_flags,
             reward_preview=reward_preview,
             display_rewards=display_rewards,
             reward_card=reward_card,
             opponent_card=opponent_card,
             recent_result_card=recent_result_card,
             settlement_payload=settlement_payload,
-            battle_report_digest=self._load_battle_report_digest(
-                character_id=character_id,
-                battle_report_id=challenge_record.battle_report_id,
-            ),
+            battle_report_digest=battle_report_digest,
             defender_summary=defender_summary,
+            battle_replay_presentation=battle_replay_presentation,
+        )
+
+    def _load_battle_replay_presentation(
+        self,
+        *,
+        character_id: int,
+        battle_report_id: int | None,
+        battle_outcome: str,
+        rank_before_attacker: int,
+        rank_after_attacker: int,
+        rank_before_defender: int,
+        rank_effect_applied: bool,
+        honor_coin_delta: int,
+        anti_abuse_flags: Sequence[str],
+        opponent_card: PvpOpponentCard,
+        focus_unit_name: str | None,
+    ) -> BattleReplayPresentation | None:
+        if battle_report_id is None:
+            return None
+        for battle_report in self._battle_record_repository.list_battle_reports(character_id):
+            if battle_report.id != battle_report_id:
+                continue
+            presentation = self._battle_replay_service.build_presentation(
+                battle_report_id=battle_report.id,
+                result=battle_report.result,
+                summary_payload=_normalize_mapping(battle_report.summary_json),
+                detail_payload=_normalize_mapping(battle_report.detail_log_json),
+                context=self._build_battle_replay_display_context(
+                    battle_outcome=battle_outcome,
+                    rank_before_attacker=rank_before_attacker,
+                    rank_after_attacker=rank_after_attacker,
+                    rank_before_defender=rank_before_defender,
+                    rank_effect_applied=rank_effect_applied,
+                    honor_coin_delta=honor_coin_delta,
+                    anti_abuse_flags=anti_abuse_flags,
+                    opponent_card=opponent_card,
+                    focus_unit_name=focus_unit_name,
+                ),
+            )
+            if presentation is None:
+                return None
+            return self._decorate_battle_replay_presentation(
+                presentation=presentation,
+                rank_before_attacker=rank_before_attacker,
+                rank_after_attacker=rank_after_attacker,
+                honor_coin_delta=honor_coin_delta,
+                anti_abuse_flags=anti_abuse_flags,
+            )
+        return None
+
+    def _build_battle_replay_display_context(
+        self,
+        *,
+        battle_outcome: str,
+        rank_before_attacker: int,
+        rank_after_attacker: int,
+        rank_before_defender: int,
+        rank_effect_applied: bool,
+        honor_coin_delta: int,
+        anti_abuse_flags: Sequence[str],
+        opponent_card: PvpOpponentCard,
+        focus_unit_name: str | None,
+    ) -> BattleReplayDisplayContext:
+        opponent_label = opponent_card.character_name
+        if opponent_card.character_title:
+            opponent_label = f"{opponent_card.character_title}·{opponent_card.character_name}"
+        environment_segments = [
+            f"仙榜玉简震响：{opponent_label}正守着第 {rank_before_defender} 名席位",
+            self._build_battle_replay_rank_line(
+                battle_outcome=battle_outcome,
+                rank_before_attacker=rank_before_attacker,
+                rank_after_attacker=rank_after_attacker,
+                rank_effect_applied=rank_effect_applied,
+            ),
+            f"这一战还会改写你的荣誉币结算：{_format_signed(honor_coin_delta)}",
+        ]
+        anti_abuse_summary = self._summarize_battle_replay_anti_abuse_flags(anti_abuse_flags)
+        if anti_abuse_summary is not None:
+            environment_segments.append(f"仙榜禁制低鸣：{anti_abuse_summary}")
+        environment_name = "；".join(
+            segment.rstrip("；。") for segment in environment_segments if isinstance(segment, str) and segment
+        )
+        return BattleReplayDisplayContext(
+            source_name="仙榜论道",
+            scene_name=f"仙榜第 {rank_before_defender} 名席位争夺",
+            group_name="榜位争锋",
+            environment_name=environment_name,
+            focus_unit_name=focus_unit_name,
+        )
+
+    @staticmethod
+    def _build_battle_replay_rank_line(
+        *,
+        battle_outcome: str,
+        rank_before_attacker: int,
+        rank_after_attacker: int,
+        rank_effect_applied: bool,
+    ) -> str:
+        rank_shift = rank_before_attacker - rank_after_attacker
+        if rank_shift > 0:
+            return f"这一战最终让你从第 {rank_before_attacker} 名前踏到第 {rank_after_attacker} 名"
+        if battle_outcome == "ally_victory" and not rank_effect_applied:
+            return f"这一战虽然赢下来了，但第 {rank_after_attacker} 名的榜位仍未松动"
+        if battle_outcome == "enemy_victory":
+            return f"这一战失手后，你仍被压在第 {rank_after_attacker} 名"
+        return f"这一战过后，你暂守第 {rank_after_attacker} 名"
+
+    @staticmethod
+    def _summarize_battle_replay_anti_abuse_flags(anti_abuse_flags: Sequence[str]) -> str | None:
+        resolved_flags: list[str] = []
+        for flag in anti_abuse_flags:
+            text = _REPLAY_ANTI_ABUSE_TEXT_BY_VALUE.get(flag)
+            if text is not None:
+                resolved_flags.append(text)
+        if not resolved_flags:
+            return None
+        return "；".join(resolved_flags[:2])
+
+    def _decorate_battle_replay_presentation(
+        self,
+        *,
+        presentation: BattleReplayPresentation,
+        rank_before_attacker: int,
+        rank_after_attacker: int,
+        honor_coin_delta: int,
+        anti_abuse_flags: Sequence[str],
+    ) -> BattleReplayPresentation:
+        if not presentation.frames:
+            return presentation
+        settlement_segments = [
+            (
+                "🏁 榜位裁定："
+                f"第 {rank_before_attacker} 名 → 第 {rank_after_attacker} 名"
+                f"（{_format_signed(rank_before_attacker - rank_after_attacker, suffix=' 名')}）"
+            ),
+            f"荣誉币 {_format_signed(honor_coin_delta)}",
+        ]
+        anti_abuse_summary = self._summarize_battle_replay_anti_abuse_flags(anti_abuse_flags)
+        if anti_abuse_summary is not None:
+            settlement_segments.append(anti_abuse_summary)
+        settlement_line = "｜".join(settlement_segments)
+        frames = list(presentation.frames)
+        final_frame = frames[-1]
+        if settlement_line not in final_frame.lines:
+            frames[-1] = BattleReplayFrame(
+                title=final_frame.title,
+                lines=tuple((*final_frame.lines, settlement_line)),
+                footer=final_frame.footer,
+                pause_seconds=final_frame.pause_seconds,
+            )
+        return BattleReplayPresentation(
+            battle_report_id=presentation.battle_report_id,
+            result=presentation.result,
+            focus_unit_name=presentation.focus_unit_name,
+            summary_line=presentation.summary_line,
+            highlight_lines=presentation.highlight_lines,
+            frames=tuple(frames),
         )
 
     def _build_status_card(
@@ -518,6 +706,12 @@ def _read_optional_str(value: Any) -> str | None:
     if isinstance(value, str) and value:
         return value
     return None
+
+
+def _format_signed(value: int, *, suffix: str = "") -> str:
+    normalized = int(value)
+    prefix = "+" if normalized >= 0 else ""
+    return f"{prefix}{normalized}{suffix}"
 
 
 __all__ = [

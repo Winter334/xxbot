@@ -145,6 +145,33 @@ class DiscordInteractionVisibilityResponder:
             return
         _bind_view_message(payload.view, message)
 
+    async def send_private_followup_message(
+        self,
+        interaction: discord.Interaction,
+        *,
+        payload: PanelMessagePayload,
+    ) -> discord.Message | None:
+        _cap_private_view_timeout(payload.view)
+        message = await interaction.followup.send(
+            embed=payload.embed,
+            view=payload.view,
+            ephemeral=True,
+            wait=True,
+        )
+        _bind_view_message(payload.view, message)
+        return message
+
+    async def edit_private_followup_message(
+        self,
+        message: discord.Message,
+        *,
+        payload: PanelMessagePayload,
+    ) -> discord.Message:
+        _cap_private_view_timeout(payload.view)
+        await message.edit(embed=payload.embed, view=payload.view)
+        _bind_view_message(payload.view, message)
+        return message
+
     async def edit_public_message(
         self,
         interaction: discord.Interaction,

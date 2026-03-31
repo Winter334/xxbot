@@ -8,6 +8,7 @@ from decimal import Decimal
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 
+import discord
 import pytest
 
 from application.character.panel_query_service import (
@@ -15,6 +16,7 @@ from application.character.panel_query_service import (
     CharacterPanelOverview,
     CharacterPanelSkillDisplay,
 )
+from application.battle import BattleReplayFrame, BattleReplayPresentation
 from application.pvp.panel_service import (
     PvpBattleReportDigest,
     PvpOpponentCard,
@@ -306,6 +308,21 @@ def _build_recent_settlement(
         },
         battle_report_digest=battle_report_digest or _build_battle_report_digest(),
         defender_summary=summary,
+        battle_replay_presentation=BattleReplayPresentation(
+            battle_report_id=9101,
+            result=battle_outcome,
+            focus_unit_name="青玄",
+            summary_line="7 回合｜气血 73%",
+            highlight_lines=("第 3 回合斩开护体罡气",),
+            frames=(
+                BattleReplayFrame(
+                    title="仙榜论道｜仙榜第 18 名席位争夺",
+                    lines=("🌌 青玄踏上论道台。", "⚔️ 第 3 回合斩开护体罡气。"),
+                    footer="战后回放｜7 回合｜气血 73%",
+                    pause_seconds=0.0,
+                ),
+            ),
+        ),
     )
 
 
@@ -545,7 +562,53 @@ def test_public_broadcast_omits_private_settlement_details_and_hidden_fields() -
 async def test_challenge_target_updates_private_settlement_before_public_broadcast(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """控制器应先更新私有结算页，再尝试公开播报。"""
+    """控制器应先更新私有结算页，再尝试私有回放与公开播报。"""
+    controller = _build_controller(monkeypatch)
+    interaction = _build_interaction()
+    result = _build_challenge_result()
+    snapshot = _build_snapshot(recent_settlement=_build_recent_settlement())
+    call_order: list[str] = []
+
+    controller._challenge_target = Mock(return_value=(result, snapshot))
+
+    async def _record_edit(*args, **kwargs) -> None:
+        del args, kwargs
+        call_order.append("edit")
+
+    async def _record_replay(*args, **kwargs) -> None:
+        del args, kwargs
+        call_order.append("replay")
+
+    async def _record_public(*args, **kwargs) -> None:
+        del args, kwargs
+        call_order.append("public")
+
+    controller._edit_panel = AsyncMock(side_effect=_record_edit)
+    controller._play_battle_replay_if_available = AsyncMock(side_effect=_record_replay)
+    controller._send_public_highlight_if_needed = AsyncMock(side_effect=_record_public)
+    controller.responder.send_private_error = AsyncMock()
+
+    await controller.challenge_target(
+        interaction,
+        character_id=1001,
+        owner_user_id=30001,
+        selected_target_character_id=2002,
+    )
+
+    controller._challenge_target.assert_called_once_with(character_id=1001, target_character_id=2002)
+    controller._edit_panel.assert_awaited_once()
+    controller._play_battle_replay_if_available.assert_awaited_once_with(interaction, snapshot=snapshot)
+    controller._send_public_highlight_if_needed.assert_awaited_once_with(interaction, snapshot=snapshot)
+    controller.responder.send_private_error.assert_not_awaited()
+    assert call_order == ["edit", "replay", "public"]
+    assert controller._edit_panel.await_args.kwargs["display_mode"] is PvpDisplayMode.SETTLEMENT
+
+
+@pytest.mark.asyncio
+async def test_challenge_target_keeps_main_flow_when_replay_send_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """PVP 独立回放发送失败时，应静默降级且不阻断主链路。"""
     controller = _build_controller(monkeypatch)
     interaction = _build_interaction()
     result = _build_challenge_result()
@@ -565,6 +628,12 @@ async def test_challenge_target_updates_private_settlement_before_public_broadca
     controller._edit_panel = AsyncMock(side_effect=_record_edit)
     controller._send_public_highlight_if_needed = AsyncMock(side_effect=_record_public)
     controller.responder.send_private_error = AsyncMock()
+    controller._battle_replay_message_player.play = AsyncMock(
+        side_effect=discord.HTTPException(
+            response=SimpleNamespace(status=500, reason="err"),
+            message="boom",
+        )
+    )
 
     await controller.challenge_target(
         interaction,
@@ -573,9 +642,11 @@ async def test_challenge_target_updates_private_settlement_before_public_broadca
         selected_target_character_id=2002,
     )
 
-    controller._challenge_target.assert_called_once_with(character_id=1001, target_character_id=2002)
     controller._edit_panel.assert_awaited_once()
+    controller._battle_replay_message_player.play.assert_awaited_once_with(
+        interaction,
+        presentation=snapshot.recent_settlement.battle_replay_presentation,
+    )
     controller._send_public_highlight_if_needed.assert_awaited_once_with(interaction, snapshot=snapshot)
     controller.responder.send_private_error.assert_not_awaited()
     assert call_order == ["edit", "public"]
-    assert controller._edit_panel.await_args.kwargs["display_mode"] is PvpDisplayMode.SETTLEMENT

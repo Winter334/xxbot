@@ -10,6 +10,12 @@ from application.battle.auto_battle_service import (
     AutoBattleService,
     AutoBattleServiceError,
 )
+from application.battle.battle_replay_service import (
+    BattleReplayDisplayContext,
+    BattleReplayFrame,
+    BattleReplayPresentation,
+    BattleReplayService,
+)
 
 __all__ = [
     "AutoBattleCharacterStateError",
@@ -20,4 +26,8 @@ __all__ = [
     "AutoBattleRequest",
     "AutoBattleService",
     "AutoBattleServiceError",
+    "BattleReplayDisplayContext",
+    "BattleReplayFrame",
+    "BattleReplayPresentation",
+    "BattleReplayService",
 ]
