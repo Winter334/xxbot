@@ -395,6 +395,7 @@ def build_application_service_bundle(
         trial_service=breakthrough_trial_service,
         breakthrough_repository=breakthrough_repository,
         battle_record_repository=battle_record_repository,
+        inventory_repository=inventory_repository,
         static_config=static_config,
     )
     cultivation_panel_service = CultivationPanelService(

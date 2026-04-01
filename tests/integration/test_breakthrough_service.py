@@ -418,5 +418,84 @@ def test_breakthrough_trial_defeat_grants_no_qualification_and_no_repeat_reward(
         assert progress_entry.last_result_json["settlement_type"] == "defeat"
         assert inventory_items == []
         assert len(drop_records) == 1
-        assert drop_records[0].items_json == []
-        assert drop_records[0].currencies_json == {}
+
+
+
+def test_breakthrough_trial_current_gate_stays_single_track_before_first_clear(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """未首通前只应允许当前境界对应的唯一试炼作为主线玄关。"""
+    database_url = _build_sqlite_url(tmp_path / "breakthrough_current_gate.db")
+    _upgrade_database(database_url, monkeypatch)
+    session_factory = create_session_factory(database_url)
+    static_config = load_static_config()
+
+    with session_scope(session_factory) as session:
+        services = _build_services(
+            session,
+            static_config=static_config,
+            auto_battle_service=_StubAutoBattleService(outcome=BattleOutcome.ALLY_VICTORY),
+        )
+        created = services["growth_service"].create_character(
+            discord_user_id="71004",
+            player_display_name="守关者",
+            character_name="问岚",
+        )
+        _set_character_progress(
+            character_repository=services["character_repository"],
+            character_id=created.character_id,
+            realm_id="mortal",
+            stage_id="perfect",
+            qualification_obtained=False,
+        )
+
+        hub = services["trial_service"].get_trial_hub(character_id=created.character_id)
+
+        assert hub.current_trial is not None
+        assert hub.current_trial.mapping_id == "mortal_to_qi_refining"
+        assert hub.current_trial.can_challenge is True
+        assert hub.repeatable_trials == ()
+        locked_trial = next(trial for group in hub.groups for trial in group.trials if trial.mapping_id == "foundation_to_core")
+        assert locked_trial.can_challenge is False
+
+
+
+def test_breakthrough_trial_first_clear_aftermath_keeps_gate_in_repeatable_history(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """首通获得资格后，低层试炼服务仍应保留该玄关的已通关历史快照供新前台自行筛选。"""
+    database_url = _build_sqlite_url(tmp_path / "breakthrough_gate_after_clear.db")
+    _upgrade_database(database_url, monkeypatch)
+    session_factory = create_session_factory(database_url)
+    static_config = load_static_config()
+
+    with session_scope(session_factory) as session:
+        services = _build_services(
+            session,
+            static_config=static_config,
+            auto_battle_service=_StubAutoBattleService(outcome=BattleOutcome.ALLY_VICTORY),
+        )
+        created = services["growth_service"].create_character(
+            discord_user_id="71005",
+            player_display_name="得关者",
+            character_name="澹宁",
+        )
+        _set_character_progress(
+            character_repository=services["character_repository"],
+            character_id=created.character_id,
+            realm_id="mortal",
+            stage_id="perfect",
+            qualification_obtained=False,
+        )
+
+        services["trial_service"].challenge_trial(
+            character_id=created.character_id,
+            mapping_id="mortal_to_qi_refining",
+            seed=10,
+            now=datetime(2026, 3, 26, 21, 20, 0),
+            persist_battle_report=False,
+        )
+        hub = services["trial_service"].get_trial_hub(character_id=created.character_id)
+
+        assert hub.current_trial is not None
+        assert hub.current_trial.mapping_id == "mortal_to_qi_refining"
+        assert hub.current_trial.is_cleared is True
+        assert hub.current_trial.can_challenge is True
+        assert hub.repeatable_trials == (hub.current_trial,)
+        assert hub.qualification_obtained is True

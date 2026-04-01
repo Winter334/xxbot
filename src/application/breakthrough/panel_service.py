@@ -1,4 +1,4 @@
-"""突破秘境面板查询适配服务。"""
+"""突破三问面板查询服务。"""
 
 from __future__ import annotations
 
@@ -8,163 +8,113 @@ from datetime import datetime
 from typing import Any
 
 from application.battle import BattleReplayDisplayContext, BattleReplayPresentation, BattleReplayService
-from application.breakthrough.reward_service import BreakthroughRewardApplicationResult
-from application.breakthrough.trial_service import (
-    BreakthroughTrialEntrySnapshot,
-    BreakthroughTrialHubSnapshot,
-    BreakthroughTrialService,
-)
+from application.breakthrough.trial_service import BreakthroughTrialHubSnapshot, BreakthroughTrialService
 from application.character.panel_query_service import CharacterPanelOverview, CharacterPanelQueryService
 from application.character.progression_service import BreakthroughPrecheckResult, CharacterProgressionService
 from infrastructure.config.static import StaticGameConfig, get_static_config
 from infrastructure.config.static.models.breakthrough import BreakthroughTrialDefinition
-from infrastructure.db.models import BattleReport, BreakthroughTrialProgress
-from infrastructure.db.repositories import BattleRecordRepository, BreakthroughRepository
+from infrastructure.db.models import BreakthroughTrialProgress
+from infrastructure.db.repositories import (
+    BattleRecordRepository,
+    BreakthroughRepository,
+    InventoryRepository,
+)
 
 _RESOURCE_NAME_BY_ID = {
-    "spirit_stone": "灵石",
-    "enhancement_stone": "强化石",
-    "enhancement_shard": "强化碎晶",
-    "wash_dust": "洗炼尘",
-    "spirit_sand": "灵砂",
-    "spirit_pattern_stone": "灵纹石",
-    "soul_binding_jade": "缚魂玉",
-    "artifact_essence": "法宝精粹",
     "qi_condensation_grass": "凝气草",
     "foundation_pill": "筑基丹",
-    "core_crystal": "金丹晶核",
-    "nascent_soul_lotus": "元婴莲",
-    "deity_heart_incense": "化神心香",
-    "void_breaking_stone": "破虚石",
-    "body_refining_marble": "合体玄玉",
-    "great_vehicle_golden_leaf": "大乘金叶",
-    "tribulation_guiding_talisman": "引劫符",
-}
-_SETTLEMENT_LABEL_BY_VALUE = {
-    "defeat": "试炼失败",
-    "first_clear": "首次通关",
-    "repeat_clear": "重复通关",
+    "spirit_pattern_stone": "灵纹石",
+    "core_congealing_pellet": "凝丹丸",
+    "fire_essence_sand": "离火砂",
+    "nascent_soul_flower": "元婴花",
+    "soul_binding_jade": "缚魂玉",
+    "deity_heart_seed": "化神心种",
+    "thunder_pattern_branch": "雷纹枝",
+    "void_break_crystal": "破虚晶",
+    "star_soul_dust": "星魂尘",
+    "body_integration_bone": "合体骨",
+    "myriad_gold_paste": "万金膏",
+    "great_vehicle_core": "大乘核",
+    "heaven_pattern_silk": "天纹丝",
+    "tribulation_lightning_talisman": "劫雷符",
+    "immortal_marrow_liquid": "仙髓液",
 }
 
 
 @dataclass(frozen=True, slots=True)
-class BreakthroughBattleReportDigest:
-    """突破秘境最近一次战斗的战报摘要。"""
+class BreakthroughMaterialRequirementSnapshot:
+    """单条突破材料校验结果。"""
 
-    battle_report_id: int
-    result: str
-    completed_rounds: int
-    focus_unit_name: str
-    final_hp_ratio: str
-    final_mp_ratio: str
-    ally_damage_dealt: int
-    ally_damage_taken: int
-    ally_healing_done: int
-    successful_hits: int
-    critical_hits: int
-    control_skips: int
+    item_type: str
+    item_id: str
+    item_name: str
+    required_quantity: int
+    owned_quantity: int
+    missing_quantity: int
 
 
 @dataclass(frozen=True, slots=True)
-class BreakthroughGoalCard:
-    """突破目标卡。"""
+class BreakthroughMaterialPageSnapshot:
+    """检灵材页面快照。"""
 
-    current_realm_name: str
-    current_stage_name: str
-    target_realm_name: str
+    requirements: tuple[BreakthroughMaterialRequirementSnapshot, ...]
+    all_satisfied: bool
+    gap_summary: str
+
+
+@dataclass(frozen=True, slots=True)
+class BreakthroughQualificationPageSnapshot:
+    """问玄关页面快照。"""
+
+    mapping_id: str | None
+    trial_name: str | None
+    environment_rule: str | None
+    atmosphere_text: str
+    passed: bool
+    material_gap_text: str
+    start_trial_enabled: bool
+
+
+@dataclass(frozen=True, slots=True)
+class BreakthroughRootStatus:
+    """根页核心状态。"""
+
+    current_realm_display: str
+    next_realm_name: str
     qualification_obtained: bool
+    material_ready: bool
     can_breakthrough: bool
 
 
 @dataclass(frozen=True, slots=True)
-class BreakthroughTrialCard:
-    """当前试炼卡。"""
+class BreakthroughRecentTrialSnapshot:
+    """最近一次叩关记录。"""
 
     mapping_id: str
     trial_name: str
-    group_name: str
-    target_realm_name: str
-    environment_rule: str
-    can_challenge: bool
-    is_cleared: bool
-    attempt_count: int
-    cleared_count: int
-
-
-@dataclass(frozen=True, slots=True)
-class BreakthroughStatusCard:
-    """我方状态卡。"""
-
-    current_realm_name: str
-    current_stage_name: str
-    current_hp_ratio: str
-    current_mp_ratio: str
-    qualification_obtained: bool
-    current_cultivation_value: int
-    required_cultivation_value: int | None
-    current_comprehension_value: int
-    required_comprehension_value: int | None
-
-
-@dataclass(frozen=True, slots=True)
-class BreakthroughGapCard:
-    """突破缺口卡。"""
-
-    passed: bool
-    lines: tuple[str, ...]
-
-
-@dataclass(frozen=True, slots=True)
-class BreakthroughRecentResultCard:
-    """最近结果卡。"""
-
-    trial_name: str
-    result_label: str
-    qualification_changed: bool
-    reward_summary: str
     occurred_at: datetime
-
-
-@dataclass(frozen=True, slots=True)
-class BreakthroughRecentSettlementSnapshot:
-    """突破秘境最近一次可复读的结算快照。"""
-
-    mapping_id: str
-    trial_name: str
-    group_id: str
-    group_name: str
-    occurred_at: datetime
-    settlement: BreakthroughRewardApplicationResult
-    goal_card: BreakthroughGoalCard
-    trial_card: BreakthroughTrialCard
-    status_card: BreakthroughStatusCard
-    gap_card: BreakthroughGapCard
-    recent_result_card: BreakthroughRecentResultCard
-    battle_report_digest: BreakthroughBattleReportDigest | None
-    battle_replay_presentation: BattleReplayPresentation | None = None
+    battle_report_id: int | None
+    battle_replay_presentation: BattleReplayPresentation | None
 
 
 @dataclass(frozen=True, slots=True)
 class BreakthroughPanelSnapshot:
-    """突破秘境私有面板所需聚合快照。"""
+    """突破三问前台交互所需聚合快照。"""
 
     overview: CharacterPanelOverview
     precheck: BreakthroughPrecheckResult
-    hub: BreakthroughTrialHubSnapshot
-    goal_card: BreakthroughGoalCard
-    current_trial_card: BreakthroughTrialCard | None
-    status_card: BreakthroughStatusCard
-    gap_card: BreakthroughGapCard
-    recent_result_card: BreakthroughRecentResultCard | None
-    recent_settlement: BreakthroughRecentSettlementSnapshot | None
+    root_status: BreakthroughRootStatus
+    qualification_page: BreakthroughQualificationPageSnapshot
+    material_page: BreakthroughMaterialPageSnapshot
+    recent_trial: BreakthroughRecentTrialSnapshot | None
 
 
 class BreakthroughPanelServiceError(RuntimeError):
-    """突破秘境面板查询服务基础异常。"""
+    """突破三问查询服务基础异常。"""
 
 
 class BreakthroughPanelService:
-    """聚合角色总览、突破预检、试炼入口与最近结算。"""
+    """聚合突破根页、问玄关、检灵材与叩关回放所需上下文。"""
 
     def __init__(
         self,
@@ -174,6 +124,7 @@ class BreakthroughPanelService:
         trial_service: BreakthroughTrialService,
         breakthrough_repository: BreakthroughRepository,
         battle_record_repository: BattleRecordRepository,
+        inventory_repository: InventoryRepository,
         static_config: StaticGameConfig | None = None,
         battle_replay_service: BattleReplayService | None = None,
     ) -> None:
@@ -182,6 +133,7 @@ class BreakthroughPanelService:
         self._trial_service = trial_service
         self._breakthrough_repository = breakthrough_repository
         self._battle_record_repository = battle_record_repository
+        self._inventory_repository = inventory_repository
         self._static_config = static_config or get_static_config()
         self._battle_replay_service = battle_replay_service or BattleReplayService()
         self._trial_by_mapping_id = {
@@ -192,83 +144,157 @@ class BreakthroughPanelService:
         }
 
     def get_panel_snapshot(self, *, character_id: int) -> BreakthroughPanelSnapshot:
-        """读取突破秘境主面板所需聚合数据。"""
+        """读取突破三问所需聚合数据。"""
         overview = self._character_panel_query_service.get_overview(character_id=character_id)
         precheck = self._progression_service.get_breakthrough_precheck(character_id=character_id)
         hub = self._trial_service.get_trial_hub(character_id=character_id)
-        recent_settlement = self.get_recent_settlement_snapshot(character_id=character_id)
+        trial_definition = self._resolve_trial_definition(precheck=precheck, hub=hub)
+        material_page = self._build_material_page_snapshot(
+            character_id=character_id,
+            trial_definition=trial_definition,
+        )
+        qualification_page = self._build_qualification_page_snapshot(
+            precheck=precheck,
+            hub=hub,
+            trial_definition=trial_definition,
+            material_page=material_page,
+        )
+        root_status = BreakthroughRootStatus(
+            current_realm_display=f"{overview.realm_name}·{overview.stage_name}",
+            next_realm_name=precheck.target_realm_name or "当前已至开放上限",
+            qualification_obtained=precheck.qualification_obtained,
+            material_ready=material_page.all_satisfied,
+            can_breakthrough=precheck.passed,
+        )
         return BreakthroughPanelSnapshot(
             overview=overview,
             precheck=precheck,
-            hub=hub,
-            goal_card=self._build_goal_card(overview=overview, precheck=precheck, hub=hub),
-            current_trial_card=self._build_trial_card_from_entry(
-                trial=hub.current_trial,
-                target_realm_name=precheck.target_realm_name,
-            ),
-            status_card=self._build_status_card(overview=overview, precheck=precheck, hub=hub),
-            gap_card=self._build_gap_card(precheck=precheck),
-            recent_result_card=None if recent_settlement is None else recent_settlement.recent_result_card,
-            recent_settlement=recent_settlement,
+            root_status=root_status,
+            qualification_page=qualification_page,
+            material_page=material_page,
+            recent_trial=self._build_recent_trial_snapshot(character_id=character_id),
         )
 
-    def get_recent_settlement_snapshot(self, *, character_id: int) -> BreakthroughRecentSettlementSnapshot | None:
-        """读取最近一次突破秘境结算及其展示上下文。"""
-        overview = self._character_panel_query_service.get_overview(character_id=character_id)
-        precheck = self._progression_service.get_breakthrough_precheck(character_id=character_id)
-        hub = self._trial_service.get_trial_hub(character_id=character_id)
+    def _resolve_trial_definition(
+        self,
+        *,
+        precheck: BreakthroughPrecheckResult,
+        hub: BreakthroughTrialHubSnapshot,
+    ) -> BreakthroughTrialDefinition | None:
+        mapping_id = None
+        if hub.current_trial is not None:
+            mapping_id = hub.current_trial.mapping_id
+        elif precheck.mapping_id is not None:
+            mapping_id = precheck.mapping_id
+        if mapping_id is None:
+            return None
+        return self._trial_by_mapping_id.get(mapping_id)
+
+    def _build_material_page_snapshot(
+        self,
+        *,
+        character_id: int,
+        trial_definition: BreakthroughTrialDefinition | None,
+    ) -> BreakthroughMaterialPageSnapshot:
+        if trial_definition is None:
+            return BreakthroughMaterialPageSnapshot(
+                requirements=(),
+                all_satisfied=True,
+                gap_summary="已无缺漏",
+            )
+        requirements: list[BreakthroughMaterialRequirementSnapshot] = []
+        for requirement in trial_definition.required_items:
+            owned_item = self._inventory_repository.get_item(
+                character_id,
+                requirement.item_type,
+                requirement.item_id,
+            )
+            owned_quantity = 0 if owned_item is None else max(0, int(owned_item.quantity))
+            required_quantity = max(0, int(requirement.quantity))
+            missing_quantity = max(0, required_quantity - owned_quantity)
+            requirements.append(
+                BreakthroughMaterialRequirementSnapshot(
+                    item_type=requirement.item_type,
+                    item_id=requirement.item_id,
+                    item_name=_RESOURCE_NAME_BY_ID.get(requirement.item_id, requirement.item_id),
+                    required_quantity=required_quantity,
+                    owned_quantity=owned_quantity,
+                    missing_quantity=missing_quantity,
+                )
+            )
+        missing_lines = [
+            f"{item.item_name} ×{item.missing_quantity}"
+            for item in requirements
+            if item.missing_quantity > 0
+        ]
+        return BreakthroughMaterialPageSnapshot(
+            requirements=tuple(requirements),
+            all_satisfied=not missing_lines,
+            gap_summary="已无缺漏" if not missing_lines else "；".join(missing_lines),
+        )
+
+    def _build_qualification_page_snapshot(
+        self,
+        *,
+        precheck: BreakthroughPrecheckResult,
+        hub: BreakthroughTrialHubSnapshot,
+        trial_definition: BreakthroughTrialDefinition | None,
+        material_page: BreakthroughMaterialPageSnapshot,
+    ) -> BreakthroughQualificationPageSnapshot:
+        mapping_id = None
+        trial_name = None
+        environment_rule = None
+        if hub.current_trial is not None:
+            mapping_id = hub.current_trial.mapping_id
+            trial_name = hub.current_trial.trial_name
+            environment_rule = hub.current_trial.environment_rule
+        elif trial_definition is not None:
+            mapping_id = trial_definition.mapping_id
+            trial_name = trial_definition.name
+            environment_rule = trial_definition.environment_rule
+        passed = precheck.qualification_obtained
+        return BreakthroughQualificationPageSnapshot(
+            mapping_id=mapping_id,
+            trial_name=trial_name,
+            environment_rule=environment_rule,
+            atmosphere_text=self._build_atmosphere_text(
+                trial_name=trial_name,
+                environment_rule=environment_rule,
+            ),
+            passed=passed,
+            material_gap_text=material_page.gap_summary,
+            start_trial_enabled=mapping_id is not None and not passed,
+        )
+
+    @staticmethod
+    def _build_atmosphere_text(*, trial_name: str | None, environment_rule: str | None) -> str:
+        if trial_name is None:
+            return "前路暂时无新关可问，山风也在门前缓了下来。"
+        if environment_rule:
+            return f"门前灵压早已成势，{environment_rule}，只等你亲自上前叩这一关。"
+        return "门前风声不言成败，只等你把这一口心气真正送到关前。"
+
+    def _build_recent_trial_snapshot(self, *, character_id: int) -> BreakthroughRecentTrialSnapshot | None:
         progress_entries = self._breakthrough_repository.list_by_character_id(character_id)
-        progress_entry, payload, occurred_at = self._resolve_latest_settlement(progress_entries=progress_entries)
+        progress_entry, payload, occurred_at = self._resolve_latest_result(progress_entries=progress_entries)
         if progress_entry is None or payload is None or occurred_at is None:
             return None
-        trial = self._require_trial(progress_entry.mapping_id)
+        trial = self._trial_by_mapping_id.get(progress_entry.mapping_id)
+        trial_name = progress_entry.mapping_id if trial is None else trial.name
         battle_report_id = _read_optional_int(payload.get("battle_report_id"))
-        battle_report_digest = self._load_battle_report_digest(
-            character_id=character_id,
-            battle_report_id=battle_report_id,
-        )
-        battle_replay_presentation = self._load_battle_replay_presentation(
-            character_id=character_id,
-            battle_report_id=battle_report_id,
-            trial_name=trial.name,
-            group_name=self._group_name_by_id.get(trial.group_id, trial.group_id),
-            environment_rule=trial.environment_rule,
-            focus_unit_name=None if battle_report_digest is None else battle_report_digest.focus_unit_name,
-        )
-        settlement = self._build_application_result(progress_entry=progress_entry, payload=payload)
-        reward_summary = self._build_compact_reward_summary(settlement=settlement)
-        goal_card = self._build_goal_card(overview=overview, precheck=precheck, hub=hub)
-        trial_card = self._build_trial_card_from_definition(
-            trial=trial,
-            progress_entry=progress_entry,
-            target_realm_name=precheck.target_realm_name,
-        )
-        status_card = self._build_status_card(overview=overview, precheck=precheck, hub=hub)
-        gap_card = self._build_gap_card(precheck=precheck)
-        recent_result_card = BreakthroughRecentResultCard(
-            trial_name=trial.name,
-            result_label=_SETTLEMENT_LABEL_BY_VALUE.get(settlement.settlement_type, settlement.settlement_type),
-            qualification_changed=settlement.qualification_granted,
-            reward_summary=reward_summary,
+        return BreakthroughRecentTrialSnapshot(
+            mapping_id=progress_entry.mapping_id,
+            trial_name=trial_name,
             occurred_at=occurred_at,
-        )
-        return BreakthroughRecentSettlementSnapshot(
-            mapping_id=trial.mapping_id,
-            trial_name=trial.name,
-            group_id=trial.group_id,
-            group_name=self._group_name_by_id.get(trial.group_id, trial.group_id),
-            occurred_at=occurred_at,
-            settlement=settlement,
-            goal_card=goal_card,
-            trial_card=trial_card,
-            status_card=status_card,
-            gap_card=gap_card,
-            recent_result_card=recent_result_card,
-            battle_report_digest=battle_report_digest,
-            battle_replay_presentation=battle_replay_presentation,
+            battle_report_id=battle_report_id,
+            battle_replay_presentation=self._load_battle_replay_presentation(
+                character_id=character_id,
+                battle_report_id=battle_report_id,
+                trial_definition=trial,
+            ),
         )
 
-    def _resolve_latest_settlement(
+    def _resolve_latest_result(
         self,
         *,
         progress_entries: Sequence[BreakthroughTrialProgress],
@@ -287,216 +313,39 @@ class BreakthroughPanelService:
                 latest_occurred_at = occurred_at
         return latest_entry, latest_payload, latest_occurred_at
 
-    def _build_application_result(
-        self,
-        *,
-        progress_entry: BreakthroughTrialProgress,
-        payload: Mapping[str, Any],
-    ) -> BreakthroughRewardApplicationResult:
-        reward_payload = _normalize_mapping(payload.get("reward_payload"))
-        soft_limit_snapshot = _normalize_optional_mapping(payload.get("soft_limit_snapshot"))
-        if soft_limit_snapshot is None:
-            soft_limit_snapshot = _normalize_optional_mapping(reward_payload.get("soft_limit"))
-        return BreakthroughRewardApplicationResult(
-            settlement_type=str(payload.get("settlement_type") or "unknown"),
-            victory=str(payload.get("result") or "").lower() == "victory",
-            qualification_granted=bool(payload.get("qualification_granted")),
-            progress_status=_read_optional_str(payload.get("resulting_progress_status")) or progress_entry.status,
-            attempt_count=max(0, progress_entry.attempt_count),
-            cleared_count=max(0, progress_entry.cleared_count),
-            reward_payload=reward_payload,
-            settlement_payload=dict(payload),
-            soft_limit_snapshot=soft_limit_snapshot,
-            currency_changes=_normalize_int_mapping(payload.get("currency_changes")),
-            item_changes=tuple(_normalize_item_changes(payload.get("item_changes"))),
-            battle_report_id=_read_optional_int(payload.get("battle_report_id")),
-            drop_record_id=_read_optional_int(payload.get("drop_record_id")),
-            source_ref=str(payload.get("source_ref") or f"breakthrough_trial:{progress_entry.mapping_id}"),
-        )
-
-    def _build_goal_card(
-        self,
-        *,
-        overview: CharacterPanelOverview,
-        precheck: BreakthroughPrecheckResult,
-        hub: BreakthroughTrialHubSnapshot,
-    ) -> BreakthroughGoalCard:
-        target_realm_name = precheck.target_realm_name or "当前已到开放上限"
-        return BreakthroughGoalCard(
-            current_realm_name=overview.realm_name,
-            current_stage_name=overview.stage_name,
-            target_realm_name=target_realm_name,
-            qualification_obtained=hub.qualification_obtained,
-            can_breakthrough=precheck.passed,
-        )
-
-    def _build_trial_card_from_entry(
-        self,
-        *,
-        trial: BreakthroughTrialEntrySnapshot | None,
-        target_realm_name: str | None,
-    ) -> BreakthroughTrialCard | None:
-        if trial is None:
-            return None
-        return BreakthroughTrialCard(
-            mapping_id=trial.mapping_id,
-            trial_name=trial.trial_name,
-            group_name=self._group_name_by_id.get(trial.group_id, trial.group_id),
-            target_realm_name=target_realm_name or trial.to_realm_id,
-            environment_rule=trial.environment_rule,
-            can_challenge=trial.can_challenge,
-            is_cleared=trial.is_cleared,
-            attempt_count=trial.attempt_count,
-            cleared_count=trial.cleared_count,
-        )
-
-    def _build_trial_card_from_definition(
-        self,
-        *,
-        trial: BreakthroughTrialDefinition,
-        progress_entry: BreakthroughTrialProgress,
-        target_realm_name: str | None,
-    ) -> BreakthroughTrialCard:
-        return BreakthroughTrialCard(
-            mapping_id=trial.mapping_id,
-            trial_name=trial.name,
-            group_name=self._group_name_by_id.get(trial.group_id, trial.group_id),
-            target_realm_name=target_realm_name or trial.to_realm_id,
-            environment_rule=trial.environment_rule_id,
-            can_challenge=True,
-            is_cleared=max(0, progress_entry.cleared_count) > 0,
-            attempt_count=max(0, progress_entry.attempt_count),
-            cleared_count=max(0, progress_entry.cleared_count),
-        )
-
-    @staticmethod
-    def _build_status_card(
-        *,
-        overview: CharacterPanelOverview,
-        precheck: BreakthroughPrecheckResult,
-        hub: BreakthroughTrialHubSnapshot,
-    ) -> BreakthroughStatusCard:
-        return BreakthroughStatusCard(
-            current_realm_name=overview.realm_name,
-            current_stage_name=overview.stage_name,
-            current_hp_ratio=hub.current_hp_ratio,
-            current_mp_ratio=hub.current_mp_ratio,
-            qualification_obtained=hub.qualification_obtained,
-            current_cultivation_value=precheck.current_cultivation_value,
-            required_cultivation_value=precheck.required_cultivation_value,
-            current_comprehension_value=precheck.current_comprehension_value,
-            required_comprehension_value=precheck.required_comprehension_value,
-        )
-
-    def _build_gap_card(self, *, precheck: BreakthroughPrecheckResult) -> BreakthroughGapCard:
-        lines = self._build_gap_lines(precheck=precheck)
-        return BreakthroughGapCard(
-            passed=precheck.passed,
-            lines=tuple(lines) if lines else ("已满足",),
-        )
-
-    def _build_gap_lines(self, *, precheck: BreakthroughPrecheckResult) -> list[str]:
-        gap_lines: list[str] = []
-        for gap in precheck.gaps:
-            if gap.gap_type == "open_limit":
-                gap_lines.append("当前已到开放上限")
-            elif gap.gap_type == "cultivation_insufficient":
-                gap_lines.append(f"修为还差 {gap.missing_value}")
-            elif gap.gap_type == "comprehension_insufficient":
-                gap_lines.append(f"感悟还差 {gap.missing_value}")
-            elif gap.gap_type == "qualification_missing":
-                gap_lines.append("缺少突破资格")
-            elif gap.gap_type == "material_insufficient":
-                item_name = _RESOURCE_NAME_BY_ID.get(gap.item_id or "", gap.item_id or "材料")
-                gap_lines.append(f"{item_name} 还差 {gap.missing_value}")
-        return gap_lines
-
-    @staticmethod
-    def _build_compact_reward_summary(*, settlement: BreakthroughRewardApplicationResult) -> str:
-        parts: list[str] = []
-        if settlement.qualification_granted:
-            parts.append("突破资格")
-        for resource_id, quantity in settlement.currency_changes.items():
-            if quantity > 0:
-                parts.append(f"{_RESOURCE_NAME_BY_ID.get(resource_id, resource_id)} +{quantity}")
-        for item in settlement.item_changes:
-            item_id = str(item.get("item_id") or "")
-            quantity = _read_int(item.get("quantity"))
-            if quantity > 0:
-                parts.append(f"{_RESOURCE_NAME_BY_ID.get(item_id, item_id or '未知物品')} +{quantity}")
-        if not parts:
-            return "无"
-        return "｜".join(parts)
-
-    def _load_battle_report_digest(
-        self,
-        *,
-        character_id: int,
-        battle_report_id: int | None,
-    ) -> BreakthroughBattleReportDigest | None:
-        if battle_report_id is None:
-            return None
-        for battle_report in self._battle_record_repository.list_battle_reports(character_id):
-            if battle_report.id == battle_report_id:
-                return self._build_battle_report_digest(battle_report)
-        return None
-
     def _load_battle_replay_presentation(
         self,
         *,
         character_id: int,
         battle_report_id: int | None,
-        trial_name: str,
-        group_name: str,
-        environment_rule: str,
-        focus_unit_name: str | None,
+        trial_definition: BreakthroughTrialDefinition | None,
     ) -> BattleReplayPresentation | None:
         if battle_report_id is None:
             return None
         for battle_report in self._battle_record_repository.list_battle_reports(character_id):
             if battle_report.id != battle_report_id:
                 continue
+            scene_name = battle_report.battle_type
+            environment_name = None
+            group_name = None
+            if trial_definition is not None:
+                scene_name = trial_definition.name
+                environment_name = trial_definition.environment_rule
+                group_name = self._group_name_by_id.get(trial_definition.group_id)
             return self._battle_replay_service.build_presentation(
                 battle_report_id=battle_report.id,
                 result=battle_report.result,
                 summary_payload=_normalize_mapping(battle_report.summary_json),
                 detail_payload=_normalize_mapping(battle_report.detail_log_json),
                 context=BattleReplayDisplayContext(
-                    source_name="突破秘境",
-                    scene_name=trial_name,
+                    source_name="叩关行记",
+                    scene_name=scene_name,
                     group_name=group_name,
-                    environment_name=environment_rule,
-                    focus_unit_name=focus_unit_name,
+                    environment_name=environment_name,
+                    focus_unit_name=None,
                 ),
             )
         return None
-
-    @staticmethod
-    def _build_battle_report_digest(battle_report: BattleReport) -> BreakthroughBattleReportDigest:
-        summary_payload = _normalize_mapping(battle_report.summary_json)
-        damage_summary = _normalize_int_mapping(summary_payload.get("damage_summary"))
-        healing_summary = _normalize_int_mapping(summary_payload.get("healing_summary"))
-        key_trigger_counts = _normalize_int_mapping(summary_payload.get("key_trigger_counts"))
-        return BreakthroughBattleReportDigest(
-            battle_report_id=battle_report.id,
-            result=str(summary_payload.get("result") or battle_report.result),
-            completed_rounds=_read_int(summary_payload.get("completed_rounds")),
-            focus_unit_name=str(summary_payload.get("focus_unit_name") or f"角色 {battle_report.character_id}"),
-            final_hp_ratio=str(summary_payload.get("final_hp_ratio") or "0.0000"),
-            final_mp_ratio=str(summary_payload.get("final_mp_ratio") or "0.0000"),
-            ally_damage_dealt=_read_int(damage_summary.get("ally_damage_dealt")),
-            ally_damage_taken=_read_int(damage_summary.get("ally_damage_taken")),
-            ally_healing_done=_read_int(healing_summary.get("ally_healing_done")),
-            successful_hits=_read_int(key_trigger_counts.get("successful_hits")),
-            critical_hits=_read_int(key_trigger_counts.get("critical_hits")),
-            control_skips=_read_int(key_trigger_counts.get("control_skips")),
-        )
-
-    def _require_trial(self, mapping_id: str) -> BreakthroughTrialDefinition:
-        trial = self._trial_by_mapping_id.get(mapping_id)
-        if trial is None:
-            raise BreakthroughPanelServiceError(f"未定义的突破映射：{mapping_id}")
-        return trial
 
 
 def _normalize_mapping(value: Any) -> dict[str, Any]:
@@ -505,46 +354,10 @@ def _normalize_mapping(value: Any) -> dict[str, Any]:
     return {}
 
 
-def _normalize_optional_mapping(value: Any) -> dict[str, Any] | None:
-    if isinstance(value, Mapping):
-        return {str(key): item for key, item in value.items()}
-    return None
-
-
-def _normalize_int_mapping(value: Any) -> dict[str, int]:
-    if not isinstance(value, Mapping):
-        return {}
-    return {str(key): _read_int(item) for key, item in value.items()}
-
-
-def _normalize_item_changes(value: Any) -> list[dict[str, object]]:
-    if not isinstance(value, Sequence) or isinstance(value, (str, bytes, bytearray)):
-        return []
-    normalized: list[dict[str, object]] = []
-    for entry in value:
-        if isinstance(entry, Mapping):
-            normalized.append({str(key): item for key, item in entry.items()})
-    return normalized
-
-
-def _read_int(value: Any, *, default: int = 0) -> int:
-    if isinstance(value, bool):
-        return int(value)
-    if isinstance(value, int):
-        return value
-    return default
-
-
 def _read_optional_int(value: Any) -> int | None:
     if isinstance(value, bool):
         return int(value)
     if isinstance(value, int):
-        return value
-    return None
-
-
-def _read_optional_str(value: Any) -> str | None:
-    if isinstance(value, str) and value:
         return value
     return None
 
@@ -559,14 +372,12 @@ def _parse_datetime(value: Any) -> datetime | None:
 
 
 __all__ = [
-    "BreakthroughBattleReportDigest",
-    "BreakthroughGapCard",
-    "BreakthroughGoalCard",
+    "BreakthroughMaterialPageSnapshot",
+    "BreakthroughMaterialRequirementSnapshot",
     "BreakthroughPanelService",
     "BreakthroughPanelServiceError",
     "BreakthroughPanelSnapshot",
-    "BreakthroughRecentResultCard",
-    "BreakthroughRecentSettlementSnapshot",
-    "BreakthroughStatusCard",
-    "BreakthroughTrialCard",
+    "BreakthroughQualificationPageSnapshot",
+    "BreakthroughRecentTrialSnapshot",
+    "BreakthroughRootStatus",
 ]

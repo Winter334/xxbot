@@ -1,11 +1,14 @@
 """突破秘境应用服务。"""
 
 from application.breakthrough.panel_service import (
-    BreakthroughBattleReportDigest,
+    BreakthroughMaterialPageSnapshot,
+    BreakthroughMaterialRequirementSnapshot,
     BreakthroughPanelService,
     BreakthroughPanelServiceError,
     BreakthroughPanelSnapshot,
-    BreakthroughRecentSettlementSnapshot,
+    BreakthroughQualificationPageSnapshot,
+    BreakthroughRecentTrialSnapshot,
+    BreakthroughRootStatus,
 )
 from application.breakthrough.reward_service import (
     BreakthroughRewardApplicationResult,
@@ -28,11 +31,14 @@ from application.breakthrough.trial_service import (
 )
 
 __all__ = [
-    "BreakthroughBattleReportDigest",
+    "BreakthroughMaterialPageSnapshot",
+    "BreakthroughMaterialRequirementSnapshot",
     "BreakthroughPanelService",
     "BreakthroughPanelServiceError",
     "BreakthroughPanelSnapshot",
-    "BreakthroughRecentSettlementSnapshot",
+    "BreakthroughQualificationPageSnapshot",
+    "BreakthroughRecentTrialSnapshot",
+    "BreakthroughRootStatus",
     "BreakthroughRewardApplicationResult",
     "BreakthroughRewardBoundaryError",
     "BreakthroughRewardService",
