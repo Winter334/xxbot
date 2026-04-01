@@ -1,4 +1,4 @@
-"""突破秘境入口应用服务。"""
+"""突破材料秘境应用服务。"""
 
 from __future__ import annotations
 
@@ -7,20 +7,23 @@ from dataclasses import dataclass, replace
 from datetime import datetime
 from decimal import Decimal, ROUND_HALF_UP
 
-from application.battle import AutoBattleRequest, AutoBattleService
-from application.breakthrough.difficulty_service import BreakthroughDynamicDifficultyService
-from application.character.current_attribute_service import CurrentAttributeService
-from application.breakthrough.reward_service import (
-    BreakthroughRewardApplicationResult,
-    BreakthroughRewardService,
+from application.battle import (
+    AutoBattleRequest,
+    AutoBattleService,
+    BattleReplayDisplayContext,
+    BattleReplayPresentation,
+    BattleReplayService,
 )
+from application.breakthrough.difficulty_service import (
+    BreakthroughDynamicDifficultyService,
+    BreakthroughDynamicDifficultySnapshot,
+)
+from application.character.current_attribute_service import CurrentAttributeService
 from application.character.growth_service import CharacterGrowthStateError, CharacterNotFoundError
 from application.dungeon.endless_service import (
-    _DEFAULT_HERO_TEMPLATE_ID,
     _ENEMY_BEHAVIOR_TEMPLATE_BY_TEMPLATE_ID,
     _ENEMY_TEMPLATE_STAT_PROFILE,
     _FULL_RESOURCE_VALUE,
-    _PATH_COMBAT_PROFILE_BY_TEMPLATE_ID,
 )
 from domain.battle import (
     ActionNumericBonusPatch,
@@ -36,26 +39,27 @@ from domain.battle import (
     BattleSnapshot,
     BattleUnitSnapshot,
 )
-from domain.breakthrough import BreakthroughRuleService, BreakthroughTrialProgressStatus
 from infrastructure.config.static import StaticGameConfig, get_static_config
 from infrastructure.config.static.models.breakthrough import (
     ActionPatchSelectorDefinition,
+    BreakthroughMaterialRequirement,
     BreakthroughTrialDefinition,
     EnvironmentRuleDefinition,
     EnvironmentStatModifierDefinition,
     EnvironmentTemplatePatchDefinition,
 )
-from infrastructure.db.models import BreakthroughTrialProgress, CharacterProgress
+from infrastructure.db.models import CharacterProgress, DropRecord, InventoryItem
 from infrastructure.db.repositories import (
-    BreakthroughRepository,
+    BattleRecordRepository,
     CharacterAggregate,
     CharacterRepository,
+    InventoryRepository,
     StateRepository,
-    build_breakthrough_progress_snapshot,
 )
 
-_BREAKTHROUGH_BATTLE_TYPE = "breakthrough_trial"
-_BREAKTHROUGH_ENVIRONMENT_TAG = "breakthrough_trial"
+_BREAKTHROUGH_MATERIAL_BATTLE_TYPE = "breakthrough_material_trial"
+_BREAKTHROUGH_MATERIAL_SOURCE_TYPE = "breakthrough_material_trial"
+_BREAKTHROUGH_MATERIAL_ENVIRONMENT_TAG = "breakthrough_material_trial"
 _ENDLESS_STATUS_COMPLETED = "completed"
 _RUNNING_STATUS = "running"
 _DEFAULT_ROUND_LIMIT = 12
@@ -63,128 +67,99 @@ _DECIMAL_ONE = Decimal("1")
 _DECIMAL_THOUSAND = Decimal("1000")
 _PERMILLE_STANDARD_MAX = 1000
 _PERMILLE_EXTENDED_MAX = 5000
+_RESOURCE_NAME_BY_ID = {
+    "qi_condensation_grass": "凝气草",
+    "foundation_pill": "筑基丹",
+    "spirit_pattern_stone": "灵纹石",
+    "core_congealing_pellet": "凝丹丸",
+    "fire_essence_sand": "离火砂",
+    "nascent_soul_flower": "元婴花",
+    "soul_binding_jade": "缚魂玉",
+    "deity_heart_seed": "化神心种",
+    "thunder_pattern_branch": "雷纹枝",
+    "void_break_crystal": "破虚晶",
+    "star_soul_dust": "星魂尘",
+    "body_integration_bone": "合体骨",
+    "myriad_gold_paste": "万金膏",
+    "great_vehicle_core": "大乘核",
+    "heaven_pattern_silk": "天纹丝",
+    "tribulation_lightning_talisman": "劫雷符",
+    "immortal_marrow_liquid": "仙髓液",
+}
 
 
 @dataclass(frozen=True, slots=True)
-class BreakthroughTrialEntrySnapshot:
-    """突破关卡在入口面板中的只读摘要。"""
+class BreakthroughMaterialDropItem:
+    """单条材料秘境掉落结果。"""
 
-    mapping_id: str
-    trial_name: str
-    group_id: str
-    from_realm_id: str
-    to_realm_id: str
-    environment_rule: str
-    environment_rule_id: str
-    repeat_reward_direction: str
-    boss_template_id: str
-    boss_stage_id: str
-    boss_scale_permille: int
-    first_clear_grants_qualification: bool
-    can_challenge: bool
-    is_cleared: bool
-    is_current_trial: bool
-    attempt_count: int
-    cleared_count: int
-    best_clear_at: str | None
-    first_cleared_at: str | None
-    last_cleared_at: str | None
-    qualification_granted_at: str | None
-    last_reward_direction: str | None
+    item_type: str
+    item_id: str
+    item_name: str
+    quantity: int
+    total_quantity: int
+    remaining_missing_quantity: int
 
 
 @dataclass(frozen=True, slots=True)
-class BreakthroughTrialGroupSnapshot:
-    """突破秘境分组概览。"""
-
-    group_id: str
-    group_name: str
-    theme_summary: str
-    reward_focus_summary: str
-    trials: tuple[BreakthroughTrialEntrySnapshot, ...]
-
-
-@dataclass(frozen=True, slots=True)
-class BreakthroughTrialHubSnapshot:
-    """破境天关入口稳定返回结构。"""
-
-    character_id: int
-    current_realm_id: str
-    current_stage_id: str
-    qualification_obtained: bool
-    current_hp_ratio: str
-    current_mp_ratio: str
-    current_trial_mapping_id: str | None
-    current_trial: BreakthroughTrialEntrySnapshot | None
-    repeatable_trials: tuple[BreakthroughTrialEntrySnapshot, ...]
-    cleared_mapping_ids: tuple[str, ...]
-    groups: tuple[BreakthroughTrialGroupSnapshot, ...]
-
-
-@dataclass(frozen=True, slots=True)
-class BreakthroughTrialChallengeResult:
-    """单次突破秘境挑战后的稳定返回结构。"""
+class BreakthroughMaterialTrialChallengeResult:
+    """单次材料秘境挑战后的稳定返回结构。"""
 
     character_id: int
     mapping_id: str
     trial_name: str
-    group_id: str
     battle_outcome: str
     battle_report_id: int | None
+    replay_presentation: BattleReplayPresentation | None
+    victory: bool
+    drop_items: tuple[BreakthroughMaterialDropItem, ...]
+    all_satisfied_after: bool
+    remaining_gap_summary: str
     environment_snapshot: dict[str, object]
-    settlement: BreakthroughRewardApplicationResult
-    current_hp_ratio: str
-    current_mp_ratio: str
-    qualification_obtained: bool
-    trial_snapshot: BreakthroughTrialEntrySnapshot
-    hub_snapshot: BreakthroughTrialHubSnapshot
+    difficulty_snapshot: BreakthroughDynamicDifficultySnapshot
+    drop_record_id: int | None
+    source_ref: str | None
 
 
-class BreakthroughTrialServiceError(RuntimeError):
-    """突破秘境应用服务基础异常。"""
+class BreakthroughMaterialTrialServiceError(RuntimeError):
+    """突破材料秘境应用服务基础异常。"""
 
 
-class BreakthroughTrialStateError(BreakthroughTrialServiceError):
-    """突破秘境所需角色状态不完整。"""
+class BreakthroughMaterialTrialStateError(BreakthroughMaterialTrialServiceError):
+    """突破材料秘境所需角色状态不完整。"""
 
 
-class BreakthroughTrialConflictError(BreakthroughTrialServiceError):
-    """角色当前存在与突破秘境冲突的运行状态。"""
+class BreakthroughMaterialTrialUnavailableError(BreakthroughMaterialTrialServiceError):
+    """当前材料秘境不可挑战。"""
 
 
-class BreakthroughTrialUnavailableError(BreakthroughTrialServiceError):
-    """当前关卡不满足挑战条件。"""
+class BreakthroughMaterialTrialConflictError(BreakthroughMaterialTrialServiceError):
+    """角色当前存在与材料秘境冲突的运行状态。"""
 
 
-class BreakthroughTrialNotFoundError(BreakthroughTrialServiceError):
-    """请求的突破关卡不存在。"""
-
-
-class BreakthroughTrialService:
-    """负责编排突破关卡入口、战斗接入与阶段 7 结算链路。"""
+class BreakthroughMaterialTrialService:
+    """负责材料秘境战斗、材料配给与战后演出。"""
 
     def __init__(
         self,
         *,
         state_repository: StateRepository,
         character_repository: CharacterRepository,
-        breakthrough_repository: BreakthroughRepository,
+        inventory_repository: InventoryRepository,
+        battle_record_repository: BattleRecordRepository,
         auto_battle_service: AutoBattleService,
-        reward_service: BreakthroughRewardService,
         current_attribute_service: CurrentAttributeService,
         difficulty_service: BreakthroughDynamicDifficultyService | None = None,
         static_config: StaticGameConfig | None = None,
-        rule_service: BreakthroughRuleService | None = None,
+        battle_replay_service: BattleReplayService | None = None,
     ) -> None:
         self._state_repository = state_repository
         self._character_repository = character_repository
-        self._breakthrough_repository = breakthrough_repository
+        self._inventory_repository = inventory_repository
+        self._battle_record_repository = battle_record_repository
         self._auto_battle_service = auto_battle_service
-        self._reward_service = reward_service
         self._current_attribute_service = current_attribute_service
         self._static_config = static_config or get_static_config()
-        self._rule_service = rule_service or BreakthroughRuleService(self._static_config)
-        self._rule_service.validate_trial_configuration()
+        self._battle_replay_service = battle_replay_service or BattleReplayService()
         self._difficulty_service = difficulty_service or BreakthroughDynamicDifficultyService(
             current_attribute_service=current_attribute_service,
             static_config=self._static_config,
@@ -197,67 +172,14 @@ class BreakthroughTrialService:
             stage.stage_id: Decimal(stage.multiplier)
             for stage in self._static_config.realm_progression.stages
         }
-
-    def get_trial_hub(self, *, character_id: int) -> BreakthroughTrialHubSnapshot:
-        """读取角色当前可见的突破秘境入口面板。"""
-        aggregate = self._require_character_aggregate(character_id)
-        progress = self._require_progress(aggregate)
-        progress_entries = self._breakthrough_repository.list_by_character_id(character_id)
-        progress_snapshot_map = {
-            entry.mapping_id: build_breakthrough_progress_snapshot(entry)
-            for entry in progress_entries
+        self._trial_by_mapping_id = {
+            trial.mapping_id: trial for trial in self._static_config.breakthrough_trials.trials
         }
-        cleared_mapping_ids = {
-            mapping_id
-            for mapping_id, snapshot in progress_snapshot_map.items()
-            if snapshot.status is BreakthroughTrialProgressStatus.CLEARED
+        self._group_name_by_id = {
+            group.group_id: group.name for group in self._static_config.breakthrough_trials.trial_groups
         }
-        current_trial = self._rule_service.get_current_trial(current_realm_id=progress.realm_id)
-        current_trial_mapping_id = None if current_trial is None else current_trial.mapping_id
 
-        group_snapshots: list[BreakthroughTrialGroupSnapshot] = []
-        repeatable_trials: list[BreakthroughTrialEntrySnapshot] = []
-        current_trial_snapshot: BreakthroughTrialEntrySnapshot | None = None
-        for group in self._static_config.breakthrough_trials.ordered_trial_groups:
-            group_trials: list[BreakthroughTrialEntrySnapshot] = []
-            for trial in self._iter_trials_by_group(group.group_id):
-                trial_snapshot = self._build_trial_entry_snapshot(
-                    trial=trial,
-                    current_realm_id=progress.realm_id,
-                    current_trial_mapping_id=current_trial_mapping_id,
-                    cleared_mapping_ids=cleared_mapping_ids,
-                    progress_snapshot=progress_snapshot_map.get(trial.mapping_id),
-                )
-                group_trials.append(trial_snapshot)
-                if trial_snapshot.is_current_trial:
-                    current_trial_snapshot = trial_snapshot
-                if trial_snapshot.is_cleared:
-                    repeatable_trials.append(trial_snapshot)
-            group_snapshots.append(
-                BreakthroughTrialGroupSnapshot(
-                    group_id=group.group_id,
-                    group_name=group.name,
-                    theme_summary=group.theme_summary,
-                    reward_focus_summary=group.reward_focus_summary,
-                    trials=tuple(group_trials),
-                )
-            )
-
-        return BreakthroughTrialHubSnapshot(
-            character_id=character_id,
-            current_realm_id=progress.realm_id,
-            current_stage_id=progress.stage_id,
-            qualification_obtained=progress.breakthrough_qualification_obtained,
-            current_hp_ratio=format(progress.current_hp_ratio, ".4f"),
-            current_mp_ratio=format(progress.current_mp_ratio, ".4f"),
-            current_trial_mapping_id=current_trial_mapping_id,
-            current_trial=current_trial_snapshot,
-            repeatable_trials=tuple(repeatable_trials),
-            cleared_mapping_ids=tuple(sorted(cleared_mapping_ids)),
-            groups=tuple(group_snapshots),
-        )
-
-    def challenge_trial(
+    def challenge_material_trial(
         self,
         *,
         character_id: int,
@@ -265,33 +187,19 @@ class BreakthroughTrialService:
         seed: int | None = None,
         now: datetime | None = None,
         persist_battle_report: bool = True,
-    ) -> BreakthroughTrialChallengeResult:
-        """执行一次突破秘境挑战，并串联阶段 7 的奖励与进度写入。"""
+    ) -> BreakthroughMaterialTrialChallengeResult:
+        """执行一次突破材料秘境挑战，并在胜利时发放突破材料。"""
         current_time = now or datetime.utcnow()
         aggregate = self._require_character_aggregate(character_id)
         progress = self._require_progress(aggregate)
         trial = self._resolve_trial(current_realm_id=progress.realm_id, mapping_id=mapping_id)
         self._ensure_no_conflict_states(character_id)
 
-        cleared_mapping_ids = {
-            entry.mapping_id
-            for entry in self._breakthrough_repository.list_cleared_by_character_id(character_id)
-        }
-        if not self._rule_service.can_challenge_trial(
-            current_realm_id=progress.realm_id,
-            target_mapping_id=trial.mapping_id,
-            cleared_mapping_ids=cleared_mapping_ids,
-        ):
-            raise BreakthroughTrialUnavailableError(
-                f"当前不可挑战突破关卡：{trial.mapping_id}"
-            )
-        progress_entry = self._breakthrough_repository.get_or_create_progress(
-            character_id,
-            trial.mapping_id,
-            group_id=trial.group_id,
-        )
+        missing_before = self._collect_missing_requirements(character_id=character_id, requirements=trial.required_items)
+        if not any(item["missing_quantity"] > 0 for item in missing_before):
+            raise BreakthroughMaterialTrialUnavailableError("当前突破材料已齐，无需再入采材秘境。")
 
-        request = self._build_auto_battle_request(
+        request, difficulty_snapshot = self._build_auto_battle_request(
             aggregate=aggregate,
             progress=progress,
             trial=trial,
@@ -308,71 +216,55 @@ class BreakthroughTrialService:
         )
 
         battle_outcome = self._extract_battle_outcome(execution_result.domain_result.outcome)
-        settlement = self._reward_service.apply_battle_result(
-            aggregate=aggregate,
-            trial=trial,
-            trial_progress=progress_entry,
-            battle_outcome=battle_outcome,
-            battle_report_id=execution_result.persisted_battle_report_id,
-            occurred_at=current_time,
+        drop_items: tuple[BreakthroughMaterialDropItem, ...] = ()
+        drop_record_id: int | None = None
+        source_ref: str | None = None
+        if battle_outcome is BattleOutcome.ALLY_VICTORY:
+            victory_count_before = self._count_victories(character_id=character_id, mapping_id=trial.mapping_id)
+            drop_items = self._apply_material_rewards(
+                character_id=character_id,
+                trial=trial,
+                missing_before=missing_before,
+                victory_count_before=victory_count_before,
+            )
+            source_ref = self._build_source_ref(mapping_id=trial.mapping_id, victory_count_after=victory_count_before + 1)
+            drop_record = self._battle_record_repository.add_drop_record(
+                self._build_drop_record(
+                    character_id=character_id,
+                    battle_report_id=execution_result.persisted_battle_report_id,
+                    source_ref=source_ref,
+                    drop_items=drop_items,
+                )
+            )
+            drop_record_id = drop_record.id
+
+        gap_summary, all_satisfied_after = self._build_gap_summary(
+            character_id=character_id,
+            requirements=trial.required_items,
         )
-        hub_snapshot = self.get_trial_hub(character_id=character_id)
-        trial_snapshot = self._require_trial_snapshot(hub_snapshot=hub_snapshot, mapping_id=trial.mapping_id)
-        return BreakthroughTrialChallengeResult(
+        self._character_repository.save_progress(progress)
+        replay_presentation = self._build_replay_presentation(
+            trial=trial,
+            battle_report_id=execution_result.persisted_battle_report_id,
+            result=battle_outcome.value,
+            summary_payload=execution_result.report_artifacts.summary.to_payload(),
+            detail_payload=execution_result.report_artifacts.detail.to_payload(),
+        )
+        return BreakthroughMaterialTrialChallengeResult(
             character_id=character_id,
             mapping_id=trial.mapping_id,
-            trial_name=trial.name,
-            group_id=trial.group_id,
+            trial_name=trial.material_trial_name,
             battle_outcome=battle_outcome.value,
             battle_report_id=execution_result.persisted_battle_report_id,
+            replay_presentation=replay_presentation,
+            victory=battle_outcome is BattleOutcome.ALLY_VICTORY,
+            drop_items=drop_items,
+            all_satisfied_after=all_satisfied_after,
+            remaining_gap_summary=gap_summary,
             environment_snapshot=dict(request.environment_snapshot or {}),
-            settlement=settlement,
-            current_hp_ratio=format(progress.current_hp_ratio, ".4f"),
-            current_mp_ratio=format(progress.current_mp_ratio, ".4f"),
-            qualification_obtained=progress.breakthrough_qualification_obtained,
-            trial_snapshot=trial_snapshot,
-            hub_snapshot=hub_snapshot,
-        )
-
-    def _build_trial_entry_snapshot(
-        self,
-        *,
-        trial: BreakthroughTrialDefinition,
-        current_realm_id: str,
-        current_trial_mapping_id: str | None,
-        cleared_mapping_ids: set[str],
-        progress_snapshot,
-    ) -> BreakthroughTrialEntrySnapshot:
-        """把静态关卡与角色进度合成为入口可读摘要。"""
-        status = None if progress_snapshot is None else progress_snapshot.status
-        is_cleared = status is BreakthroughTrialProgressStatus.CLEARED
-        return BreakthroughTrialEntrySnapshot(
-            mapping_id=trial.mapping_id,
-            trial_name=trial.name,
-            group_id=trial.group_id,
-            from_realm_id=trial.from_realm_id,
-            to_realm_id=trial.to_realm_id,
-            environment_rule=trial.environment_rule,
-            environment_rule_id=trial.environment_rule_id,
-            repeat_reward_direction=trial.repeat_reward_direction,
-            boss_template_id=trial.boss_template_id,
-            boss_stage_id=trial.boss_stage_id,
-            boss_scale_permille=trial.boss_scale_permille,
-            first_clear_grants_qualification=trial.first_clear_grants_qualification,
-            can_challenge=self._rule_service.can_challenge_trial(
-                current_realm_id=current_realm_id,
-                target_mapping_id=trial.mapping_id,
-                cleared_mapping_ids=cleared_mapping_ids,
-            ),
-            is_cleared=is_cleared,
-            is_current_trial=trial.mapping_id == current_trial_mapping_id,
-            attempt_count=0 if progress_snapshot is None else progress_snapshot.attempt_count,
-            cleared_count=0 if progress_snapshot is None else progress_snapshot.cleared_count,
-            best_clear_at=None if progress_snapshot is None else progress_snapshot.best_clear_at,
-            first_cleared_at=None if progress_snapshot is None else progress_snapshot.first_cleared_at,
-            last_cleared_at=None if progress_snapshot is None else progress_snapshot.last_cleared_at,
-            qualification_granted_at=None if progress_snapshot is None else progress_snapshot.qualification_granted_at,
-            last_reward_direction=None if progress_snapshot is None else progress_snapshot.last_reward_direction,
+            difficulty_snapshot=difficulty_snapshot,
+            drop_record_id=drop_record_id,
+            source_ref=source_ref,
         )
 
     def _build_auto_battle_request(
@@ -382,12 +274,11 @@ class BreakthroughTrialService:
         progress: CharacterProgress,
         trial: BreakthroughTrialDefinition,
         seed: int,
-    ) -> AutoBattleRequest:
-        """把突破关卡、环境规则与角色状态装配为自动战斗请求。"""
+    ) -> tuple[AutoBattleRequest, BreakthroughDynamicDifficultySnapshot]:
         environment_rule = self._require_environment_rule(trial.environment_rule_id)
         difficulty_snapshot = self._difficulty_service.resolve_enemy_scale(
             character_id=aggregate.character.id,
-            base_scale_permille=trial.boss_scale_permille,
+            base_scale_permille=trial.material_boss_scale_permille,
         )
         ally_snapshot = self._build_ally_battle_snapshot(aggregate=aggregate, progress=progress)
         enemy_snapshot = self._build_enemy_battle_snapshot(
@@ -403,7 +294,7 @@ class BreakthroughTrialService:
             modifiers=environment_rule.enemy_stat_modifiers,
         )
         environment_tags = (
-            _BREAKTHROUGH_ENVIRONMENT_TAG,
+            _BREAKTHROUGH_MATERIAL_ENVIRONMENT_TAG,
             trial.group_id,
             trial.mapping_id,
             environment_rule.rule_id,
@@ -419,9 +310,9 @@ class BreakthroughTrialService:
             ),
         )
         template_path_id_by_template_id = current_attributes.build_template_path_id_by_template_id()
-        return AutoBattleRequest(
+        request = AutoBattleRequest(
             character_id=aggregate.character.id,
-            battle_type=_BREAKTHROUGH_BATTLE_TYPE,
+            battle_type=_BREAKTHROUGH_MATERIAL_BATTLE_TYPE,
             snapshot=BattleSnapshot(
                 seed=seed,
                 allies=(ally_snapshot,),
@@ -429,13 +320,14 @@ class BreakthroughTrialService:
                 round_limit=_DEFAULT_ROUND_LIMIT,
                 environment_tags=environment_tags,
             ),
-            opponent_ref=f"breakthrough:{trial.mapping_id}:{trial.boss_template_id}:{trial.boss_stage_id}",
+            opponent_ref=f"breakthrough_material:{trial.mapping_id}:{trial.boss_template_id}:{trial.boss_stage_id}",
             focus_unit_id=ally_snapshot.unit_id,
             environment_snapshot={
                 "mapping_id": trial.mapping_id,
                 "group_id": trial.group_id,
                 "from_realm_id": trial.from_realm_id,
                 "to_realm_id": trial.to_realm_id,
+                "material_trial_name": trial.material_trial_name,
                 "boss_template_id": trial.boss_template_id,
                 "boss_stage_id": trial.boss_stage_id,
                 "boss_scale_permille": difficulty_snapshot.adjusted_scale_permille,
@@ -445,11 +337,11 @@ class BreakthroughTrialService:
                 "environment_rule_id": environment_rule.rule_id,
                 "environment_rule_summary": environment_rule.summary,
                 "environment_tags": ",".join(environment_rule.environment_tags),
-                "reward_direction": trial.repeat_reward_direction,
             },
             template_patches_by_template_id=None if not template_patches_by_template_id else template_patches_by_template_id,
             template_path_id_by_template_id=None if not template_path_id_by_template_id else template_path_id_by_template_id,
         )
+        return request, difficulty_snapshot
 
     def _build_ally_battle_snapshot(
         self,
@@ -457,7 +349,6 @@ class BreakthroughTrialService:
         aggregate: CharacterAggregate,
         progress: CharacterProgress,
     ) -> BattleUnitSnapshot:
-        """基于统一当前属性构造突破战斗主角快照。"""
         del progress
         current_attributes = self._current_attribute_service.get_pve_view(character_id=aggregate.character.id)
         return current_attributes.build_battle_unit_snapshot(
@@ -472,7 +363,6 @@ class BreakthroughTrialService:
         trial: BreakthroughTrialDefinition,
         scale_permille: int,
     ) -> BattleUnitSnapshot:
-        """按固定大境界门槛构造单体突破首领快照。"""
         template_profile = self._resolve_enemy_template_profile(trial.boss_template_id)
         behavior_template_id = self._resolve_enemy_behavior_template_id(trial.boss_template_id)
         scale_factor = Decimal(scale_permille) / _DECIMAL_THOUSAND
@@ -483,8 +373,8 @@ class BreakthroughTrialService:
         )
         max_resource = _FULL_RESOURCE_VALUE
         return BattleUnitSnapshot(
-            unit_id=f"breakthrough_boss:{trial.mapping_id}",
-            unit_name=f"{trial.name}守关者",
+            unit_id=f"breakthrough_material_boss:{trial.mapping_id}",
+            unit_name=f"{trial.material_trial_name}守境灵影",
             side=BattleSide.ENEMY,
             behavior_template_id=behavior_template_id,
             realm_id=trial.from_realm_id,
@@ -522,6 +412,161 @@ class BreakthroughTrialService:
             counter_rate_permille=_read_int(template_profile.get("counter_rate_permille")),
         )
 
+    def _apply_material_rewards(
+        self,
+        *,
+        character_id: int,
+        trial: BreakthroughTrialDefinition,
+        missing_before: tuple[dict[str, object], ...],
+        victory_count_before: int,
+    ) -> tuple[BreakthroughMaterialDropItem, ...]:
+        remaining_target_wins = max(1, int(trial.material_target_victory_count) - max(0, victory_count_before))
+        drop_items: list[BreakthroughMaterialDropItem] = []
+        for entry in missing_before:
+            missing_quantity = int(entry["missing_quantity"])
+            if missing_quantity <= 0:
+                continue
+            reward_quantity = min(missing_quantity, _round_up_division(missing_quantity, remaining_target_wins))
+            if reward_quantity <= 0:
+                continue
+            item_type = str(entry["item_type"])
+            item_id = str(entry["item_id"])
+            existing = self._inventory_repository.get_item(character_id, item_type, item_id)
+            next_quantity = reward_quantity if existing is None else max(0, int(existing.quantity)) + reward_quantity
+            payload: dict[str, object] = {"bound": True}
+            if existing is not None and isinstance(existing.item_payload_json, dict):
+                payload = dict(existing.item_payload_json)
+                payload["bound"] = True
+            saved_item = self._inventory_repository.upsert_item(
+                InventoryItem(
+                    character_id=character_id,
+                    item_type=item_type,
+                    item_id=item_id,
+                    quantity=next_quantity,
+                    item_payload_json=payload,
+                )
+            )
+            remaining_missing_quantity = max(0, int(entry["required_quantity"]) - saved_item.quantity)
+            drop_items.append(
+                BreakthroughMaterialDropItem(
+                    item_type=item_type,
+                    item_id=item_id,
+                    item_name=str(entry["item_name"]),
+                    quantity=reward_quantity,
+                    total_quantity=saved_item.quantity,
+                    remaining_missing_quantity=remaining_missing_quantity,
+                )
+            )
+        return tuple(drop_items)
+
+    def _collect_missing_requirements(
+        self,
+        *,
+        character_id: int,
+        requirements: tuple[BreakthroughMaterialRequirement, ...],
+    ) -> tuple[dict[str, object], ...]:
+        entries: list[dict[str, object]] = []
+        for requirement in requirements:
+            owned_item = self._inventory_repository.get_item(
+                character_id,
+                requirement.item_type,
+                requirement.item_id,
+            )
+            owned_quantity = 0 if owned_item is None else max(0, int(owned_item.quantity))
+            required_quantity = max(0, int(requirement.quantity))
+            entries.append(
+                {
+                    "item_type": requirement.item_type,
+                    "item_id": requirement.item_id,
+                    "item_name": _RESOURCE_NAME_BY_ID.get(requirement.item_id, requirement.item_id),
+                    "required_quantity": required_quantity,
+                    "owned_quantity": owned_quantity,
+                    "missing_quantity": max(0, required_quantity - owned_quantity),
+                }
+            )
+        return tuple(entries)
+
+    def _build_gap_summary(
+        self,
+        *,
+        character_id: int,
+        requirements: tuple[BreakthroughMaterialRequirement, ...],
+    ) -> tuple[str, bool]:
+        entries = self._collect_missing_requirements(character_id=character_id, requirements=requirements)
+        missing_lines = [
+            f"{entry['item_name']} ×{entry['missing_quantity']}"
+            for entry in entries
+            if int(entry["missing_quantity"]) > 0
+        ]
+        if not missing_lines:
+            return "已无缺漏", True
+        return "；".join(missing_lines), False
+
+    def _build_replay_presentation(
+        self,
+        *,
+        trial: BreakthroughTrialDefinition,
+        battle_report_id: int | None,
+        result: str,
+        summary_payload: Mapping[str, object],
+        detail_payload: Mapping[str, object],
+    ) -> BattleReplayPresentation | None:
+        if battle_report_id is None:
+            return None
+        return self._battle_replay_service.build_presentation(
+            battle_report_id=battle_report_id,
+            result=result,
+            summary_payload=summary_payload,
+            detail_payload=detail_payload,
+            context=BattleReplayDisplayContext(
+                source_name="采材行记",
+                scene_name=trial.material_trial_name,
+                group_name=self._group_name_by_id.get(trial.group_id),
+                environment_name=trial.environment_rule,
+                focus_unit_name=None,
+            ),
+        )
+
+    def _count_victories(self, *, character_id: int, mapping_id: str) -> int:
+        prefix = f"breakthrough_material:{mapping_id}:victory:"
+        count = 0
+        for record in self._battle_record_repository.list_drop_records(character_id):
+            if record.source_type != _BREAKTHROUGH_MATERIAL_SOURCE_TYPE:
+                continue
+            if isinstance(record.source_ref, str) and record.source_ref.startswith(prefix):
+                count += 1
+        return count
+
+    @staticmethod
+    def _build_source_ref(*, mapping_id: str, victory_count_after: int) -> str:
+        return f"breakthrough_material:{mapping_id}:victory:{victory_count_after}"
+
+    def _build_drop_record(
+        self,
+        *,
+        character_id: int,
+        battle_report_id: int | None,
+        source_ref: str,
+        drop_items: tuple[BreakthroughMaterialDropItem, ...],
+    ) -> DropRecord:
+        return DropRecord(
+            character_id=character_id,
+            battle_report_id=battle_report_id,
+            source_type=_BREAKTHROUGH_MATERIAL_SOURCE_TYPE,
+            source_ref=source_ref,
+            items_json=[
+                {
+                    "reward_kind": "material",
+                    "item_type": item.item_type,
+                    "item_id": item.item_id,
+                    "quantity": item.quantity,
+                    "bound": True,
+                }
+                for item in drop_items
+            ],
+            currencies_json={},
+        )
+
     @staticmethod
     def _merge_template_patch_maps(
         *mappings: dict[str, tuple[AuxiliarySkillParameterPatch, ...]],
@@ -539,7 +584,6 @@ class BreakthroughTrialService:
         enemy_template_id: str,
         environment_rule: EnvironmentRuleDefinition,
     ) -> dict[str, tuple[AuxiliarySkillParameterPatch, ...]]:
-        """把环境规则转译为战斗模板补丁映射。"""
         patch_map: dict[str, tuple[AuxiliarySkillParameterPatch, ...]] = {}
         ally_patches = tuple(self._build_template_patch(item) for item in environment_rule.ally_template_patches)
         enemy_patches = tuple(self._build_template_patch(item) for item in environment_rule.enemy_template_patches)
@@ -550,7 +594,6 @@ class BreakthroughTrialService:
         return patch_map
 
     def _build_template_patch(self, definition: EnvironmentTemplatePatchDefinition) -> AuxiliarySkillParameterPatch:
-        """把环境补丁定义转成现有战斗补丁对象。"""
         return AuxiliarySkillParameterPatch(
             patch_id=definition.patch_id,
             patch_name=definition.patch_name,
@@ -589,7 +632,6 @@ class BreakthroughTrialService:
 
     @staticmethod
     def _build_action_selector(definition: ActionPatchSelectorDefinition) -> ActionPatchSelector:
-        """环境补丁选择器直接复用战斗领域同名结构。"""
         return ActionPatchSelector(
             action_ids=definition.action_ids,
             required_labels=definition.required_labels,
@@ -601,14 +643,13 @@ class BreakthroughTrialService:
         snapshot: BattleUnitSnapshot,
         modifiers: Iterable[EnvironmentStatModifierDefinition],
     ) -> BattleUnitSnapshot:
-        """把环境规则中的静态属性修正投影到战斗单位快照。"""
         updated = snapshot
         for modifier in modifiers:
             if not hasattr(updated, modifier.stat_field):
-                raise BreakthroughTrialStateError(f"环境修正引用了未知战斗属性：{modifier.stat_field}")
+                raise BreakthroughMaterialTrialStateError(f"环境修正引用了未知战斗属性：{modifier.stat_field}")
             current_value = getattr(updated, modifier.stat_field)
             if not isinstance(current_value, int):
-                raise BreakthroughTrialStateError(f"环境修正目标不是整数字段：{modifier.stat_field}")
+                raise BreakthroughMaterialTrialStateError(f"环境修正目标不是整数字段：{modifier.stat_field}")
             next_value = self._resolve_modified_stat_value(
                 field_name=modifier.stat_field,
                 current_value=current_value,
@@ -623,43 +664,37 @@ class BreakthroughTrialService:
                     current_hp=self._apply_ratio(max_value=next_value, ratio=ratio),
                 )
                 continue
-            updated = replace(
-                updated,
-                **{modifier.stat_field: next_value},
-            )
+            updated = replace(updated, **{modifier.stat_field: next_value})
         return updated
 
     def _ensure_no_conflict_states(self, character_id: int) -> None:
-        """突破秘境与其他持续运行态互斥。"""
         endless_state = self._state_repository.get_endless_run_state(character_id)
         if endless_state is not None and endless_state.status != _ENDLESS_STATUS_COMPLETED:
-            raise BreakthroughTrialConflictError(
-                f"角色存在未结束的无尽副本运行：{character_id}"
-            )
+            raise BreakthroughMaterialTrialConflictError(f"角色存在未结束的无尽副本运行：{character_id}")
         retreat_state = self._state_repository.get_retreat_state(character_id)
         if retreat_state is not None and retreat_state.status == _RUNNING_STATUS and retreat_state.settled_at is None:
-            raise BreakthroughTrialConflictError(f"角色当前处于闭关中：{character_id}")
+            raise BreakthroughMaterialTrialConflictError(f"角色当前处于闭关中：{character_id}")
         healing_state = self._state_repository.get_healing_state(character_id)
         if healing_state is not None and healing_state.status == _RUNNING_STATUS and healing_state.settled_at is None:
-            raise BreakthroughTrialConflictError(f"角色当前处于疗伤中：{character_id}")
+            raise BreakthroughMaterialTrialConflictError(f"角色当前处于疗伤中：{character_id}")
 
     def _resolve_trial(self, *, current_realm_id: str, mapping_id: str | None) -> BreakthroughTrialDefinition:
-        """支持按当前境界默认映射或显式映射标识读取关卡。"""
         if mapping_id is None:
-            trial = self._rule_service.get_current_trial(current_realm_id=current_realm_id)
+            trial = self._static_config.breakthrough_trials.get_trial_by_from_realm_id(current_realm_id)
             if trial is None:
-                raise BreakthroughTrialUnavailableError(f"当前大境界不存在可首通的突破关卡：{current_realm_id}")
+                raise BreakthroughMaterialTrialUnavailableError(f"当前大境界不存在可用的材料秘境：{current_realm_id}")
             return trial
-        trial = self._static_config.breakthrough_trials.get_trial(mapping_id)
+        trial = self._trial_by_mapping_id.get(mapping_id)
         if trial is None:
-            raise BreakthroughTrialNotFoundError(f"未定义的突破关卡：{mapping_id}")
+            raise BreakthroughMaterialTrialUnavailableError(f"未定义的突破材料秘境映射：{mapping_id}")
+        if trial.from_realm_id != current_realm_id:
+            raise BreakthroughMaterialTrialUnavailableError(f"当前不可进入该材料秘境：{mapping_id}")
         return trial
 
     def _require_environment_rule(self, rule_id: str) -> EnvironmentRuleDefinition:
-        """读取突破关卡关联的可执行环境规则。"""
         rule = self._static_config.breakthrough_trials.get_environment_rule(rule_id)
         if rule is None:
-            raise BreakthroughTrialStateError(f"突破关卡缺少环境规则：{rule_id}")
+            raise BreakthroughMaterialTrialStateError(f"材料秘境缺少环境规则：{rule_id}")
         return rule
 
     def _require_character_aggregate(self, character_id: int) -> CharacterAggregate:
@@ -675,50 +710,18 @@ class BreakthroughTrialService:
         return aggregate.progress
 
     @staticmethod
-    def _require_trial_snapshot(
-        *,
-        hub_snapshot: BreakthroughTrialHubSnapshot,
-        mapping_id: str,
-    ) -> BreakthroughTrialEntrySnapshot:
-        for group in hub_snapshot.groups:
-            for trial in group.trials:
-                if trial.mapping_id == mapping_id:
-                    return trial
-        raise BreakthroughTrialStateError(f"突破入口快照缺少关卡摘要：{mapping_id}")
-
-    def _iter_trials_by_group(self, group_id: str) -> Iterable[BreakthroughTrialDefinition]:
-        for trial in self._static_config.breakthrough_trials.ordered_trials:
-            if trial.group_id == group_id:
-                yield trial
-
-    def _resolve_hero_template_id(self, *, aggregate: CharacterAggregate) -> str:
-        template_id = _DEFAULT_HERO_TEMPLATE_ID
-        if aggregate.skill_loadout is not None and aggregate.skill_loadout.behavior_template_id.strip():
-            template_id = aggregate.skill_loadout.behavior_template_id
-        if template_id not in _PATH_COMBAT_PROFILE_BY_TEMPLATE_ID:
-            raise BreakthroughTrialStateError(f"未支持的角色行为模板：{template_id}")
-        return template_id
-
-    @staticmethod
-    def _resolve_template_profile(template_id: str) -> dict[str, Decimal | int]:
-        try:
-            return _PATH_COMBAT_PROFILE_BY_TEMPLATE_ID[template_id]
-        except KeyError as exc:
-            raise BreakthroughTrialStateError(f"未支持的行为模板画像：{template_id}") from exc
-
-    @staticmethod
     def _resolve_enemy_template_profile(template_id: str) -> dict[str, Decimal | int]:
         try:
             return _ENEMY_TEMPLATE_STAT_PROFILE[template_id]
         except KeyError as exc:
-            raise BreakthroughTrialStateError(f"未支持的突破首领模板画像：{template_id}") from exc
+            raise BreakthroughMaterialTrialStateError(f"未支持的材料秘境守境模板画像：{template_id}") from exc
 
     @staticmethod
     def _resolve_enemy_behavior_template_id(template_id: str) -> str:
         try:
             return _ENEMY_BEHAVIOR_TEMPLATE_BY_TEMPLATE_ID[template_id]
         except KeyError as exc:
-            raise BreakthroughTrialStateError(f"未配置突破首领行为模板映射：{template_id}") from exc
+            raise BreakthroughMaterialTrialStateError(f"未配置材料秘境守境行为模板映射：{template_id}") from exc
 
     def _calculate_base_hp(self, *, realm_id: str, stage_id: str, factor: Decimal) -> int:
         return self._calculate_scaled_stat(
@@ -776,19 +779,19 @@ class BreakthroughTrialService:
         try:
             return self._realm_coefficient_by_realm_id[realm_id]
         except KeyError as exc:
-            raise BreakthroughTrialStateError(f"未找到大境界基准系数：{realm_id}") from exc
+            raise BreakthroughMaterialTrialStateError(f"未找到大境界基准系数：{realm_id}") from exc
 
     def _resolve_stage_multiplier(self, stage_id: str) -> Decimal:
         try:
             return self._stage_multiplier_by_stage_id[stage_id]
         except KeyError as exc:
-            raise BreakthroughTrialStateError(f"未找到小阶段倍率：{stage_id}") from exc
+            raise BreakthroughMaterialTrialStateError(f"未找到小阶段倍率：{stage_id}") from exc
 
     @staticmethod
     def _resolve_battle_seed(*, now: datetime, seed: int | None, trial: BreakthroughTrialDefinition) -> int:
         if seed is not None:
             return seed
-        return int(now.timestamp()) * 1009 + trial.order * 37
+        return int(now.timestamp()) * 1013 + trial.order * 53
 
     @staticmethod
     def _apply_ratio(*, max_value: int, ratio: Decimal) -> int:
@@ -801,7 +804,7 @@ class BreakthroughTrialService:
     @staticmethod
     def _extract_battle_outcome(outcome: object) -> BattleOutcome:
         if not isinstance(outcome, BattleOutcome):
-            raise BreakthroughTrialStateError(f"自动战斗返回了无效战斗结果：{outcome}")
+            raise BreakthroughMaterialTrialStateError(f"自动战斗返回了无效战斗结果：{outcome}")
         return outcome
 
     @staticmethod
@@ -851,7 +854,6 @@ class BreakthroughTrialService:
         return max(0, value)
 
 
-
 def _read_decimal(value: object, *, default: Decimal) -> Decimal:
     if isinstance(value, Decimal):
         return value
@@ -879,15 +881,17 @@ def _round_decimal_to_int(value: Decimal) -> int:
     return int(value.quantize(_DECIMAL_ONE, rounding=ROUND_HALF_UP))
 
 
+
+def _round_up_division(value: int, divisor: int) -> int:
+    return (max(0, int(value)) + max(1, int(divisor)) - 1) // max(1, int(divisor))
+
+
 __all__ = [
-    "BreakthroughTrialChallengeResult",
-    "BreakthroughTrialConflictError",
-    "BreakthroughTrialEntrySnapshot",
-    "BreakthroughTrialGroupSnapshot",
-    "BreakthroughTrialHubSnapshot",
-    "BreakthroughTrialNotFoundError",
-    "BreakthroughTrialService",
-    "BreakthroughTrialServiceError",
-    "BreakthroughTrialStateError",
-    "BreakthroughTrialUnavailableError",
+    "BreakthroughMaterialDropItem",
+    "BreakthroughMaterialTrialChallengeResult",
+    "BreakthroughMaterialTrialConflictError",
+    "BreakthroughMaterialTrialService",
+    "BreakthroughMaterialTrialServiceError",
+    "BreakthroughMaterialTrialStateError",
+    "BreakthroughMaterialTrialUnavailableError",
 ]

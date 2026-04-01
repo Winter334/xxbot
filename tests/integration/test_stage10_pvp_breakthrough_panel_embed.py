@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 from datetime import UTC, date, datetime
+from types import SimpleNamespace
 
 from application.battle import BattleReplayFrame, BattleReplayPresentation
 from application.breakthrough.panel_service import (
@@ -41,6 +42,7 @@ class _DummyExecutionResult:
     to_realm_name = "炼气"
     new_stage_name = "初期"
     consumed_items = ()
+
 
 
 def _build_overview(*, character_name: str = "青玄") -> CharacterPanelOverview:
@@ -100,12 +102,14 @@ def _build_overview(*, character_name: str = "青玄") -> CharacterPanelOverview
     )
 
 
+
 def _flatten_embed(embed) -> str:
     parts = [embed.title or "", embed.description or "", embed.footer.text or ""]
     for field in embed.fields:
         parts.append(field.name)
         parts.append(field.value)
     return "\n".join(parts)
+
 
 
 def _build_pvp_snapshot() -> PvpPanelSnapshot:
@@ -215,6 +219,7 @@ def _build_pvp_snapshot() -> PvpPanelSnapshot:
     )
 
 
+
 def _build_breakthrough_snapshot() -> BreakthroughPanelSnapshot:
     return BreakthroughPanelSnapshot(
         overview=_build_overview(),
@@ -248,12 +253,17 @@ def _build_breakthrough_snapshot() -> BreakthroughPanelSnapshot:
             mapping_id="mortal_to_qi_refining",
             trial_name="凡人破炼气",
             environment_rule="固定一条护体压制环境规则。",
-            atmosphere_text="门前灵压早已成势，固定一条护体压制环境规则。，只等你亲自上前叩这一关。",
+            atmosphere_text="门前灵压早已成势，只等你亲自上前叩这一关。",
             passed=False,
             material_gap_text="凝气草 ×1",
             start_trial_enabled=True,
         ),
         material_page=BreakthroughMaterialPageSnapshot(
+            mapping_id="mortal_to_qi_refining",
+            current_realm_name="凡体",
+            target_realm_name="炼气",
+            material_trial_name="凝气草泽",
+            atmosphere_text="薄雾伏在乱草之间，初生灵气沿着湿土回转。",
             requirements=(
                 BreakthroughMaterialRequirementSnapshot(
                     item_type="material",
@@ -266,6 +276,7 @@ def _build_breakthrough_snapshot() -> BreakthroughPanelSnapshot:
             ),
             all_satisfied=False,
             gap_summary="凝气草 ×1",
+            start_trial_enabled=True,
         ),
         recent_trial=BreakthroughRecentTrialSnapshot(
             mapping_id="mortal_to_qi_refining",
@@ -291,6 +302,7 @@ def _build_breakthrough_snapshot() -> BreakthroughPanelSnapshot:
     )
 
 
+
 def _build_breakthrough_snapshot_ready() -> BreakthroughPanelSnapshot:
     snapshot = _build_breakthrough_snapshot()
     return replace(
@@ -309,6 +321,11 @@ def _build_breakthrough_snapshot_ready() -> BreakthroughPanelSnapshot:
             start_trial_enabled=False,
         ),
         material_page=BreakthroughMaterialPageSnapshot(
+            mapping_id="mortal_to_qi_refining",
+            current_realm_name="凡体",
+            target_realm_name="炼气",
+            material_trial_name="凝气草泽",
+            atmosphere_text="薄雾伏在乱草之间，初生灵气沿着湿土回转。",
             requirements=(
                 BreakthroughMaterialRequirementSnapshot(
                     item_type="material",
@@ -321,8 +338,10 @@ def _build_breakthrough_snapshot_ready() -> BreakthroughPanelSnapshot:
             ),
             all_satisfied=True,
             gap_summary="已无缺漏",
+            start_trial_enabled=False,
         ),
     )
+
 
 
 def test_pvp_hub_embed_focuses_core_cards_and_removes_report_sections() -> None:
@@ -344,6 +363,7 @@ def test_pvp_hub_embed_focuses_core_cards_and_removes_report_sections() -> None:
     assert "```text" in text
 
 
+
 def test_pvp_settlement_embed_keeps_core_cards_without_battle_report_sections() -> None:
     snapshot = _build_pvp_snapshot()
 
@@ -360,7 +380,8 @@ def test_pvp_settlement_embed_keeps_core_cards_without_battle_report_sections() 
     assert "repeat_target_limit_reached" not in text
 
 
-def test_breakthrough_root_embed_only_keeps_four_lines_and_note() -> None:
+
+def test_breakthrough_root_embed_only_keeps_four_lines_and_new_entry_note() -> None:
     snapshot = _build_breakthrough_snapshot()
 
     embed = BreakthroughPanelPresenter.build_root_embed(snapshot=snapshot)
@@ -372,10 +393,13 @@ def test_breakthrough_root_embed_only_keeps_four_lines_and_note() -> None:
     assert "资格状态：未得资格" in text
     assert "材料状态：仍缺若干" in text
     assert "破境状态：条件未满" in text
-    assert "此地只问玄关，不产材料机缘。" in text
+    assert "玄关与采材已各分一路，入门后自有去处。" in text
+    assert "采破境灵材" in text
+    assert "检灵材" not in text
 
 
-def test_breakthrough_qualification_embed_keeps_single_gate_button_style_text() -> None:
+
+def test_breakthrough_qualification_embed_keeps_only_required_sections() -> None:
     snapshot = _build_breakthrough_snapshot()
 
     embed = BreakthroughPanelPresenter.build_qualification_embed(snapshot=snapshot)
@@ -384,33 +408,82 @@ def test_breakthrough_qualification_embed_keeps_single_gate_button_style_text() 
     assert embed.title == "青玄｜问玄关"
     assert embed.fields == []
     assert "今番所问：凡人破炼气" in text
-    assert "关前气象：固定一条护体压制环境规则。" in text
     assert "当前是否通过：未通过" in text
     assert "材料缺口：凝气草 ×1" in text
+    assert "关前气象" not in text
     assert "不写杂项" in text
 
 
-def test_breakthrough_material_embed_only_shows_material_validation() -> None:
+
+def test_breakthrough_material_embed_only_shows_material_trial_structure_and_items() -> None:
     snapshot = _build_breakthrough_snapshot()
 
     embed = BreakthroughPanelPresenter.build_material_embed(snapshot=snapshot)
     text = _flatten_embed(embed)
 
-    assert embed.title == "青玄｜检灵材"
-    assert [field.name for field in embed.fields] == ["所需灵材"]
-    assert "凝气草：持有 1 / 所需 2 / 缺 1" in text
-    assert "此页仅作校验，材料机缘后续另开秘境。" in text
-    assert "入口" not in text
+    assert embed.title == "青玄｜凝气草泽"
+    assert [field.name for field in embed.fields] == ["本境可采灵材"]
+    assert "当前境界：凡体 → 炼气" in text
+    assert "秘境名：凝气草泽" in text
+    assert "薄雾伏在乱草之间，初生灵气沿着湿土回转。" in text
+    assert "凝气草 ×2" in text
+    assert "持有" not in text
+    assert "所需灵材" not in text
 
 
-def test_breakthrough_material_embed_shows_positive_hint_when_ready() -> None:
+
+def test_breakthrough_material_embed_ready_state_still_only_lists_drops() -> None:
     snapshot = _build_breakthrough_snapshot_ready()
 
     embed = BreakthroughPanelPresenter.build_material_embed(snapshot=snapshot)
     text = _flatten_embed(embed)
 
-    assert "灵材俱在袖中，待你定息之后，自可再叩天门。" in text
-    assert "凝气草：持有 2 / 所需 2 / 已齐" in text
+    assert "凝气草 ×2" in text
+    assert "持有" not in text
+    assert "已齐" not in text
+
+
+
+def test_breakthrough_material_result_embed_focuses_on_gains_and_remaining_gap() -> None:
+    snapshot = _build_breakthrough_snapshot()
+    result = SimpleNamespace(
+        victory=True,
+        trial_name="凝气草泽",
+        drop_items=(
+            SimpleNamespace(item_name="凝气草", quantity=1),
+        ),
+        all_satisfied_after=False,
+        remaining_gap_summary="凝气草 ×1",
+    )
+
+    embed = BreakthroughPanelPresenter.build_material_result_embed(snapshot=snapshot, result=result)
+    text = _flatten_embed(embed)
+
+    assert embed.title == "青玄｜采境回响"
+    assert "此行带回：凝气草 ×1。" in text
+    assert "余下仍缺：凝气草 ×1。" in text
+    assert "资格" not in text
+
+
+
+def test_breakthrough_material_result_embed_reports_all_ready_when_materials_complete() -> None:
+    snapshot = _build_breakthrough_snapshot_ready()
+    result = SimpleNamespace(
+        victory=True,
+        trial_name="凝气草泽",
+        drop_items=(
+            SimpleNamespace(item_name="凝气草", quantity=1),
+        ),
+        all_satisfied_after=True,
+        remaining_gap_summary="已无缺漏",
+    )
+
+    embed = BreakthroughPanelPresenter.build_material_result_embed(snapshot=snapshot, result=result)
+    text = _flatten_embed(embed)
+
+    assert "此行所缺灵材已齐" in text
+    assert "余下仍缺" not in text
+
 
 
 def test_breakthrough_trial_result_embed_uses_literary_result_message() -> None:
@@ -428,6 +501,7 @@ def test_breakthrough_trial_result_embed_uses_literary_result_message() -> None:
     assert "结算" not in text
 
 
+
 def test_breakthrough_execution_result_embed_reports_blocked_without_table() -> None:
     snapshot = _build_breakthrough_snapshot()
     action_result = BreakthroughActionResult(snapshot=snapshot, blocked_message="缺少突破资格")
@@ -442,6 +516,7 @@ def test_breakthrough_execution_result_embed_reports_blocked_without_table() -> 
     assert "天门未应。" in text
     assert "缺少突破资格" in text
     assert "表" not in text
+
 
 
 def test_breakthrough_execution_result_embed_reports_success_in_literary_style() -> None:

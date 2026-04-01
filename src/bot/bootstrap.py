@@ -9,7 +9,13 @@ from pathlib import Path
 from importlib.resources.abc import Traversable
 
 from application.battle import AutoBattleService
-from application.breakthrough import BreakthroughPanelService, BreakthroughRewardService, BreakthroughTrialService
+from application.breakthrough import (
+    BreakthroughDynamicDifficultyService,
+    BreakthroughMaterialTrialService,
+    BreakthroughPanelService,
+    BreakthroughRewardService,
+    BreakthroughTrialService,
+)
 from application.character import CharacterGrowthService, CharacterProgressionService, RetreatService, SkillLoadoutService
 from application.character.cultivation_panel_service import CultivationPanelService
 from application.character.current_attribute_service import CurrentAttributeService
@@ -86,6 +92,7 @@ class ApplicationServiceBundle:
     endless_dungeon_service: EndlessDungeonService
     endless_panel_query_service: EndlessPanelQueryService
     breakthrough_trial_service: BreakthroughTrialService
+    breakthrough_material_trial_service: BreakthroughMaterialTrialService
     breakthrough_panel_service: BreakthroughPanelService
     cultivation_panel_service: CultivationPanelService
     retreat_service: RetreatService
@@ -274,6 +281,10 @@ def build_application_service_bundle(
         skill_repository=skill_repository,
         static_config=static_config,
     )
+    breakthrough_difficulty_service = BreakthroughDynamicDifficultyService(
+        current_attribute_service=current_attribute_service,
+        static_config=static_config,
+    )
     skill_drop_service = SkillDropService(
         character_repository=character_repository,
         skill_repository=skill_repository,
@@ -387,6 +398,17 @@ def build_application_service_bundle(
         auto_battle_service=auto_battle_service,
         reward_service=breakthrough_reward_service,
         current_attribute_service=current_attribute_service,
+        difficulty_service=breakthrough_difficulty_service,
+        static_config=static_config,
+    )
+    breakthrough_material_trial_service = BreakthroughMaterialTrialService(
+        state_repository=state_repository,
+        character_repository=character_repository,
+        inventory_repository=inventory_repository,
+        battle_record_repository=battle_record_repository,
+        auto_battle_service=auto_battle_service,
+        current_attribute_service=current_attribute_service,
+        difficulty_service=breakthrough_difficulty_service,
         static_config=static_config,
     )
     breakthrough_panel_service = BreakthroughPanelService(
@@ -457,6 +479,7 @@ def build_application_service_bundle(
         endless_dungeon_service=endless_dungeon_service,
         endless_panel_query_service=endless_panel_query_service,
         breakthrough_trial_service=breakthrough_trial_service,
+        breakthrough_material_trial_service=breakthrough_material_trial_service,
         breakthrough_panel_service=breakthrough_panel_service,
         cultivation_panel_service=cultivation_panel_service,
         retreat_service=retreat_service,

@@ -55,11 +55,17 @@ class BreakthroughMaterialRequirementSnapshot:
 
 @dataclass(frozen=True, slots=True)
 class BreakthroughMaterialPageSnapshot:
-    """检灵材页面快照。"""
+    """突破材料秘境信息页快照。"""
 
+    mapping_id: str | None
+    current_realm_name: str | None
+    target_realm_name: str | None
+    material_trial_name: str | None
+    atmosphere_text: str
     requirements: tuple[BreakthroughMaterialRequirementSnapshot, ...]
     all_satisfied: bool
     gap_summary: str
+    start_trial_enabled: bool
 
 
 @dataclass(frozen=True, slots=True)
@@ -151,6 +157,7 @@ class BreakthroughPanelService:
         trial_definition = self._resolve_trial_definition(precheck=precheck, hub=hub)
         material_page = self._build_material_page_snapshot(
             character_id=character_id,
+            precheck=precheck,
             trial_definition=trial_definition,
         )
         qualification_page = self._build_qualification_page_snapshot(
@@ -194,13 +201,20 @@ class BreakthroughPanelService:
         self,
         *,
         character_id: int,
+        precheck: BreakthroughPrecheckResult,
         trial_definition: BreakthroughTrialDefinition | None,
     ) -> BreakthroughMaterialPageSnapshot:
         if trial_definition is None:
             return BreakthroughMaterialPageSnapshot(
+                mapping_id=None,
+                current_realm_name=precheck.current_realm_name,
+                target_realm_name=precheck.target_realm_name,
+                material_trial_name=None,
+                atmosphere_text="前路暂时无须再入采材秘境，山中灵雾也随之缓了下来。",
                 requirements=(),
                 all_satisfied=True,
                 gap_summary="已无缺漏",
+                start_trial_enabled=False,
             )
         requirements: list[BreakthroughMaterialRequirementSnapshot] = []
         for requirement in trial_definition.required_items:
@@ -227,10 +241,17 @@ class BreakthroughPanelService:
             for item in requirements
             if item.missing_quantity > 0
         ]
+        all_satisfied = not missing_lines
         return BreakthroughMaterialPageSnapshot(
+            mapping_id=trial_definition.mapping_id,
+            current_realm_name=precheck.current_realm_name,
+            target_realm_name=precheck.target_realm_name,
+            material_trial_name=trial_definition.material_trial_name,
+            atmosphere_text=trial_definition.material_atmosphere_text,
             requirements=tuple(requirements),
-            all_satisfied=not missing_lines,
-            gap_summary="已无缺漏" if not missing_lines else "；".join(missing_lines),
+            all_satisfied=all_satisfied,
+            gap_summary="已无缺漏" if all_satisfied else "；".join(missing_lines),
+            start_trial_enabled=not all_satisfied,
         )
 
     def _build_qualification_page_snapshot(

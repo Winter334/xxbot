@@ -8,6 +8,7 @@ from pydantic import Field, field_validator, model_validator
 
 from infrastructure.config.static.errors import StaticConfigIssueCollector
 from infrastructure.config.static.models.common import (
+    DisplayName,
     LAUNCH_REALM_TRANSITIONS,
     NonNegativeInt,
     OrderedConfigItem,
@@ -38,6 +39,7 @@ ALLOWED_REPEAT_REWARD_IDS: tuple[str, ...] = (
     "comprehension_material",
     "artifact_material",
 )
+EXPECTED_MATERIAL_TARGET_VICTORY_COUNTS: tuple[int, ...] = (1, 2, 2, 3, 3, 4, 4, 5, 6)
 ALLOWED_BREAKTHROUGH_ENVIRONMENT_STAT_FIELDS: tuple[str, ...] = (
     "max_hp",
     "attack_power",
@@ -384,6 +386,10 @@ class BreakthroughTrialDefinition(OrderedConfigItem):
     first_clear_rewards: tuple[FirstClearRewardDefinition, ...]
     required_comprehension_value: NonNegativeInt
     required_items: tuple[BreakthroughMaterialRequirement, ...]
+    material_trial_name: DisplayName
+    material_atmosphere_text: ShortText
+    material_boss_scale_permille: PositiveInt
+    material_target_victory_count: PositiveInt
 
 
 class BreakthroughTrialConfig(VersionedSectionConfig):
@@ -458,6 +464,14 @@ class BreakthroughTrialConfig(VersionedSectionConfig):
             for mapping_id, transition in zip(
                 LAUNCH_BREAKTHROUGH_MAPPING_IDS,
                 LAUNCH_REALM_TRANSITIONS,
+                strict=True,
+            )
+        }
+        expected_material_target_wins = {
+            mapping_id: target_wins
+            for mapping_id, target_wins in zip(
+                LAUNCH_BREAKTHROUGH_MAPPING_IDS,
+                EXPECTED_MATERIAL_TARGET_VICTORY_COUNTS,
                 strict=True,
             )
         }
@@ -619,6 +633,25 @@ class BreakthroughTrialConfig(VersionedSectionConfig):
                         identifier=trial.mapping_id,
                         reason=f"首通奖励 {reward_key[0]}:{reward_key[1]} 重复声明",
                     )
+
+            if trial.material_boss_scale_permille >= trial.boss_scale_permille:
+                collector.add(
+                    filename=filename,
+                    config_path="trials[].material_boss_scale_permille",
+                    identifier=trial.mapping_id,
+                    reason="材料秘境基础敌人倍率必须严格低于突破秘境倍率",
+                )
+            expected_target_wins = expected_material_target_wins.get(trial.mapping_id)
+            if expected_target_wins is not None and trial.material_target_victory_count != expected_target_wins:
+                collector.add(
+                    filename=filename,
+                    config_path="trials[].material_target_victory_count",
+                    identifier=trial.mapping_id,
+                    reason=(
+                        "材料秘境目标胜利次数必须符合首发曲线 "
+                        "1,2,2,3,3,4,4,5,6"
+                    ),
+                )
 
             expected_transition = expected_transitions.get(trial.mapping_id)
             if expected_transition is not None and (

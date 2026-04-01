@@ -1,4 +1,4 @@
-config_version = "1.1.0"
+config_version = "1.2.0"
 
 [[trial_groups]]
 group_id = "entry_trials"
@@ -243,6 +243,10 @@ required_comprehension_value = 10
 required_items = [
   { item_type = "material", item_id = "qi_condensation_grass", quantity = 2 },
 ]
+material_trial_name = "凝气草泽"
+material_atmosphere_text = "薄雾伏在乱草之间，初生灵气沿着湿土回转，正适合采得破境前的第一缕灵材。"
+material_boss_scale_permille = 920
+material_target_victory_count = 1
 
 [[trials]]
 mapping_id = "qi_refining_to_foundation"
@@ -267,6 +271,10 @@ required_items = [
   { item_type = "material", item_id = "foundation_pill", quantity = 1 },
   { item_type = "material", item_id = "spirit_pattern_stone", quantity = 3 },
 ]
+material_trial_name = "筑基灵脉"
+material_atmosphere_text = "岩缝灵潮缓缓涌动，碎石间偶有丹香与纹光浮现，最宜补齐筑基前所缺的灵材。"
+material_boss_scale_permille = 980
+material_target_victory_count = 2
 
 [[trials]]
 mapping_id = "foundation_to_core"
@@ -291,6 +299,10 @@ required_items = [
   { item_type = "material", item_id = "core_congealing_pellet", quantity = 1 },
   { item_type = "material", item_id = "fire_essence_sand", quantity = 5 },
 ]
+material_trial_name = "结丹火砂洞"
+material_atmosphere_text = "赤砂在洞壁间缓缓流转，地火余烬不绝，正是凝丹辅材最易显化的时刻。"
+material_boss_scale_permille = 1080
+material_target_victory_count = 2
 
 [[trials]]
 mapping_id = "core_to_nascent_soul"
@@ -315,6 +327,10 @@ required_items = [
   { item_type = "material", item_id = "nascent_soul_flower", quantity = 2 },
   { item_type = "material", item_id = "soul_binding_jade", quantity = 4 },
 ]
+material_trial_name = "养婴魂花圃"
+material_atmosphere_text = "幽光沿着花圃深处分开，魂香微微浮起，每一缕都牵着将成未成的婴灵气机。"
+material_boss_scale_permille = 1190
+material_target_victory_count = 3
 
 [[trials]]
 mapping_id = "nascent_soul_to_deity_transformation"
@@ -339,6 +355,10 @@ required_items = [
   { item_type = "material", item_id = "deity_heart_seed", quantity = 2 },
   { item_type = "material", item_id = "thunder_pattern_branch", quantity = 6 },
 ]
+material_trial_name = "化神心雷林"
+material_atmosphere_text = "古木承雷，枝影里时有心火跃动，行走其间，便能收拢冲击化神所需的精粹。"
+material_boss_scale_permille = 1320
+material_target_victory_count = 3
 
 [[trials]]
 mapping_id = "deity_transformation_to_void_refinement"
@@ -363,6 +383,10 @@ required_items = [
   { item_type = "material", item_id = "void_break_crystal", quantity = 3 },
   { item_type = "material", item_id = "star_soul_dust", quantity = 8 },
 ]
+material_trial_name = "破虚星涡"
+material_atmosphere_text = "星屑与裂隙在涡心反复沉浮，越往深处，越能拾得撕开虚壁所需的异材。"
+material_boss_scale_permille = 1480
+material_target_victory_count = 4
 
 [[trials]]
 mapping_id = "void_refinement_to_body_integration"
@@ -387,6 +411,10 @@ required_items = [
   { item_type = "material", item_id = "body_integration_bone", quantity = 3 },
   { item_type = "material", item_id = "myriad_gold_paste", quantity = 10 },
 ]
+material_trial_name = "合体金骨塚"
+material_atmosphere_text = "金辉贴着残骨与石缝缓慢流淌，筋骨类灵材在此最易凝实成形，适合稳稳采补。"
+material_boss_scale_permille = 1660
+material_target_victory_count = 4
 
 [[trials]]
 mapping_id = "body_integration_to_great_vehicle"
@@ -411,6 +439,10 @@ required_items = [
   { item_type = "material", item_id = "great_vehicle_core", quantity = 4 },
   { item_type = "material", item_id = "heaven_pattern_silk", quantity = 12 },
 ]
+material_trial_name = "大乘天纹池"
+material_atmosphere_text = "池面天纹如丝，灵核沉在水下明灭不定，正适合慢慢捞取冲击大乘的关键辅材。"
+material_boss_scale_permille = 1860
+material_target_victory_count = 5
 
 [[trials]]
 mapping_id = "great_vehicle_to_tribulation"
@@ -435,3 +467,7 @@ required_items = [
   { item_type = "material", item_id = "tribulation_lightning_talisman", quantity = 5 },
   { item_type = "material", item_id = "immortal_marrow_liquid", quantity = 15 },
 ]
+material_trial_name = "渡劫雷髓窟"
+material_atmosphere_text = "雷音在窟壁深处回卷不息，仙髓与劫光偶有显露，唯有稳住气息方能采足此境所需。"
+material_boss_scale_permille = 2100
+material_target_victory_count = 6

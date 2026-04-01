@@ -89,6 +89,65 @@ async def test_start_trial_updates_qualification_page_then_replay_then_result_me
 
 
 @pytest.mark.asyncio
+async def test_start_material_trial_updates_material_page_then_replay_then_result_message() -> None:
+    """开始材料秘境后，应先刷新采材页，再播采材行记，最后补发采材结果。"""
+    interaction = SimpleNamespace()
+    result = SimpleNamespace(
+        replay_presentation=SimpleNamespace(battle_report_id=9201),
+        character_id=1001,
+        battle_report_id=9201,
+        mapping_id="mortal_to_qi_refining",
+    )
+    snapshot = SimpleNamespace()
+    controller = BreakthroughPanelController(
+        session_factory=_DummySessionFactory(),
+        service_bundle_factory=lambda session: None,
+        replay_message_player=SimpleNamespace(play=AsyncMock()),
+    )
+    controller.responder.edit_message = AsyncMock()
+    controller.responder.send_private_error = AsyncMock()
+    controller._build_material_payload = Mock(return_value=SimpleNamespace())
+    controller._challenge_material_trial = Mock(return_value=(result, snapshot))
+    call_order: list[str] = []
+
+    async def _record_replay(*args, **kwargs) -> None:
+        del args, kwargs
+        call_order.append("replay")
+
+    async def _record_result(*args, **kwargs) -> None:
+        del args, kwargs
+        call_order.append("result")
+
+    async def _record_edit(*args, **kwargs) -> None:
+        del args, kwargs
+        call_order.append("edit")
+
+    controller._play_material_journey_if_available = AsyncMock(side_effect=_record_replay)
+    controller._send_material_result_message = AsyncMock(side_effect=_record_result)
+    controller.responder.edit_message = AsyncMock(side_effect=_record_edit)
+
+    await controller.start_material_trial(
+        interaction,
+        character_id=1001,
+        owner_user_id=30001,
+        mapping_id="mortal_to_qi_refining",
+    )
+
+    controller._challenge_material_trial.assert_called_once_with(
+        character_id=1001,
+        mapping_id="mortal_to_qi_refining",
+    )
+    controller._play_material_journey_if_available.assert_awaited_once_with(interaction, result=result)
+    controller._send_material_result_message.assert_awaited_once_with(
+        interaction,
+        snapshot=snapshot,
+        result=result,
+    )
+    controller.responder.send_private_error.assert_not_awaited()
+    assert call_order == ["edit", "replay", "result"]
+
+
+@pytest.mark.asyncio
 async def test_start_trial_keeps_main_flow_when_replay_send_fails() -> None:
     """叩关行记发送失败时，应静默降级且仍发送结果消息。"""
     interaction = SimpleNamespace()
@@ -118,6 +177,37 @@ async def test_start_trial_keeps_main_flow_when_replay_send_fails() -> None:
     controller._battle_replay_message_player.play.assert_awaited_once_with(
         interaction,
         presentation=presentation,
+    )
+
+
+@pytest.mark.asyncio
+async def test_start_material_trial_keeps_main_flow_when_replay_send_fails() -> None:
+    """采材行记发送失败时，应静默降级且仍保留主流程。"""
+    interaction = SimpleNamespace()
+    controller = BreakthroughPanelController(
+        session_factory=_DummySessionFactory(),
+        service_bundle_factory=lambda session: None,
+        replay_message_player=SimpleNamespace(
+            play=AsyncMock(
+                side_effect=discord.HTTPException(
+                    response=SimpleNamespace(status=500, reason="err"),
+                    message="boom",
+                )
+            )
+        ),
+    )
+    result = SimpleNamespace(
+        replay_presentation=SimpleNamespace(battle_report_id=9201),
+        character_id=1001,
+        battle_report_id=9201,
+        mapping_id="mortal_to_qi_refining",
+    )
+
+    await controller._play_material_journey_if_available(interaction, result=result)
+
+    controller._battle_replay_message_player.play.assert_awaited_once_with(
+        interaction,
+        presentation=result.replay_presentation,
     )
 
 

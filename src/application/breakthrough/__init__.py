@@ -1,5 +1,18 @@
 """突破秘境应用服务。"""
 
+from application.breakthrough.difficulty_service import (
+    BreakthroughDynamicDifficultyService,
+    BreakthroughDynamicDifficultySnapshot,
+)
+from application.breakthrough.material_trial_service import (
+    BreakthroughMaterialDropItem,
+    BreakthroughMaterialTrialChallengeResult,
+    BreakthroughMaterialTrialConflictError,
+    BreakthroughMaterialTrialService,
+    BreakthroughMaterialTrialServiceError,
+    BreakthroughMaterialTrialStateError,
+    BreakthroughMaterialTrialUnavailableError,
+)
 from application.breakthrough.panel_service import (
     BreakthroughMaterialPageSnapshot,
     BreakthroughMaterialRequirementSnapshot,
@@ -31,8 +44,17 @@ from application.breakthrough.trial_service import (
 )
 
 __all__ = [
+    "BreakthroughDynamicDifficultyService",
+    "BreakthroughDynamicDifficultySnapshot",
+    "BreakthroughMaterialDropItem",
     "BreakthroughMaterialPageSnapshot",
     "BreakthroughMaterialRequirementSnapshot",
+    "BreakthroughMaterialTrialChallengeResult",
+    "BreakthroughMaterialTrialConflictError",
+    "BreakthroughMaterialTrialService",
+    "BreakthroughMaterialTrialServiceError",
+    "BreakthroughMaterialTrialStateError",
+    "BreakthroughMaterialTrialUnavailableError",
     "BreakthroughPanelService",
     "BreakthroughPanelServiceError",
     "BreakthroughPanelSnapshot",

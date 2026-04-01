@@ -11,6 +11,9 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from application.breakthrough import (
     BreakthroughMaterialPageSnapshot,
+    BreakthroughMaterialTrialChallengeResult,
+    BreakthroughMaterialTrialService,
+    BreakthroughMaterialTrialServiceError,
     BreakthroughPanelService,
     BreakthroughPanelServiceError,
     BreakthroughPanelSnapshot,
@@ -63,6 +66,7 @@ class BreakthroughPanelServiceBundle(Protocol):
     character_panel_query_service: CharacterPanelQueryService
     breakthrough_panel_service: BreakthroughPanelService
     breakthrough_trial_service: BreakthroughTrialService
+    breakthrough_material_trial_service: BreakthroughMaterialTrialService
     character_progression_service: CharacterProgressionService
 
 
@@ -89,29 +93,26 @@ class BreakthroughPanelPresenter:
                     f"资格状态：{'已得资格' if status.qualification_obtained else '未得资格'}",
                     f"材料状态：{'已齐' if status.material_ready else '仍缺若干'}",
                     f"破境状态：{'可叩门' if status.can_breakthrough else '条件未满'}",
-                    "此地只问玄关，不产材料机缘。",
+                    "玄关与采材已各分一路，入门后自有去处。",
                 )
             ),
             color=discord.Color.dark_blue(),
         )
-        embed.set_footer(text="此页只留三问：问玄关、检灵材、叩天门")
+        embed.set_footer(text="此页只留三问：问玄关、采破境灵材、叩天门")
         return embed
 
     @classmethod
     def build_qualification_embed(cls, *, snapshot: BreakthroughPanelSnapshot) -> discord.Embed:
         page = snapshot.qualification_page
         trial_name = page.trial_name or "当前暂无可问玄关"
-        material_gap = "已无缺漏" if snapshot.material_page.all_satisfied else snapshot.material_page.gap_summary
         description_lines = [f"今番所问：{trial_name}"]
-        if page.environment_rule:
-            description_lines.append(f"关前气象：{page.environment_rule}")
         description_lines.extend(
             (
                 "",
                 page.atmosphere_text,
                 "",
                 f"当前是否通过：{'已通过' if page.passed else '未通过'}",
-                f"材料缺口：{material_gap}",
+                f"材料缺口：{page.material_gap_text}",
             )
         )
         embed = discord.Embed(
@@ -125,22 +126,65 @@ class BreakthroughPanelPresenter:
     @classmethod
     def build_material_embed(cls, *, snapshot: BreakthroughPanelSnapshot) -> discord.Embed:
         page = snapshot.material_page
-        if not page.requirements:
-            material_block = "当前这一境暂无额外灵材可验。"
-        else:
+        target_realm_name = page.target_realm_name or "当前已至开放上限"
+        material_block = "当前暂无可采的突破灵材。"
+        if page.requirements:
             material_block = "\n".join(cls._build_material_line(item) for item in page.requirements)
-        opening_line = "灵材俱在袖中，待你定息之后，自可再叩天门。" if page.all_satisfied else f"仍缺：{page.gap_summary}"
+        title_suffix = page.material_trial_name or "采破境灵材"
         embed = discord.Embed(
-            title=f"{snapshot.overview.character_name}｜检灵材",
+            title=f"{snapshot.overview.character_name}｜{title_suffix}",
             description="\n".join(
                 (
-                    opening_line,
-                    "此页仅作校验，材料机缘后续另开秘境。",
+                    f"当前境界：{page.current_realm_name or snapshot.precheck.current_realm_name} → {target_realm_name}",
+                    f"秘境名：{page.material_trial_name or '当前暂无可入秘境'}",
+                    "",
+                    page.atmosphere_text,
                 )
             ),
             color=discord.Color.dark_teal(),
         )
-        embed.add_field(name="所需灵材", value=material_block, inline=False)
+        embed.add_field(name="本境可采灵材", value=material_block, inline=False)
+        embed.set_footer(text="此页只写采材秘境与可得灵材，不列旁枝。")
+        return embed
+
+    @classmethod
+    def build_material_result_embed(
+        cls,
+        *,
+        snapshot: BreakthroughPanelSnapshot,
+        result: BreakthroughMaterialTrialChallengeResult,
+    ) -> discord.Embed:
+        if result.victory:
+            gained_text = "、".join(
+                f"{item.item_name} ×{item.quantity}"
+                for item in result.drop_items
+            ) or "本次未能收住可用灵材。"
+            closing_line = (
+                "此行所缺灵材已齐，回身便可再看叩门之机。"
+                if result.all_satisfied_after
+                else f"余下仍缺：{result.remaining_gap_summary}。"
+            )
+            embed = discord.Embed(
+                title=f"{snapshot.overview.character_name}｜采境回响",
+                description="\n".join(
+                    (
+                        f"你自“{result.trial_name}”中收束灵息而回，此行带回：{gained_text}。",
+                        closing_line,
+                    )
+                ),
+                color=discord.Color.gold() if result.all_satisfied_after else discord.Color.blurple(),
+            )
+            return embed
+        embed = discord.Embed(
+            title=f"{snapshot.overview.character_name}｜采境回响",
+            description="\n".join(
+                (
+                    f"你在“{result.trial_name}”中被迫收势，未能稳住这一回的采材机缘。",
+                    f"余下仍缺：{result.remaining_gap_summary}。",
+                )
+            ),
+            color=discord.Color.red(),
+        )
         return embed
 
     @classmethod
@@ -222,11 +266,7 @@ class BreakthroughPanelPresenter:
 
     @staticmethod
     def _build_material_line(item) -> str:
-        if item.missing_quantity <= 0:
-            return f"{item.item_name}：持有 {item.owned_quantity} / 所需 {item.required_quantity} / 已齐"
-        return (
-            f"{item.item_name}：持有 {item.owned_quantity} / 所需 {item.required_quantity} / 缺 {item.missing_quantity}"
-        )
+        return f"{item.item_name} ×{item.required_quantity}"
 
 
 class _OwnerLockedView(discord.ui.View):
@@ -286,7 +326,7 @@ class BreakthroughRootView(_OwnerLockedView):
             owner_user_id=self.owner_user_id,
         )
 
-    @discord.ui.button(label="检灵材", style=discord.ButtonStyle.secondary)
+    @discord.ui.button(label="采破境灵材", style=discord.ButtonStyle.secondary)
     async def check_materials(  # type: ignore[override]
         self,
         interaction: discord.Interaction,
@@ -296,6 +336,7 @@ class BreakthroughRootView(_OwnerLockedView):
         await self._controller.show_material_page(
             interaction,
             character_id=self.character_id,
+            owner_user_id=self.owner_user_id,
         )
 
     @discord.ui.button(label="叩天门", style=discord.ButtonStyle.success)
@@ -306,6 +347,50 @@ class BreakthroughRootView(_OwnerLockedView):
     ) -> None:
         del button
         await self._controller.execute_breakthrough(
+            interaction,
+            character_id=self.character_id,
+            owner_user_id=self.owner_user_id,
+        )
+
+
+class BreakthroughMaterialView(_OwnerLockedView):
+    """突破材料秘境页面视图。"""
+
+    def __init__(
+        self,
+        *,
+        controller: BreakthroughPanelController,
+        owner_user_id: int,
+        snapshot: BreakthroughPanelSnapshot,
+        timeout: float = _PANEL_TIMEOUT_SECONDS,
+    ) -> None:
+        super().__init__(controller=controller, owner_user_id=owner_user_id, timeout=timeout)
+        self.character_id = snapshot.overview.character_id
+        self.mapping_id = snapshot.material_page.mapping_id
+        self.enter_material_trial.disabled = not snapshot.material_page.start_trial_enabled
+
+    @discord.ui.button(label="入境采材", style=discord.ButtonStyle.success)
+    async def enter_material_trial(  # type: ignore[override]
+        self,
+        interaction: discord.Interaction,
+        button: discord.ui.Button,
+    ) -> None:
+        del button
+        await self._controller.start_material_trial(
+            interaction,
+            character_id=self.character_id,
+            owner_user_id=self.owner_user_id,
+            mapping_id=self.mapping_id,
+        )
+
+    @discord.ui.button(label="返回三问", style=discord.ButtonStyle.secondary)
+    async def return_root(  # type: ignore[override]
+        self,
+        interaction: discord.Interaction,
+        button: discord.ui.Button,
+    ) -> None:
+        del button
+        await self._controller.return_to_root(
             interaction,
             character_id=self.character_id,
             owner_user_id=self.owner_user_id,
@@ -419,8 +504,9 @@ class BreakthroughPanelController:
         interaction: discord.Interaction,
         *,
         character_id: int,
+        owner_user_id: int,
     ) -> None:
-        """发送检灵材页面。"""
+        """发送突破材料秘境页面。"""
         try:
             snapshot = self._load_panel_snapshot(character_id=character_id)
         except (
@@ -432,8 +518,56 @@ class BreakthroughPanelController:
             return
         await self.responder.send_message(
             interaction,
-            payload=PanelMessagePayload(embed=BreakthroughPanelPresenter.build_material_embed(snapshot=snapshot)),
+            payload=self._build_material_payload(snapshot=snapshot, owner_user_id=owner_user_id),
             visibility=PanelVisibility.PRIVATE,
+        )
+
+    async def start_material_trial(
+        self,
+        interaction: discord.Interaction,
+        *,
+        character_id: int,
+        owner_user_id: int,
+        mapping_id: str | None,
+    ) -> None:
+        """执行一次材料秘境挑战，并发送独立采材行记。"""
+        try:
+            result, snapshot = self._challenge_material_trial(character_id=character_id, mapping_id=mapping_id)
+        except (
+            CharacterProgressionServiceError,
+            BreakthroughMaterialTrialServiceError,
+            BreakthroughPanelServiceError,
+            BreakthroughTrialServiceError,
+        ) as exc:
+            await self.responder.send_private_error(interaction, message=str(exc))
+            return
+        await self.responder.edit_message(
+            interaction,
+            payload=self._build_material_payload(snapshot=snapshot, owner_user_id=owner_user_id),
+        )
+        await self._play_material_journey_if_available(interaction, result=result)
+        await self._send_material_result_message(interaction, snapshot=snapshot, result=result)
+
+    async def return_to_root(
+        self,
+        interaction: discord.Interaction,
+        *,
+        character_id: int,
+        owner_user_id: int,
+    ) -> None:
+        """从材料秘境页返回破境三问根页。"""
+        try:
+            snapshot = self._load_panel_snapshot(character_id=character_id)
+        except (
+            CharacterProgressionServiceError,
+            BreakthroughPanelServiceError,
+            BreakthroughTrialServiceError,
+        ) as exc:
+            await self.responder.send_private_error(interaction, message=str(exc))
+            return
+        await self.responder.edit_message(
+            interaction,
+            payload=self._build_root_payload(snapshot=snapshot, owner_user_id=owner_user_id),
         )
 
     async def start_trial(
@@ -519,6 +653,21 @@ class BreakthroughPanelController:
             snapshot = services.breakthrough_panel_service.get_panel_snapshot(character_id=character_id)
             return result, snapshot
 
+    def _challenge_material_trial(
+        self,
+        *,
+        character_id: int,
+        mapping_id: str | None,
+    ) -> tuple[BreakthroughMaterialTrialChallengeResult, BreakthroughPanelSnapshot]:
+        with session_scope(self._session_factory) as session:
+            services: BreakthroughPanelServiceBundle = self._service_bundle_factory(session)
+            result = services.breakthrough_material_trial_service.challenge_material_trial(
+                character_id=character_id,
+                mapping_id=mapping_id,
+            )
+            snapshot = services.breakthrough_panel_service.get_panel_snapshot(character_id=character_id)
+            return result, snapshot
+
     def _execute_breakthrough(self, *, character_id: int) -> BreakthroughActionResult:
         with session_scope(self._session_factory) as session:
             services: BreakthroughPanelServiceBundle = self._service_bundle_factory(session)
@@ -575,6 +724,22 @@ class BreakthroughPanelController:
             ),
         )
 
+    def _build_material_payload(
+        self,
+        *,
+        snapshot: BreakthroughPanelSnapshot,
+        owner_user_id: int,
+    ) -> PanelMessagePayload:
+        return PanelMessagePayload(
+            embed=BreakthroughPanelPresenter.build_material_embed(snapshot=snapshot),
+            view=BreakthroughMaterialView(
+                controller=self,
+                owner_user_id=owner_user_id,
+                snapshot=snapshot,
+                timeout=self._panel_timeout,
+            ),
+        )
+
     async def _play_trial_journey_if_available(
         self,
         interaction: discord.Interaction,
@@ -600,6 +765,31 @@ class BreakthroughPanelController:
                 },
             )
 
+    async def _play_material_journey_if_available(
+        self,
+        interaction: discord.Interaction,
+        *,
+        result: BreakthroughMaterialTrialChallengeResult,
+    ) -> None:
+        if result.replay_presentation is None:
+            return
+        try:
+            await self._battle_replay_message_player.play(
+                interaction,
+                presentation=result.replay_presentation,
+            )
+        except (discord.Forbidden, discord.HTTPException):
+            return
+        except Exception:
+            logger.exception(
+                "采材行记回放发送失败",
+                extra={
+                    "character_id": result.character_id,
+                    "battle_report_id": result.battle_report_id,
+                    "mapping_id": result.mapping_id,
+                },
+            )
+
     async def _send_trial_result_message(
         self,
         interaction: discord.Interaction,
@@ -611,6 +801,20 @@ class BreakthroughPanelController:
             interaction,
             payload=PanelMessagePayload(
                 embed=BreakthroughPanelPresenter.build_trial_result_embed(snapshot=snapshot, result=result)
+            ),
+        )
+
+    async def _send_material_result_message(
+        self,
+        interaction: discord.Interaction,
+        *,
+        snapshot: BreakthroughPanelSnapshot,
+        result: BreakthroughMaterialTrialChallengeResult,
+    ) -> None:
+        await self.responder.send_private_followup_message(
+            interaction,
+            payload=PanelMessagePayload(
+                embed=BreakthroughPanelPresenter.build_material_result_embed(snapshot=snapshot, result=result)
             ),
         )
 
@@ -633,6 +837,7 @@ class BreakthroughPanelController:
 
 
 __all__ = [
+    "BreakthroughMaterialView",
     "BreakthroughPanelController",
     "BreakthroughPanelPresenter",
     "BreakthroughQualificationView",

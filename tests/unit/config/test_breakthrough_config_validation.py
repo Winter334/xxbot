@@ -23,6 +23,7 @@ _EXPECTED_MAPPING_IDS = (
 )
 
 
+
 def _read_static_file(filename: str) -> str:
     """读取默认静态配置文本，供测试替换。"""
     return resource_files(static_files_package).joinpath(filename).read_text(encoding="utf-8")
@@ -68,6 +69,18 @@ def test_load_static_config_keeps_stage7_launch_group_and_mapping_boundary() -> 
 
 
 
+def test_load_static_config_includes_material_trial_metadata_curve() -> None:
+    """默认配置应包含材料秘境元数据与目标胜利次数曲线。"""
+    static_config = load_static_config()
+    trials = static_config.breakthrough_trials.ordered_trials
+
+    assert [trial.material_target_victory_count for trial in trials] == [1, 2, 2, 3, 3, 4, 4, 5, 6]
+    assert all(trial.material_trial_name for trial in trials)
+    assert all(trial.material_atmosphere_text for trial in trials)
+    assert all(trial.material_boss_scale_permille < trial.boss_scale_permille for trial in trials)
+
+
+
 def test_load_static_config_fails_when_repeat_reward_pool_contains_duplicate_resource_id() -> None:
     """重复奖励池内的资源标识不得重复，避免同池重复发放。"""
     broken_breakthrough = _replace_once(
@@ -104,17 +117,12 @@ def test_load_static_config_fails_when_repeat_reward_pool_resource_leaves_whitel
 
 
 
-def test_load_static_config_fails_when_breakthrough_repeat_reward_declares_endgame_drop() -> None:
-    """突破秘境重复奖励不得混入装备或其他终局实体。"""
+def test_load_static_config_fails_when_breakthrough_required_item_declares_forbidden_endgame_prefix() -> None:
+    """突破材料不得直接声明道纹或传承类资源。"""
     broken_breakthrough = _replace_once(
         _read_static_file("breakthrough_trials.toml"),
-        'resource_whitelist = ["artifact_essence"]',
-        'resource_whitelist = ["iron_sword"]',
-    )
-    broken_breakthrough = _replace_once(
-        broken_breakthrough,
-        'resource_id = "artifact_essence"',
-        'resource_id = "iron_sword"',
+        'item_id = "qi_condensation_grass"',
+        'item_id = "dao_pattern_test"',
     )
     provider = _build_resource_provider(overrides={"breakthrough_trials.toml": broken_breakthrough})
 
@@ -124,8 +132,46 @@ def test_load_static_config_fails_when_breakthrough_repeat_reward_declares_endga
     issue = _find_issue(
         exc_info.value,
         filename="breakthrough_trials.toml",
-        reason_fragment="突破秘境重复奖励不得声明装备、法宝、道纹或其他终局掉落实体",
+        reason_fragment="首发突破材料不能直接消耗道纹或传承类资源",
     )
 
-    assert issue.config_path == "repeat_reward_pools[].resources[].resource_id"
-    assert issue.identifier == "artifact_material_pool"
+    assert issue.config_path == "trials[].required_items[].item_id"
+    assert issue.identifier == "mortal_to_qi_refining"
+
+
+
+def test_load_static_config_fails_when_material_trial_curve_deviates() -> None:
+    """材料秘境目标胜利次数必须严格符合首发曲线。"""
+    broken_breakthrough = _replace_once(
+        _read_static_file("breakthrough_trials.toml"),
+        'material_target_victory_count = 6',
+        'material_target_victory_count = 5',
+    )
+    provider = _build_resource_provider(overrides={"breakthrough_trials.toml": broken_breakthrough})
+
+    with pytest.raises(StaticConfigValidationError) as exc_info:
+        load_static_config(resource_provider=provider)
+
+    issue = _find_issue(exc_info.value, filename="breakthrough_trials.toml", reason_fragment="材料秘境目标胜利次数必须符合首发曲线")
+
+    assert issue.config_path == "trials[].material_target_victory_count"
+    assert issue.identifier == "great_vehicle_to_tribulation"
+
+
+
+def test_load_static_config_fails_when_material_trial_scale_is_not_lower_than_breakthrough() -> None:
+    """材料秘境基础敌人倍率必须严格低于突破秘境倍率。"""
+    broken_breakthrough = _replace_once(
+        _read_static_file("breakthrough_trials.toml"),
+        'material_boss_scale_permille = 920',
+        'material_boss_scale_permille = 1000',
+    )
+    provider = _build_resource_provider(overrides={"breakthrough_trials.toml": broken_breakthrough})
+
+    with pytest.raises(StaticConfigValidationError) as exc_info:
+        load_static_config(resource_provider=provider)
+
+    issue = _find_issue(exc_info.value, filename="breakthrough_trials.toml", reason_fragment="材料秘境基础敌人倍率必须严格低于突破秘境倍率")
+
+    assert issue.config_path == "trials[].material_boss_scale_permille"
+    assert issue.identifier == "mortal_to_qi_refining"

@@ -12,12 +12,17 @@ from alembic.config import Config
 from sqlalchemy import select
 import pytest
 
-from application.breakthrough import BreakthroughRewardService, BreakthroughTrialService
-from application.character import CharacterGrowthService
+from application.breakthrough import (
+    BreakthroughDynamicDifficultyService,
+    BreakthroughMaterialTrialService,
+    BreakthroughRewardService,
+    BreakthroughTrialService,
+)
+from application.character import CharacterGrowthService, CharacterProgressionService
 from application.character.current_attribute_service import CurrentAttributeService
 from domain.battle import BattleOutcome
 from infrastructure.config.static import load_static_config
-from infrastructure.db.models import EquipmentItem
+from infrastructure.db.models import EquipmentItem, InventoryItem
 from infrastructure.db.repositories import (
     SqlAlchemyBattleRecordRepository,
     SqlAlchemyBreakthroughRepository,
@@ -55,16 +60,71 @@ class _StubPersistenceMapping:
 
 
 @dataclass(frozen=True, slots=True)
+class _StubSummaryArtifacts:
+    """模拟战报摘要载荷。"""
+
+    def to_payload(self) -> dict[str, object]:
+        return {
+            "completed_rounds": 3,
+            "focus_unit_name": "玄衡",
+            "final_hp_ratio": "0.8125",
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class _StubDetailArtifacts:
+    """模拟战报明细载荷。"""
+
+    def to_payload(self) -> dict[str, object]:
+        return {
+            "units": [
+                {"unit_id": "character:1", "unit_name": "玄衡", "side": "ally"},
+                {"unit_id": "enemy:1", "unit_name": "守境灵影", "side": "enemy"},
+            ],
+            "actions": [
+                {"action_id": "slash", "action_name": "斩击"},
+            ],
+            "event_sequence": [
+                {
+                    "round_index": 1,
+                    "sequence": 1,
+                    "event_type": "action_started",
+                    "actor_unit_id": "character:1",
+                    "action_id": "slash",
+                },
+                {
+                    "round_index": 1,
+                    "sequence": 2,
+                    "event_type": "damage_resolved",
+                    "actor_unit_id": "character:1",
+                    "target_unit_id": "enemy:1",
+                    "action_id": "slash",
+                    "detail": {"final_damage": 120},
+                },
+            ],
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class _StubReportArtifacts:
+    """模拟自动战斗的回放工件。"""
+
+    summary: _StubSummaryArtifacts
+    detail: _StubDetailArtifacts
+
+
+@dataclass(frozen=True, slots=True)
 class _StubAutoBattleExecutionResult:
     """模拟突破服务所需的自动战斗返回结构。"""
 
     domain_result: _StubDomainResult
     persistence_mapping: _StubPersistenceMapping
+    report_artifacts: _StubReportArtifacts
     persisted_battle_report_id: int | None = None
 
 
 class _StubAutoBattleService:
-    """用固定胜负结果替代真实自动战斗，聚焦阶段 7 编排与结算。"""
+    """用固定胜负结果替代真实自动战斗，聚焦突破链路编排与结算。"""
 
     def __init__(
         self,
@@ -91,6 +151,10 @@ class _StubAutoBattleService:
                     current_mp_ratio=self._current_mp_ratio,
                 )
             ),
+            report_artifacts=_StubReportArtifacts(
+                summary=_StubSummaryArtifacts(),
+                detail=_StubDetailArtifacts(),
+            ),
             persisted_battle_report_id=self._battle_report_id if persist else None,
         )
 
@@ -111,7 +175,7 @@ def _upgrade_database(database_url: str, monkeypatch: pytest.MonkeyPatch) -> Non
 
 
 def _build_services(session, *, static_config, auto_battle_service: _StubAutoBattleService):
-    """创建突破秘境集成测试所需的真实仓储与应用服务。"""
+    """创建突破链路集成测试所需的真实仓储与应用服务。"""
     player_repository = SqlAlchemyPlayerRepository(session)
     character_repository = SqlAlchemyCharacterRepository(session)
     breakthrough_repository = SqlAlchemyBreakthroughRepository(session)
@@ -129,6 +193,15 @@ def _build_services(session, *, static_config, auto_battle_service: _StubAutoBat
         character_repository=character_repository,
         static_config=static_config,
     )
+    difficulty_service = BreakthroughDynamicDifficultyService(
+        current_attribute_service=current_attribute_service,
+        static_config=static_config,
+    )
+    progression_service = CharacterProgressionService(
+        character_repository=character_repository,
+        inventory_repository=inventory_repository,
+        static_config=static_config,
+    )
     reward_service = BreakthroughRewardService(
         character_repository=character_repository,
         breakthrough_repository=breakthrough_repository,
@@ -144,15 +217,29 @@ def _build_services(session, *, static_config, auto_battle_service: _StubAutoBat
         auto_battle_service=auto_battle_service,
         reward_service=reward_service,
         current_attribute_service=current_attribute_service,
+        difficulty_service=difficulty_service,
+        static_config=static_config,
+    )
+    material_trial_service = BreakthroughMaterialTrialService(
+        state_repository=state_repository,
+        character_repository=character_repository,
+        inventory_repository=inventory_repository,
+        battle_record_repository=battle_record_repository,
+        auto_battle_service=auto_battle_service,
+        current_attribute_service=current_attribute_service,
+        difficulty_service=difficulty_service,
         static_config=static_config,
     )
     return {
         "growth_service": growth_service,
         "trial_service": trial_service,
+        "material_trial_service": material_trial_service,
+        "progression_service": progression_service,
         "character_repository": character_repository,
         "breakthrough_repository": breakthrough_repository,
         "inventory_repository": inventory_repository,
         "battle_record_repository": battle_record_repository,
+        "auto_battle_service": auto_battle_service,
     }
 
 
@@ -199,6 +286,25 @@ def _seed_cleared_progress(
     progress.attempt_count = attempt_count
     progress.cleared_count = cleared_count
     breakthrough_repository.save_progress(progress)
+
+
+
+def _seed_inventory_item(
+    *,
+    inventory_repository: SqlAlchemyInventoryRepository,
+    character_id: int,
+    item_id: str,
+    quantity: int,
+) -> None:
+    inventory_repository.upsert_item(
+        InventoryItem(
+            character_id=character_id,
+            item_type="material",
+            item_id=item_id,
+            quantity=quantity,
+            item_payload_json={"bound": True},
+        )
+    )
 
 
 
@@ -499,3 +605,220 @@ def test_breakthrough_trial_first_clear_aftermath_keeps_gate_in_repeatable_histo
         assert hub.current_trial.can_challenge is True
         assert hub.repeatable_trials == (hub.current_trial,)
         assert hub.qualification_obtained is True
+
+
+
+def test_material_trial_victory_adds_required_items_into_inventory(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """材料秘境胜利后，掉落应直接写入现有库存体系。"""
+    database_url = _build_sqlite_url(tmp_path / "breakthrough_material_inventory.db")
+    _upgrade_database(database_url, monkeypatch)
+    session_factory = create_session_factory(database_url)
+    static_config = load_static_config()
+
+    with session_scope(session_factory) as session:
+        services = _build_services(
+            session,
+            static_config=static_config,
+            auto_battle_service=_StubAutoBattleService(outcome=BattleOutcome.ALLY_VICTORY, battle_report_id=9201),
+        )
+        created = services["growth_service"].create_character(
+            discord_user_id="71006",
+            player_display_name="采材者",
+            character_name="栖玄",
+        )
+        _set_character_progress(
+            character_repository=services["character_repository"],
+            character_id=created.character_id,
+            realm_id="qi_refining",
+            stage_id="perfect",
+            qualification_obtained=False,
+        )
+        _seed_inventory_item(
+            inventory_repository=services["inventory_repository"],
+            character_id=created.character_id,
+            item_id="spirit_pattern_stone",
+            quantity=1,
+        )
+
+        result = services["material_trial_service"].challenge_material_trial(
+            character_id=created.character_id,
+            mapping_id="qi_refining_to_foundation",
+            seed=11,
+            now=datetime(2026, 3, 27, 9, 0, 0),
+            persist_battle_report=True,
+        )
+
+        foundation_pill = services["inventory_repository"].get_item(created.character_id, "material", "foundation_pill")
+        spirit_pattern_stone = services["inventory_repository"].get_item(created.character_id, "material", "spirit_pattern_stone")
+        drop_records = services["battle_record_repository"].list_drop_records(created.character_id)
+        precheck = services["progression_service"].get_breakthrough_precheck(character_id=created.character_id)
+
+        assert result.victory is True
+        assert result.battle_report_id == 9201
+        assert foundation_pill is not None and foundation_pill.quantity == 1
+        assert spirit_pattern_stone is not None and spirit_pattern_stone.quantity == 2
+        assert {item.item_id: item.quantity for item in result.drop_items} == {
+            "foundation_pill": 1,
+            "spirit_pattern_stone": 1,
+        }
+        assert len(drop_records) == 1
+        assert drop_records[0].source_type == "breakthrough_material_trial"
+        material_gaps = [gap for gap in precheck.gaps if gap.gap_type == "material_insufficient"]
+        assert len(material_gaps) == 1
+        assert material_gaps[0].item_id == "spirit_pattern_stone"
+        assert material_gaps[0].missing_value == 1
+
+
+
+def test_material_trial_target_victory_curve_controls_core_drop_allocation(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """材料掉落应围绕目标胜利次数曲线收束，且单次不超过当前缺口。"""
+    database_url = _build_sqlite_url(tmp_path / "breakthrough_material_curve.db")
+    _upgrade_database(database_url, monkeypatch)
+    session_factory = create_session_factory(database_url)
+    static_config = load_static_config()
+
+    with session_scope(session_factory) as session:
+        services = _build_services(
+            session,
+            static_config=static_config,
+            auto_battle_service=_StubAutoBattleService(outcome=BattleOutcome.ALLY_VICTORY),
+        )
+        created = services["growth_service"].create_character(
+            discord_user_id="71007",
+            player_display_name="循材者",
+            character_name="岳川",
+        )
+        _set_character_progress(
+            character_repository=services["character_repository"],
+            character_id=created.character_id,
+            realm_id="great_vehicle",
+            stage_id="perfect",
+            qualification_obtained=False,
+        )
+
+        first = services["material_trial_service"].challenge_material_trial(
+            character_id=created.character_id,
+            mapping_id="great_vehicle_to_tribulation",
+            seed=12,
+            now=datetime(2026, 3, 27, 10, 0, 0),
+            persist_battle_report=False,
+        )
+        second = services["material_trial_service"].challenge_material_trial(
+            character_id=created.character_id,
+            mapping_id="great_vehicle_to_tribulation",
+            seed=13,
+            now=datetime(2026, 3, 27, 10, 5, 0),
+            persist_battle_report=False,
+        )
+
+        first_drop_by_item = {item.item_id: item.quantity for item in first.drop_items}
+        second_drop_by_item = {item.item_id: item.quantity for item in second.drop_items}
+        inventory_lightning = services["inventory_repository"].get_item(created.character_id, "material", "tribulation_lightning_talisman")
+        inventory_marrow = services["inventory_repository"].get_item(created.character_id, "material", "immortal_marrow_liquid")
+
+        assert first_drop_by_item == {
+            "tribulation_lightning_talisman": 1,
+            "immortal_marrow_liquid": 3,
+        }
+        assert second_drop_by_item == {
+            "tribulation_lightning_talisman": 1,
+            "immortal_marrow_liquid": 3,
+        }
+        assert inventory_lightning is not None and inventory_lightning.quantity == 2
+        assert inventory_marrow is not None and inventory_marrow.quantity == 6
+        assert second.all_satisfied_after is False
+        assert second.remaining_gap_summary == "劫雷符 ×3；仙髓液 ×9"
+
+
+
+def test_dynamic_difficulty_applies_to_breakthrough_and_material_trials(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """轻量动态难度修正应同时作用于突破秘境与材料秘境。"""
+    database_url = _build_sqlite_url(tmp_path / "breakthrough_dynamic_difficulty.db")
+    _upgrade_database(database_url, monkeypatch)
+    session_factory = create_session_factory(database_url)
+    static_config = load_static_config()
+
+    with session_scope(session_factory) as session:
+        auto_battle_service = _StubAutoBattleService(outcome=BattleOutcome.ALLY_VICTORY)
+        services = _build_services(session, static_config=static_config, auto_battle_service=auto_battle_service)
+        created = services["growth_service"].create_character(
+            discord_user_id="71008",
+            player_display_name="校难者",
+            character_name="行策",
+        )
+        _set_character_progress(
+            character_repository=services["character_repository"],
+            character_id=created.character_id,
+            realm_id="foundation",
+            stage_id="perfect",
+            qualification_obtained=False,
+        )
+
+        services["trial_service"].challenge_trial(
+            character_id=created.character_id,
+            mapping_id="foundation_to_core",
+            seed=14,
+            now=datetime(2026, 3, 27, 11, 0, 0),
+            persist_battle_report=False,
+        )
+        breakthrough_snapshot = dict(services["auto_battle_service"].last_request.environment_snapshot)
+
+        services["material_trial_service"].challenge_material_trial(
+            character_id=created.character_id,
+            mapping_id="foundation_to_core",
+            seed=15,
+            now=datetime(2026, 3, 27, 11, 5, 0),
+            persist_battle_report=False,
+        )
+        material_snapshot = dict(services["auto_battle_service"].last_request.environment_snapshot)
+
+        assert breakthrough_snapshot["boss_scale_permille"] == (
+            breakthrough_snapshot["base_boss_scale_permille"] + breakthrough_snapshot["difficulty_adjustment_permille"]
+        )
+        assert material_snapshot["boss_scale_permille"] == (
+            material_snapshot["base_boss_scale_permille"] + material_snapshot["difficulty_adjustment_permille"]
+        )
+        assert isinstance(breakthrough_snapshot["player_power_ratio_permille"], int)
+        assert isinstance(material_snapshot["player_power_ratio_permille"], int)
+        assert material_snapshot["boss_scale_permille"] < breakthrough_snapshot["boss_scale_permille"]
+
+
+
+def test_character_progression_precheck_detects_material_trial_inventory_writeback(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """材料秘境入库后，现有突破预检应能直接感知库存变化。"""
+    database_url = _build_sqlite_url(tmp_path / "breakthrough_precheck_after_material.db")
+    _upgrade_database(database_url, monkeypatch)
+    session_factory = create_session_factory(database_url)
+    static_config = load_static_config()
+
+    with session_scope(session_factory) as session:
+        services = _build_services(
+            session,
+            static_config=static_config,
+            auto_battle_service=_StubAutoBattleService(outcome=BattleOutcome.ALLY_VICTORY),
+        )
+        created = services["growth_service"].create_character(
+            discord_user_id="71010",
+            player_display_name="回读者",
+            character_name="长澜",
+        )
+        _set_character_progress(
+            character_repository=services["character_repository"],
+            character_id=created.character_id,
+            realm_id="mortal",
+            stage_id="perfect",
+            qualification_obtained=False,
+        )
+        before = services["progression_service"].get_breakthrough_precheck(character_id=created.character_id)
+        services["material_trial_service"].challenge_material_trial(
+            character_id=created.character_id,
+            mapping_id="mortal_to_qi_refining",
+            seed=16,
+            now=datetime(2026, 3, 27, 12, 0, 0),
+            persist_battle_report=False,
+        )
+        after = services["progression_service"].get_breakthrough_precheck(character_id=created.character_id)
+
+        material_gap_before = next(gap for gap in before.gaps if gap.gap_type == "material_insufficient")
+        assert material_gap_before.missing_value == 2
+        assert all(gap.gap_type != "material_insufficient" for gap in after.gaps)
