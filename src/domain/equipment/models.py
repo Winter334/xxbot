@@ -10,11 +10,68 @@ from typing import Mapping, Protocol
 
 _DECIMAL_ZERO = Decimal("0")
 _DECIMAL_ONE = Decimal("1")
+_QUALITY_SPECIAL_EFFECT_STRENGTH_MULTIPLIER_BY_ID = MappingProxyType(
+    {
+        "common": Decimal("1.00"),
+        "rare": Decimal("1.03"),
+        "epic": Decimal("1.06"),
+        "earthly": Decimal("1.10"),
+        "legendary": Decimal("1.15"),
+        "immortal": Decimal("1.20"),
+    }
+)
 
 
 def _scale_value(value: int, bonus_ratio: Decimal) -> int:
     """按当前增幅比例计算最终整数值。"""
     return int((Decimal(value) * (_DECIMAL_ONE + bonus_ratio)).to_integral_value(rounding=ROUND_HALF_UP))
+
+
+def _scale_integer_value(value: int, multiplier: Decimal) -> int:
+    """按倍率缩放特殊词条中的数值字段。"""
+    return int((Decimal(value) * multiplier).to_integral_value(rounding=ROUND_HALF_UP))
+
+
+def special_effect_strength_multiplier_for_quality(*, quality_id: str) -> Decimal:
+    """读取装备品质对应的特殊词条强度倍率。"""
+    normalized_quality_id = quality_id.strip()
+    return _QUALITY_SPECIAL_EFFECT_STRENGTH_MULTIPLIER_BY_ID.get(normalized_quality_id, _DECIMAL_ONE)
+
+
+def scale_special_effect_payload(
+    *,
+    quality_id: str,
+    payload: Mapping[str, str | int | bool | None],
+) -> Mapping[str, str | int | bool | None]:
+    """按装备品质放大特殊词条的强度字段。"""
+    multiplier = special_effect_strength_multiplier_for_quality(quality_id=quality_id)
+    normalized_payload = dict(payload)
+    if multiplier == _DECIMAL_ONE:
+        return MappingProxyType(normalized_payload)
+    scaled_payload = {
+        key: _scale_special_effect_payload_value(key=key, value=value, multiplier=multiplier)
+        for key, value in normalized_payload.items()
+    }
+    return MappingProxyType(scaled_payload)
+
+
+def _scale_special_effect_payload_value(
+    *,
+    key: str,
+    value: str | int | bool | None,
+    multiplier: Decimal,
+) -> str | int | bool | None:
+    """仅放大明确属于强度的数值键。"""
+    if isinstance(value, bool) or not isinstance(value, int):
+        return value
+    normalized_key = key.strip()
+    if normalized_key == "suppression_permille":
+        return _scale_integer_value(value, multiplier)
+    if normalized_key == "trigger_rate_permille" or normalized_key.endswith("_threshold_permille"):
+        return value
+    if normalized_key.endswith("_ratio_permille"):
+        return _scale_integer_value(value, multiplier)
+    return value
 
 
 class EquipmentRandomSource(Protocol):
@@ -312,4 +369,6 @@ __all__ = [
     "EquipmentResourceCost",
     "EquipmentSpecialEffectValue",
     "EquipmentWashResult",
+    "scale_special_effect_payload",
+    "special_effect_strength_multiplier_for_quality",
 ]

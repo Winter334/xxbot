@@ -23,6 +23,7 @@ from domain.equipment import (
     EquipmentAttributeValue,
     EquipmentItem as DomainEquipmentItem,
     EquipmentSpecialEffectValue,
+    scale_special_effect_payload,
 )
 from infrastructure.config.static import StaticGameConfig, get_static_config
 from infrastructure.db.models import CharacterProgress, EquipmentItem as EquipmentItemModel
@@ -560,6 +561,7 @@ class CurrentAttributeService:
     @staticmethod
     def _build_special_effect_payload(*, item: DomainEquipmentItem, affix: EquipmentAffixValue) -> dict[str, Any]:
         assert affix.special_effect is not None
+        scaled_payload = dict(scale_special_effect_payload(quality_id=item.quality_id, payload=affix.special_effect.payload))
         return {
             "affix_id": affix.affix_id,
             "affix_name": affix.affix_name,
@@ -571,7 +573,7 @@ class CurrentAttributeService:
             "effect_name": affix.special_effect.effect_name,
             "effect_type": affix.special_effect.effect_type,
             "trigger_event": affix.special_effect.trigger_event,
-            "payload": dict(affix.special_effect.payload),
+            "payload": scaled_payload,
             "public_score_key": affix.special_effect.public_score_key,
             "hidden_pvp_score_key": affix.special_effect.hidden_pvp_score_key,
         }
@@ -667,11 +669,14 @@ class CurrentAttributeService:
             )
             for affix in equipment_model.affixes
         )
+        quality_id = equipment_model.quality_id
+        quality = get_static_config().equipment.get_quality(quality_id)
+        quality_name = quality.name if quality is not None else (equipment_model.quality_name or quality_id)
         return DomainEquipmentItem(
             slot_id=equipment_model.slot_id,
             slot_name=equipment_model.slot_name,
-            quality_id=equipment_model.quality_id,
-            quality_name=equipment_model.quality_name,
+            quality_id=quality_id,
+            quality_name=quality_name,
             template_id=equipment_model.template_id,
             template_name=equipment_model.template_name,
             rank_id=equipment_model.rank_id or "mortal",

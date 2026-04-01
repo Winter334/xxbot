@@ -27,6 +27,7 @@ from domain.equipment import (
     EquipmentRuleError,
     EquipmentSpecialEffectValue,
     TemplateEquipmentNamingService,
+    scale_special_effect_payload,
 )
 from application.ranking.score_service import CharacterScoreService
 from infrastructure.config.static import StaticGameConfig, get_static_config
@@ -326,6 +327,9 @@ class EquipmentService:
         self._slot_by_id = {slot.slot_id: slot for slot in self._static_config.equipment.ordered_slots}
         self._ordered_ranks = tuple(self._static_config.equipment.ordered_equipment_ranks)
         self._ordered_qualities = tuple(self._static_config.equipment.ordered_qualities)
+        self._quality_name_by_id = {
+            quality.quality_id: quality.name for quality in self._ordered_qualities
+        }
         self._non_artifact_slot_ids = tuple(slot.slot_id for slot in self._static_config.equipment.ordered_slots if slot.slot_id != "artifact")
         self._default_rank = self._static_config.equipment.get_equipment_rank(_DEFAULT_EQUIPMENT_RANK_ID)
         if self._default_rank is None:
@@ -471,7 +475,10 @@ class EquipmentService:
             previous_level=enhancement_result.previous_level,
             target_level=enhancement_result.target_level,
             success_rate=enhancement_result.success_rate,
-            added_affixes=self._build_affix_value_snapshots(enhancement_result.added_affixes),
+            added_affixes=self._build_affix_value_snapshots(
+                enhancement_result.added_affixes,
+                quality_id=updated_item.quality_id,
+            ),
             resource_changes=resource_changes,
         )
 
@@ -506,7 +513,10 @@ class EquipmentService:
         return EquipmentWashApplicationResult(
             item=self._build_item_snapshot(persisted_model),
             locked_affix_indices=wash_result.locked_affix_indices,
-            rerolled_affixes=self._build_affix_value_snapshots(wash_result.rerolled_affixes),
+            rerolled_affixes=self._build_affix_value_snapshots(
+                wash_result.rerolled_affixes,
+                quality_id=updated_item.quality_id,
+            ),
             resource_changes=resource_changes,
         )
 
@@ -539,7 +549,10 @@ class EquipmentService:
         return EquipmentReforgeApplicationResult(
             item=self._build_item_snapshot(persisted_model),
             previous_template_id=reforge_result.previous_template_id,
-            previous_affixes=self._build_affix_value_snapshots(reforge_result.previous_affixes),
+            previous_affixes=self._build_affix_value_snapshots(
+                reforge_result.previous_affixes,
+                quality_id=domain_item.quality_id,
+            ),
             resource_changes=resource_changes,
         )
 
@@ -1102,7 +1115,7 @@ class EquipmentService:
             affix_bonus_ratio=domain_item.affix_bonus_ratio,
             base_attributes=tuple(self._build_attribute_snapshot(attribute) for attribute in domain_item.base_attributes),
             affixes=tuple(
-                self._build_affix_snapshot(affix, position=index)
+                self._build_affix_snapshot(affix, quality_id=domain_item.quality_id, position=index)
                 for index, affix in enumerate(domain_item.affixes, start=1)
             ),
             resolved_stats=tuple(
@@ -1120,6 +1133,8 @@ class EquipmentService:
     @staticmethod
     def _build_special_effect_snapshot(
         special_effect: EquipmentSpecialEffectValue | None,
+        *,
+        quality_id: str,
     ) -> EquipmentSpecialEffectSnapshot | None:
         if special_effect is None:
             return None
@@ -1128,13 +1143,18 @@ class EquipmentService:
             effect_name=special_effect.effect_name,
             effect_type=special_effect.effect_type,
             trigger_event=special_effect.trigger_event,
-            payload=dict(special_effect.payload),
+            payload=dict(scale_special_effect_payload(quality_id=quality_id, payload=special_effect.payload)),
             public_score_key=special_effect.public_score_key,
             hidden_pvp_score_key=special_effect.hidden_pvp_score_key,
         )
 
     @staticmethod
-    def _build_affix_snapshot(affix: EquipmentAffixValue, *, position: int | None = None) -> EquipmentAffixSnapshot:
+    def _build_affix_snapshot(
+        affix: EquipmentAffixValue,
+        *,
+        quality_id: str,
+        position: int | None = None,
+    ) -> EquipmentAffixSnapshot:
         return EquipmentAffixSnapshot(
             affix_id=affix.affix_id,
             affix_name=affix.affix_name,
@@ -1147,12 +1167,17 @@ class EquipmentService:
             is_pve_specialized=affix.is_pve_specialized,
             is_pvp_specialized=affix.is_pvp_specialized,
             affix_kind=affix.affix_kind,
-            special_effect=EquipmentService._build_special_effect_snapshot(affix.special_effect),
+            special_effect=EquipmentService._build_special_effect_snapshot(affix.special_effect, quality_id=quality_id),
             position=position,
         )
 
-    def _build_affix_value_snapshots(self, affixes: tuple[EquipmentAffixValue, ...]) -> tuple[EquipmentAffixSnapshot, ...]:
-        return tuple(self._build_affix_snapshot(affix) for affix in affixes)
+    def _build_affix_value_snapshots(
+        self,
+        affixes: tuple[EquipmentAffixValue, ...],
+        *,
+        quality_id: str,
+    ) -> tuple[EquipmentAffixSnapshot, ...]:
+        return tuple(self._build_affix_snapshot(affix, quality_id=quality_id) for affix in affixes)
 
     @staticmethod
     def _build_naming_snapshot(naming: EquipmentNamingRecord | None) -> EquipmentNamingSnapshot | None:
@@ -1238,11 +1263,13 @@ class EquipmentService:
                 naming_source=naming_state.naming_source,
                 naming_metadata=dict(naming_state.naming_metadata_json),
             )
+        quality_id = equipment_model.quality_id
+        quality_name = self._quality_name_by_id.get(quality_id) or equipment_model.quality_name or quality_id
         return DomainEquipmentItem(
             slot_id=equipment_model.slot_id,
             slot_name=equipment_model.slot_name,
-            quality_id=equipment_model.quality_id,
-            quality_name=equipment_model.quality_name,
+            quality_id=quality_id,
+            quality_name=quality_name,
             template_id=equipment_model.template_id,
             template_name=equipment_model.template_name,
             rank_id=rank_id,

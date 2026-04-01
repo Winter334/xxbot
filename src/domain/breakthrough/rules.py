@@ -39,7 +39,9 @@ _FORBIDDEN_REPEAT_RESOURCE_IDS = frozenset(
         "common",
         "rare",
         "epic",
+        "earthly",
         "legendary",
+        "immortal",
     }
 )
 

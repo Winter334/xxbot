@@ -116,7 +116,7 @@ dismantle_reward_multiplier = "10.23"
 
 [[qualities]]
 quality_id = "common"
-name = "普通"
+name = "凡"
 order = 1
 max_affix_tier_id = "yellow"
 base_affix_count = 1
@@ -125,29 +125,47 @@ max_enhancement_level = 6
 
 [[qualities]]
 quality_id = "rare"
-name = "稀有"
+name = "灵"
 order = 2
 max_affix_tier_id = "mystic"
 base_affix_count = 2
-attribute_multiplier = "1.18"
+attribute_multiplier = "1.10"
 max_enhancement_level = 8
 
 [[qualities]]
 quality_id = "epic"
-name = "史诗"
+name = "玄"
 order = 3
 max_affix_tier_id = "earth"
 base_affix_count = 3
-attribute_multiplier = "1.38"
+attribute_multiplier = "1.22"
+max_enhancement_level = 9
+
+[[qualities]]
+quality_id = "earthly"
+name = "地"
+order = 4
+max_affix_tier_id = "heaven"
+base_affix_count = 4
+attribute_multiplier = "1.35"
 max_enhancement_level = 10
 
 [[qualities]]
 quality_id = "legendary"
-name = "传说"
-order = 4
+name = "天"
+order = 5
 max_affix_tier_id = "heaven"
 base_affix_count = 4
-attribute_multiplier = "1.60"
+attribute_multiplier = "1.50"
+max_enhancement_level = 11
+
+[[qualities]]
+quality_id = "immortal"
+name = "仙"
+order = 6
+max_affix_tier_id = "heaven"
+base_affix_count = 4
+attribute_multiplier = "1.66"
 max_enhancement_level = 12
 
 [[base_templates]]
@@ -510,9 +528,153 @@ payload = { trigger_rate_permille = 200, dot_ratio_permille = 200, duration_roun
 summary = "受到伤害后有概率对伤害来源施加持续伤害。"
 detail_summary = "受到伤害后有20.0%概率对伤害来源施加持续伤害，系数为20.0%，持续2回合，最多叠加3层，冷却2回合。"
 
+[[special_effects]]
+effect_id = "duanyue_sunder_on_hit"
+name = "断岳印"
+order = 11
+effect_type = "sunder_on_hit"
+trigger_event = "damage_resolved"
+public_score_key = "se_duanyue_mark"
+hidden_pvp_score_key = "pvp_se_duanyue_mark"
+payload = { trigger_rate_permille = 350, suppression_permille = 300, duration_rounds = 2, max_stacks = 1, cooldown_rounds = 1, max_triggers_per_round = 1 }
+summary = "造成伤害后有概率进一步压住目标气机。"
+detail_summary = "造成伤害后有35.0%概率对当前受击目标施加30.0%属性压制，持续2回合，冷却1回合。"
+
+[[special_effects]]
+effect_id = "execute_on_low_hp"
+name = "裂脉印"
+order = 12
+effect_type = "execute_on_low_hp"
+trigger_event = "damage_resolved"
+public_score_key = "se_liemai_mark"
+hidden_pvp_score_key = "pvp_se_liemai_mark"
+payload = { trigger_rate_permille = 1000, hp_threshold_permille = 220, execute_damage_ratio_permille = 1200, cooldown_rounds = 1, max_stacks = 1, max_triggers_per_round = 1 }
+summary = "造成伤害后若目标残血，则追上一记裂脉杀招。"
+detail_summary = "造成伤害后若当前受击目标气血低于22.0%，则必定追加一次120.0%伤害值的收割打击，冷却1回合。"
+
+[[special_effects]]
+effect_id = "zhuohun_dot_on_hit"
+name = "灼魂印"
+order = 13
+effect_type = "dot_on_hit"
+trigger_event = "damage_resolved"
+public_score_key = "se_zhuohun_mark"
+hidden_pvp_score_key = "pvp_se_zhuohun_mark"
+payload = { trigger_rate_permille = 320, dot_ratio_permille = 320, duration_rounds = 2, max_stacks = 3, cooldown_rounds = 1, max_triggers_per_round = 1 }
+summary = "造成伤害后有概率引燃目标神魂，附加更重灼伤。"
+detail_summary = "造成伤害后有32.0%概率对当前受击目标施加持续伤害，系数为32.0%，持续2回合，最多叠加3层，冷却1回合。"
+
+[[special_effects]]
+effect_id = "qianshi_dot_on_hit"
+name = "千蚀印"
+order = 14
+effect_type = "dot_on_hit"
+trigger_event = "damage_resolved"
+public_score_key = "se_qianshi_mark"
+hidden_pvp_score_key = "pvp_se_qianshi_mark"
+payload = { trigger_rate_permille = 400, dot_ratio_permille = 180, duration_rounds = 3, max_stacks = 4, cooldown_rounds = 1, max_triggers_per_round = 1 }
+summary = "造成伤害后有概率留下层层蚀劲，偏向长线消磨。"
+detail_summary = "造成伤害后有40.0%概率对当前受击目标施加持续伤害，系数为18.0%，持续3回合，最多叠加4层，冷却1回合。"
+
+[[special_effects]]
+effect_id = "xiantian_battle_start_barrier"
+name = "先天灵障"
+order = 15
+effect_type = "battle_start_barrier"
+trigger_event = "battle_start"
+public_score_key = "se_xiantian_barrier"
+hidden_pvp_score_key = "pvp_se_xiantian_barrier"
+payload = { guard_ratio_permille = 900, trigger_rate_permille = 1000, cooldown_rounds = 0, max_stacks = 1, max_triggers_per_battle = 1 }
+summary = "战斗开始时先凝一道更厚的护障。"
+detail_summary = "战斗开始时必定触发，为自身附加1层护盾，护盾系数为90.0%，每场战斗最多触发1次。"
+
+[[special_effects]]
+effect_id = "shoujie_barrier_on_damage_taken"
+name = "受劫化障"
+order = 16
+effect_type = "barrier_on_damage_taken"
+trigger_event = "damage_taken"
+public_score_key = "se_shoujie_barrier"
+hidden_pvp_score_key = "pvp_se_shoujie_barrier"
+payload = { trigger_rate_permille = 450, damage_ratio_permille = 280, cooldown_rounds = 1, max_stacks = 1, max_triggers_per_round = 1 }
+summary = "受到伤害后有概率把劫力反化为护障。"
+detail_summary = "受到伤害后有45.0%概率按本次受击值的28.0%转化为护盾，冷却1回合。"
+
+[[special_effects]]
+effect_id = "canmai_low_hp_regen"
+name = "残脉回元"
+order = 17
+effect_type = "low_hp_regen"
+trigger_event = "turn_start"
+public_score_key = "se_canmai_regen"
+hidden_pvp_score_key = "pvp_se_canmai_regen"
+payload = { trigger_rate_permille = 1000, hp_threshold_permille = 450, attack_ratio_permille = 260, cooldown_rounds = 2, max_stacks = 1, max_triggers_per_round = 1 }
+summary = "回合开始时若自身残血，则迅速回转真元。"
+detail_summary = "回合开始时若自身气血低于45.0%，则必定回复相当于攻力26.0%的气血，冷却2回合。"
+
+[[special_effects]]
+effect_id = "heal_on_kill"
+name = "斩后回元"
+order = 18
+effect_type = "heal_on_kill"
+trigger_event = "after_action"
+public_score_key = "se_zhanhou_heal"
+hidden_pvp_score_key = "pvp_se_zhanhou_heal"
+payload = { trigger_rate_permille = 1000, attack_ratio_permille = 220, cooldown_rounds = 1, max_stacks = 1, max_triggers_per_round = 1 }
+summary = "动作结束后若成功斩落敌手，则回转自身气血。"
+detail_summary = "完成一次动作后若本次出手击倒了至少一个目标，则必定回复相当于攻力22.0%的气血，冷却1回合。"
+
+[[special_effects]]
+effect_id = "kongming_round_end_barrier"
+name = "空明续障"
+order = 19
+effect_type = "round_end_barrier_if_empty"
+trigger_event = "round_end"
+public_score_key = "se_kongming_barrier"
+hidden_pvp_score_key = "pvp_se_kongming_barrier"
+payload = { trigger_rate_permille = 1000, guard_ratio_permille = 240, cooldown_rounds = 1, max_stacks = 1, require_empty_shield = true, max_triggers_per_round = 1 }
+summary = "回合结束时若自身空盾，则续上一层更稳的护障。"
+detail_summary = "回合结束时若自身当前没有护盾，则必定补上一层护盾，护盾系数为24.0%，冷却1回合。"
+
+[[special_effects]]
+effect_id = "shanghua_damage_to_barrier"
+name = "伤化玄幕"
+order = 20
+effect_type = "damage_to_barrier"
+trigger_event = "damage_resolved"
+public_score_key = "se_shanghua_barrier"
+hidden_pvp_score_key = "pvp_se_shanghua_barrier"
+payload = { trigger_rate_permille = 1000, damage_ratio_permille = 220, cooldown_rounds = 1, max_stacks = 1, max_triggers_per_round = 1 }
+summary = "造成伤害后将更多伤势余波化作自身玄幕。"
+detail_summary = "造成伤害后必定把本次伤害的22.0%转化为自身护盾，冷却1回合。"
+
+[[special_effects]]
+effect_id = "huifeng_counter_sunder"
+name = "回锋镇煞"
+order = 21
+effect_type = "counter_sunder"
+trigger_event = "damage_taken"
+public_score_key = "se_huifeng_sunder"
+hidden_pvp_score_key = "pvp_se_huifeng_sunder"
+payload = { trigger_rate_permille = 300, suppression_permille = 260, duration_rounds = 2, max_stacks = 1, cooldown_rounds = 1, max_triggers_per_round = 1 }
+summary = "受到伤害后有概率反手镇住来敌气势。"
+detail_summary = "受到伤害后有30.0%概率对伤害来源施加26.0%属性压制，持续2回合，冷却1回合。"
+
+[[special_effects]]
+effect_id = "fanshi_counter_dot"
+name = "反噬劫火"
+order = 22
+effect_type = "counter_dot"
+trigger_event = "damage_taken"
+public_score_key = "se_fanshi_flame"
+hidden_pvp_score_key = "pvp_se_fanshi_flame"
+payload = { trigger_rate_permille = 260, dot_ratio_permille = 260, duration_rounds = 2, max_stacks = 3, cooldown_rounds = 1, max_triggers_per_round = 1 }
+summary = "受到伤害后有概率回敬一缕劫火，逼敌换血。"
+detail_summary = "受到伤害后有26.0%概率对伤害来源施加持续伤害，系数为26.0%，持续2回合，最多叠加3层，冷却1回合。"
+
 [[affixes]]
 affix_id = "attack_power"
-name = "攻力加成"
+name = "锋芒"
 order = 1
 stat_id = "attack_power"
 category = "base_stat"
@@ -526,7 +688,7 @@ summary = "提升稳定输出底盘。"
 
 [[affixes]]
 affix_id = "penetration"
-name = "穿透加成"
+name = "破势"
 order = 2
 stat_id = "damage_bonus_permille"
 category = "combat_bonus"
@@ -540,7 +702,7 @@ summary = "提升对高护体目标的压制能力。"
 
 [[affixes]]
 affix_id = "health_pool"
-name = "气血加成"
+name = "命元"
 order = 3
 stat_id = "max_hp"
 category = "base_stat"
@@ -554,7 +716,7 @@ summary = "提升主要生存承载。"
 
 [[affixes]]
 affix_id = "guard_power"
-name = "护体加成"
+name = "镇岳"
 order = 4
 stat_id = "guard_power"
 category = "base_stat"
@@ -568,7 +730,7 @@ summary = "提升护体与正面承伤能力。"
 
 [[affixes]]
 affix_id = "damage_reduction"
-name = "减伤加成"
+name = "护元"
 order = 5
 stat_id = "damage_reduction_permille"
 category = "combat_bonus"
@@ -582,7 +744,7 @@ summary = "提升高压环境下的稳定性。"
 
 [[affixes]]
 affix_id = "crit_rate"
-name = "暴击加成"
+name = "诛心"
 order = 6
 stat_id = "crit_rate_permille"
 category = "combat_bonus"
@@ -596,7 +758,7 @@ summary = "提升爆发输出能力。"
 
 [[affixes]]
 affix_id = "speed_bonus"
-name = "速度加成"
+name = "御风"
 order = 7
 stat_id = "speed"
 category = "combat_bonus"
@@ -610,7 +772,7 @@ summary = "提升先手与行动节奏。"
 
 [[affixes]]
 affix_id = "shield_power"
-name = "护盾加成"
+name = "灵障"
 order = 8
 stat_id = "shield_power_permille"
 category = "triggered_effect"
@@ -624,7 +786,7 @@ summary = "强化护盾与续航类法宝表现。"
 
 [[affixes]]
 affix_id = "pve_damage"
-name = "PVE 专精增伤"
+name = "诛邪"
 order = 9
 stat_id = "damage_bonus_permille"
 category = "special_pattern"
@@ -638,7 +800,7 @@ summary = "少量保留的 PVE 场景专精词条。"
 
 [[affixes]]
 affix_id = "pvp_control_resist"
-name = "PVP 专精抗控"
+name = "定魄"
 order = 10
 stat_id = "control_resist_permille"
 category = "special_pattern"
@@ -800,6 +962,186 @@ is_pve_specialized = false
 is_pvp_specialized = false
 summary = "法宝专属特殊词条，受到伤害后有概率反施持续伤害。"
 
+[[affixes]]
+affix_id = "weapon_duanyue_sunder_on_hit"
+name = "断岳印"
+order = 21
+category = "special_pattern"
+slot_ids = ["weapon"]
+tier_ids = ["earth", "heaven"]
+selection_weight = 38
+base_value = 0
+affix_kind = "special_effect"
+special_effect_id = "duanyue_sunder_on_hit"
+is_pve_specialized = false
+is_pvp_specialized = false
+summary = "武器专属特殊词条，造成伤害后更容易压住对手气机。"
+
+[[affixes]]
+affix_id = "weapon_execute_on_low_hp"
+name = "裂脉印"
+order = 22
+category = "special_pattern"
+slot_ids = ["weapon"]
+tier_ids = ["earth", "heaven"]
+selection_weight = 34
+base_value = 0
+affix_kind = "special_effect"
+special_effect_id = "execute_on_low_hp"
+is_pve_specialized = false
+is_pvp_specialized = false
+summary = "武器专属特殊词条，擅长对残血目标补上收割一击。"
+
+[[affixes]]
+affix_id = "weapon_zhuohun_dot_on_hit"
+name = "灼魂印"
+order = 23
+category = "special_pattern"
+slot_ids = ["weapon"]
+tier_ids = ["earth", "heaven"]
+selection_weight = 36
+base_value = 0
+affix_kind = "special_effect"
+special_effect_id = "zhuohun_dot_on_hit"
+is_pve_specialized = false
+is_pvp_specialized = false
+summary = "武器专属特殊词条，造成伤害后更易附上灼魂余焰。"
+
+[[affixes]]
+affix_id = "armor_xiantian_battle_start_barrier"
+name = "先天灵障"
+order = 24
+category = "special_pattern"
+slot_ids = ["armor"]
+tier_ids = ["earth", "heaven"]
+selection_weight = 38
+base_value = 0
+affix_kind = "special_effect"
+special_effect_id = "xiantian_battle_start_barrier"
+is_pve_specialized = false
+is_pvp_specialized = false
+summary = "护甲专属特殊词条，战斗开始时先结一层厚重灵障。"
+
+[[affixes]]
+affix_id = "armor_shoujie_barrier_on_damage_taken"
+name = "受劫化障"
+order = 25
+category = "special_pattern"
+slot_ids = ["armor"]
+tier_ids = ["earth", "heaven"]
+selection_weight = 36
+base_value = 0
+affix_kind = "special_effect"
+special_effect_id = "shoujie_barrier_on_damage_taken"
+is_pve_specialized = false
+is_pvp_specialized = false
+summary = "护甲专属特殊词条，受到伤害后可把劫力反化成护盾。"
+
+[[affixes]]
+affix_id = "armor_canmai_low_hp_regen"
+name = "残脉回元"
+order = 26
+category = "special_pattern"
+slot_ids = ["armor"]
+tier_ids = ["earth", "heaven"]
+selection_weight = 34
+base_value = 0
+affix_kind = "special_effect"
+special_effect_id = "canmai_low_hp_regen"
+is_pve_specialized = false
+is_pvp_specialized = false
+summary = "护甲专属特殊词条，低血时能迅速回转真元。"
+
+[[affixes]]
+affix_id = "accessory_qianshi_dot_on_hit"
+name = "千蚀印"
+order = 27
+category = "special_pattern"
+slot_ids = ["accessory"]
+tier_ids = ["earth", "heaven"]
+selection_weight = 34
+base_value = 0
+affix_kind = "special_effect"
+special_effect_id = "qianshi_dot_on_hit"
+is_pve_specialized = false
+is_pvp_specialized = false
+summary = "饰品专属特殊词条，造成伤害后偏向长线叠蚀。"
+
+[[affixes]]
+affix_id = "accessory_heal_on_kill"
+name = "斩后回元"
+order = 28
+category = "special_pattern"
+slot_ids = ["accessory"]
+tier_ids = ["earth", "heaven"]
+selection_weight = 36
+base_value = 0
+affix_kind = "special_effect"
+special_effect_id = "heal_on_kill"
+is_pve_specialized = false
+is_pvp_specialized = false
+summary = "饰品专属特殊词条，斩落敌手后立即回转气血。"
+
+[[affixes]]
+affix_id = "accessory_kongming_round_end_barrier"
+name = "空明续障"
+order = 29
+category = "special_pattern"
+slot_ids = ["accessory"]
+tier_ids = ["earth", "heaven"]
+selection_weight = 34
+base_value = 0
+affix_kind = "special_effect"
+special_effect_id = "kongming_round_end_barrier"
+is_pve_specialized = false
+is_pvp_specialized = false
+summary = "饰品专属特殊词条，空盾时可在回合末续上一层灵障。"
+
+[[affixes]]
+affix_id = "artifact_shanghua_damage_to_barrier"
+name = "伤化玄幕"
+order = 30
+category = "special_pattern"
+slot_ids = ["artifact"]
+tier_ids = ["earth", "heaven"]
+selection_weight = 38
+base_value = 0
+affix_kind = "special_effect"
+special_effect_id = "shanghua_damage_to_barrier"
+is_pve_specialized = false
+is_pvp_specialized = false
+summary = "法宝专属特殊词条，造成伤害后可化出更厚玄幕。"
+
+[[affixes]]
+affix_id = "artifact_huifeng_counter_sunder"
+name = "回锋镇煞"
+order = 31
+category = "special_pattern"
+slot_ids = ["artifact"]
+tier_ids = ["earth", "heaven"]
+selection_weight = 36
+base_value = 0
+affix_kind = "special_effect"
+special_effect_id = "huifeng_counter_sunder"
+is_pve_specialized = false
+is_pvp_specialized = false
+summary = "法宝专属特殊词条，受击后有概率回锋压住来敌。"
+
+[[affixes]]
+affix_id = "artifact_fanshi_counter_dot"
+name = "反噬劫火"
+order = 32
+category = "special_pattern"
+slot_ids = ["artifact"]
+tier_ids = ["earth", "heaven"]
+selection_weight = 34
+base_value = 0
+affix_kind = "special_effect"
+special_effect_id = "fanshi_counter_dot"
+is_pve_specialized = false
+is_pvp_specialized = false
+summary = "法宝专属特殊词条，受击后有概率反施一缕劫火。"
+
 [affix_generation]
 duplicate_affix_allowed = false
 minimum_specialized_quality_id = "epic"
@@ -836,7 +1178,7 @@ pool_id = "weapon_launch_special_effects"
 name = "武器首发特殊词条池"
 order = 1
 slot_ids = ["weapon"]
-quality_ids = ["epic", "legendary"]
+quality_ids = ["epic", "earthly", "legendary", "immortal"]
 rank_ids = [
   "mortal",
   "qi_refining",
@@ -849,15 +1191,15 @@ rank_ids = [
   "great_vehicle",
   "tribulation",
 ]
-affix_ids = ["weapon_sunder_on_hit", "weapon_dot_on_hit"]
-summary = "武器首发仅开放破甲印与蚀骨印。"
+affix_ids = ["weapon_sunder_on_hit", "weapon_dot_on_hit", "weapon_duanyue_sunder_on_hit", "weapon_execute_on_low_hp", "weapon_zhuohun_dot_on_hit"]
+summary = "武器开放压制、灼烧与收割向特殊词条。"
 
 [[special_affix_generation.pools]]
 pool_id = "armor_launch_special_effects"
 name = "护甲首发特殊词条池"
 order = 2
 slot_ids = ["armor"]
-quality_ids = ["epic", "legendary"]
+quality_ids = ["epic", "earthly", "legendary", "immortal"]
 rank_ids = [
   "mortal",
   "qi_refining",
@@ -870,15 +1212,15 @@ rank_ids = [
   "great_vehicle",
   "tribulation",
 ]
-affix_ids = ["armor_battle_start_barrier", "armor_barrier_on_damage_taken", "armor_low_hp_regen"]
-summary = "护甲首发仅开放三条生存向特殊词条。"
+affix_ids = ["armor_battle_start_barrier", "armor_barrier_on_damage_taken", "armor_low_hp_regen", "armor_xiantian_battle_start_barrier", "armor_shoujie_barrier_on_damage_taken", "armor_canmai_low_hp_regen"]
+summary = "护甲开放开局护盾、受击化障与残血回元词条。"
 
 [[special_affix_generation.pools]]
 pool_id = "accessory_launch_special_effects"
 name = "饰品首发特殊词条池"
 order = 3
 slot_ids = ["accessory"]
-quality_ids = ["epic", "legendary"]
+quality_ids = ["epic", "earthly", "legendary", "immortal"]
 rank_ids = [
   "mortal",
   "qi_refining",
@@ -891,15 +1233,15 @@ rank_ids = [
   "great_vehicle",
   "tribulation",
 ]
-affix_ids = ["accessory_heal_after_attack", "accessory_round_end_barrier_if_empty"]
-summary = "饰品首发仅开放两条回复与护盾向特殊词条。"
+affix_ids = ["accessory_heal_after_attack", "accessory_round_end_barrier_if_empty", "accessory_qianshi_dot_on_hit", "accessory_heal_on_kill", "accessory_kongming_round_end_barrier"]
+summary = "饰品开放续航、补障与持续伤害向特殊词条。"
 
 [[special_affix_generation.pools]]
 pool_id = "artifact_launch_special_effects"
 name = "法宝首发特殊词条池"
 order = 4
 slot_ids = ["artifact"]
-quality_ids = ["epic", "legendary"]
+quality_ids = ["epic", "earthly", "legendary", "immortal"]
 rank_ids = [
   "mortal",
   "qi_refining",
@@ -912,8 +1254,8 @@ rank_ids = [
   "great_vehicle",
   "tribulation",
 ]
-affix_ids = ["artifact_counter_sunder", "artifact_damage_to_barrier", "artifact_counter_dot"]
-summary = "法宝首发仅开放三条反制与护盾向特殊词条。"
+affix_ids = ["artifact_counter_sunder", "artifact_damage_to_barrier", "artifact_counter_dot", "artifact_shanghua_damage_to_barrier", "artifact_huifeng_counter_sunder", "artifact_fanshi_counter_dot"]
+summary = "法宝开放反制、伤转玄幕与劫火反噬词条。"
 
 [wash]
 max_locked_affix_count = 2
@@ -1091,6 +1433,25 @@ artifact_nurture_returns_per_level = [
 ]
 
 [[dismantle.rules]]
+quality_id = "earthly"
+base_returns = [
+  { resource_id = "spirit_sand", quantity = 17 },
+  { resource_id = "reforge_shard", quantity = 1 },
+]
+enhancement_returns_per_level = [
+  { resource_id = "enhancement_shard", quantity = 3 },
+]
+affix_returns_per_count = [
+  { resource_id = "wash_dust", quantity = 3 },
+]
+artifact_bonus_returns = [
+  { resource_id = "artifact_essence", quantity = 8 },
+]
+artifact_nurture_returns_per_level = [
+  { resource_id = "artifact_essence", quantity = 3 },
+]
+
+[[dismantle.rules]]
 quality_id = "legendary"
 base_returns = [
   { resource_id = "spirit_sand", quantity = 20 },
@@ -1109,6 +1470,25 @@ artifact_nurture_returns_per_level = [
   { resource_id = "artifact_essence", quantity = 4 },
 ]
 
+[[dismantle.rules]]
+quality_id = "immortal"
+base_returns = [
+  { resource_id = "spirit_sand", quantity = 26 },
+  { resource_id = "reforge_shard", quantity = 3 },
+]
+enhancement_returns_per_level = [
+  { resource_id = "enhancement_shard", quantity = 5 },
+]
+affix_returns_per_count = [
+  { resource_id = "wash_dust", quantity = 5 },
+]
+artifact_bonus_returns = [
+  { resource_id = "artifact_essence", quantity = 12 },
+]
+artifact_nurture_returns_per_level = [
+  { resource_id = "artifact_essence", quantity = 5 },
+]
+
 [naming]
 high_tier_affix_tier_id = "earth"
 
@@ -1117,7 +1497,7 @@ template_id = "artifact_resonant"
 name = "法宝共鸣命名"
 order = 1
 slot_ids = ["artifact"]
-quality_ids = ["rare", "epic", "legendary"]
+quality_ids = ["rare", "epic", "earthly", "legendary", "immortal"]
 minimum_high_tier_affix_count = 1
 artifact_only = true
 pattern = "{resonance_name}{template_name}"
@@ -1128,7 +1508,7 @@ template_id = "legendary_masterwork"
 name = "高阶主词命名"
 order = 2
 slot_ids = ["weapon", "armor", "accessory", "artifact"]
-quality_ids = ["legendary"]
+quality_ids = ["legendary", "immortal"]
 minimum_high_tier_affix_count = 2
 artifact_only = false
 pattern = "{primary_affix_name}{template_name}"
@@ -1139,7 +1519,7 @@ template_id = "epic_masterwork"
 name = "史诗主词命名"
 order = 3
 slot_ids = ["weapon", "armor", "accessory"]
-quality_ids = ["epic", "legendary"]
+quality_ids = ["epic", "earthly", "legendary", "immortal"]
 minimum_high_tier_affix_count = 1
 artifact_only = false
 pattern = "{quality_name}{primary_affix_name}{template_name}"
@@ -1150,7 +1530,7 @@ template_id = "default_quality_template"
 name = "基础品质命名"
 order = 4
 slot_ids = ["weapon", "armor", "accessory", "artifact"]
-quality_ids = ["common", "rare", "epic", "legendary"]
+quality_ids = ["common", "rare", "epic", "earthly", "legendary", "immortal"]
 minimum_high_tier_affix_count = 0
 artifact_only = false
 pattern = "{quality_name}{template_name}"

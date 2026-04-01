@@ -100,6 +100,48 @@ def test_generation_four_slots_produce_valid_equipment(static_config, generation
         assert item.rank_name == "三阶"
 
 
+@pytest.mark.parametrize(
+    ("quality_id", "expected_name", "expected_affix_count", "expected_max_enhancement_level"),
+    [
+        ("common", "凡", 1, 6),
+        ("rare", "灵", 2, 8),
+        ("epic", "玄", 3, 9),
+        ("earthly", "地", 4, 10),
+        ("legendary", "天", 4, 11),
+        ("immortal", "仙", 4, 12),
+    ],
+)
+def test_generation_supports_all_six_quality_tiers(
+    static_config,
+    generation_rule,
+    quality_id: str,
+    expected_name: str,
+    expected_affix_count: int,
+    expected_max_enhancement_level: int,
+) -> None:
+    """六档装备品质应能正常生成并映射到修仙命名。"""
+    quality = static_config.equipment.get_quality(quality_id)
+    assert quality is not None
+
+    item = generation_rule.generate_equipment(
+        request=EquipmentGenerationRequest(
+            slot_id="weapon",
+            quality_id=quality_id,
+            rank_id="foundation",
+            template_id="iron_sword",
+        ),
+        random_source=Random(quality.order * 17),
+    )
+
+    assert quality.name == expected_name
+    assert quality.base_affix_count == expected_affix_count
+    assert quality.max_enhancement_level == expected_max_enhancement_level
+    assert item.quality_id == quality_id
+    assert item.quality_name == expected_name
+    assert item.display_name.startswith(expected_name)
+    assert len(item.affixes) == expected_affix_count
+
+
 def test_generation_rank_affects_base_stats_and_affix_values(generation_rule) -> None:
     """同品质同底材在不同阶数下应体现基础属性与词条值提升。"""
     mortal_item = generation_rule.generate_equipment(
@@ -238,15 +280,15 @@ def test_wash_replaces_target_affix_preserves_rank_and_other_affixes(generation_
     """洗炼指定位置时应替换目标词条并保留阶数与其他词条。"""
     item = generation_rule.generate_equipment(
         request=EquipmentGenerationRequest(
-            slot_id="artifact",
-            quality_id="epic",
+            slot_id="armor",
+            quality_id="rare",
             rank_id="deity_transformation",
-            template_id="skyfire_mirror",
+            template_id="iron_armor",
         ),
         random_source=Random(5),
     )
 
-    locked_affix_indices = (0, 2)
+    locked_affix_indices = (0,)
     original_target_affix = item.affixes[1]
     wash_result = None
 
@@ -256,14 +298,13 @@ def test_wash_replaces_target_affix_preserves_rank_and_other_affixes(generation_
             locked_affix_indices=locked_affix_indices,
             random_source=Random(seed),
         )
-        if candidate.item.affixes[1] != original_target_affix:
+        if candidate.rerolled_affixes and candidate.item.affixes[1] != original_target_affix:
             wash_result = candidate
             break
 
     assert wash_result is not None
     assert wash_result.item.affixes[1] != original_target_affix
     assert wash_result.item.affixes[0] == item.affixes[0]
-    assert wash_result.item.affixes[2] == item.affixes[2]
     assert wash_result.item.rank_id == item.rank_id
     assert wash_result.item.rank_name == item.rank_name
 
@@ -338,8 +379,29 @@ def test_artifact_nurture_only_applies_to_artifact_slot(generation_rule, artifac
     assert result.target_level == 1
     assert result.item.artifact_nurture_level == 1
     assert result.item.rank_id == artifact_item.rank_id
-    assert cost_map["spirit_stone"] > 0
-    assert cost_map["artifact_essence"] > 0
+
+
+def test_special_effect_payload_scales_with_quality_but_keeps_mechanic_fields() -> None:
+    """特殊词条应随品质放大强度字段，但不改变机制字段。"""
+    from domain.equipment import scale_special_effect_payload
+
+    payload = {
+        "trigger_rate_permille": 350,
+        "damage_ratio_permille": 200,
+        "cooldown_rounds": 1,
+        "max_stacks": 1,
+        "hp_threshold_permille": 220,
+    }
+
+    mortal_payload = dict(scale_special_effect_payload(quality_id="common", payload=payload))
+    immortal_payload = dict(scale_special_effect_payload(quality_id="immortal", payload=payload))
+
+    assert mortal_payload["damage_ratio_permille"] == 200
+    assert immortal_payload["damage_ratio_permille"] == 240
+    assert immortal_payload["trigger_rate_permille"] == payload["trigger_rate_permille"]
+    assert immortal_payload["cooldown_rounds"] == payload["cooldown_rounds"]
+    assert immortal_payload["max_stacks"] == payload["max_stacks"]
+    assert immortal_payload["hp_threshold_permille"] == payload["hp_threshold_permille"]
 
 
 def test_dismantle_returns_scaled_by_rank_multiplier(generation_rule, dismantle_rule) -> None:

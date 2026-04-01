@@ -39,7 +39,7 @@ _STATUS_RUNNING = "running"
 _STATUS_PENDING_DEFEAT_SETTLEMENT = "pending_defeat_settlement"
 _SETTLEMENT_RETREAT = "retreat"
 _SETTLEMENT_DEFEAT = "defeat"
-_PUBLIC_HIGHLIGHT_EQUIPMENT_QUALITY_IDS = frozenset({"epic", "legendary"})
+_PUBLIC_HIGHLIGHT_EQUIPMENT_QUALITY_IDS = frozenset({"epic", "earthly", "legendary", "immortal"})
 _NODE_TYPE_NAME_BY_VALUE = {
     "normal": "常规层",
     "elite": "精英层",
@@ -477,7 +477,7 @@ class EndlessPanelPresenter:
             if (
                 not is_artifact
                 and quality_id not in _PUBLIC_HIGHLIGHT_EQUIPMENT_QUALITY_IDS
-                and quality_name not in {"史诗", "传说"}
+                and quality_name not in {"玄", "地", "天", "仙"}
             ):
                 return None
             if not quality_name:

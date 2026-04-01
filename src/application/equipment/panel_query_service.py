@@ -146,14 +146,97 @@ def _resolve_special_affix_description(
     if effect_id:
         effect_definition = static_config.equipment.get_special_effect(effect_id)
         if effect_definition is not None:
-            detail_summary = str(getattr(effect_definition, "detail_summary", "")).strip()
+            payload = getattr(special_effect, "payload", None)
+            detail_summary = _format_special_effect_detail_summary(effect_definition=effect_definition, payload=payload)
             if detail_summary:
                 return detail_summary
+            payload_summary = _format_special_effect_payload_summary(effect_definition=effect_definition, payload=payload)
+            if payload_summary:
+                return payload_summary
             if effect_definition.summary:
                 return str(effect_definition.summary)
     if affix_definition is not None and affix_definition.summary:
         return str(affix_definition.summary)
     return ""
+
+
+def _format_special_effect_detail_summary(*, effect_definition, payload: object) -> str:
+    template = str(getattr(effect_definition, "detail_summary", "")).strip()
+    if not template or "{" not in template:
+        return ""
+    normalized_payload = payload if isinstance(payload, Mapping) else {}
+    if not normalized_payload:
+        return template
+    replacements = {
+        key: _format_effect_payload_value(key=key, value=value)
+        for key, value in normalized_payload.items()
+    }
+    formatted = template
+    for key, value in replacements.items():
+        if not value:
+            continue
+        formatted = formatted.replace(f"{{{key}}}", value)
+    return formatted
+
+
+def _format_special_effect_payload_summary(*, effect_definition, payload: object) -> str:
+    summary = str(getattr(effect_definition, "summary", "")).strip()
+    payload_parts = _format_special_effect_payload_parts(payload=payload)
+    if summary and payload_parts:
+        return f"{summary}（{'、'.join(payload_parts)}）"
+    if payload_parts:
+        return "、".join(payload_parts)
+    return summary
+
+
+def _format_special_effect_payload_parts(*, payload: object) -> tuple[str, ...]:
+    normalized_payload = payload if isinstance(payload, Mapping) else {}
+    if not normalized_payload:
+        return ()
+    ordered_keys = (
+        ("trigger_rate_permille", "触发率"),
+        ("suppression_permille", "压制幅度"),
+        ("dot_ratio_permille", "持续伤害系数"),
+        ("guard_ratio_permille", "护盾系数"),
+        ("damage_ratio_permille", "伤害转化系数"),
+        ("attack_ratio_permille", "攻力系数"),
+        ("execute_damage_ratio_permille", "斩杀伤害系数"),
+        ("hp_threshold_permille", "气血阈值"),
+        ("duration_rounds", "持续回合"),
+        ("cooldown_rounds", "冷却回合"),
+        ("max_stacks", "最多层数"),
+        ("max_triggers_per_round", "每回合触发上限"),
+        ("max_triggers_per_battle", "每场触发上限"),
+        ("requires_damage_resolved", "需造成伤害"),
+        ("require_empty_shield", "需当前无护盾"),
+    )
+    parts: list[str] = []
+    consumed_keys: set[str] = set()
+    for key, label in ordered_keys:
+        if key not in normalized_payload:
+            continue
+        consumed_keys.add(key)
+        formatted_value = _format_effect_payload_value(key=key, value=normalized_payload[key])
+        parts.append(f"{label} {formatted_value}" if formatted_value else label)
+    for key in sorted(str(raw_key) for raw_key in normalized_payload.keys() if str(raw_key) not in consumed_keys):
+        parts.append(f"{key}={normalized_payload[key]}")
+    return tuple(parts)
+
+
+def _format_effect_payload_value(*, key: str, value: object) -> str:
+    if isinstance(value, bool):
+        return "是" if value else "否"
+    if isinstance(value, int):
+        if key.endswith("_permille"):
+            return f"{value / 10:.1f}%"
+        if key.endswith("_rounds"):
+            return f"{value}回合"
+        if key == "max_stacks":
+            return f"{value}层"
+        if key.startswith("max_triggers_per_"):
+            return f"{value}次"
+        return str(value)
+    return "" if value is None else str(value)
 
 
 def _format_signed_stat_value(*, stat_id: str, value: int) -> str:

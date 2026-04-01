@@ -13,6 +13,7 @@ import pytest
 
 from application.character.current_attribute_service import CurrentAttributeService
 from application.equipment import EquipmentService
+from application.equipment.panel_query_service import format_equipment_affix_display_line
 from application.pvp.defense_snapshot_service import PvpDefenseSnapshotService
 from application.ranking import CharacterScoreService
 from domain.battle import BattleSide, BattleSnapshot, BattleTemplateParser
@@ -246,18 +247,30 @@ def test_launch_special_affix_config_and_generation_ranges(tmp_path, monkeypatch
     expected_effects = {
         "sunder_on_hit": ("weapon", "se_sunder_on_hit", "pvp_se_sunder_on_hit"),
         "dot_on_hit": ("weapon", "se_dot_on_hit", "pvp_se_dot_on_hit"),
+        "duanyue_sunder_on_hit": ("weapon", "se_duanyue_mark", "pvp_se_duanyue_mark"),
+        "execute_on_low_hp": ("weapon", "se_liemai_mark", "pvp_se_liemai_mark"),
+        "zhuohun_dot_on_hit": ("weapon", "se_zhuohun_mark", "pvp_se_zhuohun_mark"),
         "battle_start_barrier": ("armor", "se_battle_start_barrier", "pvp_se_battle_start_barrier"),
         "barrier_on_damage_taken": ("armor", "se_barrier_on_damage_taken", "pvp_se_barrier_on_damage_taken"),
         "low_hp_regen": ("armor", "se_low_hp_regen", "pvp_se_low_hp_regen"),
+        "xiantian_battle_start_barrier": ("armor", "se_xiantian_barrier", "pvp_se_xiantian_barrier"),
+        "shoujie_barrier_on_damage_taken": ("armor", "se_shoujie_barrier", "pvp_se_shoujie_barrier"),
+        "canmai_low_hp_regen": ("armor", "se_canmai_regen", "pvp_se_canmai_regen"),
         "heal_after_attack": ("accessory", "se_heal_after_attack", "pvp_se_heal_after_attack"),
         "round_end_barrier_if_empty": (
             "accessory",
             "se_round_end_barrier_if_empty",
             "pvp_se_round_end_barrier_if_empty",
         ),
+        "qianshi_dot_on_hit": ("accessory", "se_qianshi_mark", "pvp_se_qianshi_mark"),
+        "heal_on_kill": ("accessory", "se_zhanhou_heal", "pvp_se_zhanhou_heal"),
+        "kongming_round_end_barrier": ("accessory", "se_kongming_barrier", "pvp_se_kongming_barrier"),
         "counter_sunder": ("artifact", "se_counter_sunder", "pvp_se_counter_sunder"),
         "damage_to_barrier": ("artifact", "se_damage_to_barrier", "pvp_se_damage_to_barrier"),
         "counter_dot": ("artifact", "se_counter_dot", "pvp_se_counter_dot"),
+        "shanghua_damage_to_barrier": ("artifact", "se_shanghua_barrier", "pvp_se_shanghua_barrier"),
+        "huifeng_counter_sunder": ("artifact", "se_huifeng_sunder", "pvp_se_huifeng_sunder"),
+        "fanshi_counter_dot": ("artifact", "se_fanshi_flame", "pvp_se_fanshi_flame"),
     }
     effect_by_id = {effect.effect_id: effect for effect in static_config.equipment.special_effects}
     assert set(effect_by_id) >= set(expected_effects)
@@ -280,7 +293,7 @@ def test_launch_special_affix_config_and_generation_ranges(tmp_path, monkeypatch
     }
     assert set(pool_by_slot) == {"weapon", "armor", "accessory", "artifact"}
     for slot_id, pool in pool_by_slot.items():
-        assert pool.quality_ids == ("epic", "legendary")
+        assert pool.quality_ids == ("epic", "earthly", "legendary", "immortal")
         assert pool.rank_ids == (
             "mortal",
             "qi_refining",
@@ -347,18 +360,37 @@ def test_launch_special_affix_config_and_generation_ranges(tmp_path, monkeypatch
             seed=1,
         )
 
-        assert _collect_special_effect_ids(weapon.item.affixes) <= {"sunder_on_hit", "dot_on_hit"}
+        assert _collect_special_effect_ids(weapon.item.affixes) <= {
+            "sunder_on_hit",
+            "dot_on_hit",
+            "duanyue_sunder_on_hit",
+            "execute_on_low_hp",
+            "zhuohun_dot_on_hit",
+        }
         assert _collect_special_effect_ids(armor.item.affixes) <= {
             "battle_start_barrier",
             "barrier_on_damage_taken",
             "low_hp_regen",
+            "xiantian_battle_start_barrier",
+            "shoujie_barrier_on_damage_taken",
+            "canmai_low_hp_regen",
         }
         assert _collect_special_effect_ids(accessory.item.affixes) <= {
             "heal_after_attack",
             "round_end_barrier_if_empty",
+            "qianshi_dot_on_hit",
+            "heal_on_kill",
+            "kongming_round_end_barrier",
         }
         artifact_special_effect_ids = _collect_special_effect_ids(artifact.item.affixes)
-        assert artifact_special_effect_ids <= {"counter_sunder", "damage_to_barrier", "counter_dot"}
+        assert artifact_special_effect_ids <= {
+            "counter_sunder",
+            "damage_to_barrier",
+            "counter_dot",
+            "shanghua_damage_to_barrier",
+            "huifeng_counter_sunder",
+            "fanshi_counter_dot",
+        }
         assert len(artifact_special_effect_ids) == len([affix for affix in artifact.item.affixes if affix.special_effect is not None])
         assert _collect_special_effect_ids(low_quality_weapon.item.affixes) == set()
 
@@ -408,7 +440,7 @@ def test_special_effect_display_and_snapshot_chain(tmp_path, monkeypatch: pytest
         assert effect_snapshot is not None
         assert effect_snapshot.public_score_key == "se_damage_to_barrier"
         assert effect_snapshot.hidden_pvp_score_key == "pvp_se_damage_to_barrier"
-        assert effect_snapshot.payload["damage_ratio_permille"] == 150
+        assert effect_snapshot.payload["damage_ratio_permille"] == 173
 
         current_view = current_attribute_service.get_pvp_view(character_id=character_id)
         payload_by_effect_id = {
@@ -431,19 +463,107 @@ def test_special_effect_display_and_snapshot_chain(tmp_path, monkeypatch: pytest
         assert defender_payload_by_effect_id["damage_to_barrier"]["payload"] == dict(effect_snapshot.payload)
 
 
+def test_special_effect_payload_and_display_scale_with_quality_and_score_reflects_it(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    database_url = _build_sqlite_url(tmp_path / "stage13_special_affix_quality_growth.db")
+    _upgrade_database(database_url, monkeypatch)
+    session_factory = create_session_factory(database_url)
+    static_config = load_static_config()
+
+    with session_scope(session_factory) as session:
+        equipment_service, current_attribute_service, score_service, _, equipment_repository, _ = _build_services(session, static_config)
+        character_id = _create_character_context(session, spirit_stone=8000)
+
+        common_item = equipment_service.generate_equipment(
+            character_id=character_id,
+            slot_id="artifact",
+            quality_id="common",
+            template_id="skyfire_mirror",
+            affix_count=0,
+            seed=31,
+        )
+        immortal_item = equipment_service.generate_equipment(
+            character_id=character_id,
+            slot_id="artifact",
+            quality_id="immortal",
+            template_id="skyfire_mirror",
+            affix_count=0,
+            seed=37,
+        )
+
+        common_model = equipment_repository.get(common_item.item.item_id)
+        immortal_model = equipment_repository.get(immortal_item.item.item_id)
+        assert common_model is not None
+        assert immortal_model is not None
+
+        _append_launch_special_effect_affix(
+            common_model,
+            static_config=static_config,
+            effect_id="damage_to_barrier",
+            position=1,
+        )
+        _append_launch_special_effect_affix(
+            immortal_model,
+            static_config=static_config,
+            effect_id="damage_to_barrier",
+            position=1,
+        )
+        equipment_repository.save(common_model)
+        equipment_repository.save(immortal_model)
+
+        equipment_service.equip_item(character_id=character_id, equipment_item_id=common_item.item.item_id)
+        common_detail = equipment_service.get_equipment_detail(character_id=character_id, equipment_item_id=common_item.item.item_id)
+        common_effect = next(affix.special_effect for affix in common_detail.affixes if affix.special_effect is not None)
+        common_display = format_equipment_affix_display_line(common_detail.affixes[0], static_config=static_config)
+        common_score = score_service.refresh_character_score(character_id=character_id)
+        common_artifact_breakdown = common_score.breakdown["artifact"]["artifact_scores"][0]
+        common_special_effect_score = common_artifact_breakdown["special_effects"][0]["score"]
+
+        equipment_service.unequip_item(character_id=character_id, equipped_slot_id="artifact")
+        equipment_service.equip_item(character_id=character_id, equipment_item_id=immortal_item.item.item_id)
+        immortal_detail = equipment_service.get_equipment_detail(character_id=character_id, equipment_item_id=immortal_item.item.item_id)
+        immortal_effect = next(affix.special_effect for affix in immortal_detail.affixes if affix.special_effect is not None)
+        immortal_display = format_equipment_affix_display_line(immortal_detail.affixes[0], static_config=static_config)
+        immortal_view = current_attribute_service.get_pvp_view(character_id=character_id)
+        immortal_payload = next(payload for payload in immortal_view.special_effect_payloads if payload["effect_id"] == "damage_to_barrier")
+        immortal_score = score_service.refresh_character_score(character_id=character_id)
+        immortal_artifact_breakdown = immortal_score.breakdown["artifact"]["artifact_scores"][0]
+        immortal_special_effect_score = immortal_artifact_breakdown["special_effects"][0]["score"]
+
+        assert common_effect is not None
+        assert immortal_effect is not None
+        assert common_effect.payload["damage_ratio_permille"] == 150
+        assert immortal_effect.payload["damage_ratio_permille"] == 180
+        assert immortal_payload["payload"]["damage_ratio_permille"] == 180
+        assert immortal_payload["payload"]["trigger_rate_permille"] == 1000
+        assert "伤害转化系数 15.0%" in common_display
+        assert "伤害转化系数 18.0%" in immortal_display
+        assert "冷却回合 1回合" in common_display
+        assert "最多层数 1层" in immortal_display
+        assert immortal_special_effect_score > common_special_effect_score
+
+
 @pytest.mark.parametrize(
     ("effect_id", "slot_id", "template_id"),
     [
         ("sunder_on_hit", "weapon", "spirit_blade"),
         ("dot_on_hit", "weapon", "spirit_blade"),
+        ("duanyue_sunder_on_hit", "weapon", "spirit_blade"),
+        ("execute_on_low_hp", "weapon", "spirit_blade"),
         ("battle_start_barrier", "armor", "iron_armor"),
         ("barrier_on_damage_taken", "armor", "iron_armor"),
         ("low_hp_regen", "armor", "iron_armor"),
+        ("xiantian_battle_start_barrier", "armor", "iron_armor"),
+        ("shoujie_barrier_on_damage_taken", "armor", "iron_armor"),
         ("heal_after_attack", "accessory", "jade_ring"),
         ("round_end_barrier_if_empty", "accessory", "jade_ring"),
+        ("heal_on_kill", "accessory", "jade_ring"),
         ("counter_sunder", "artifact", "skyfire_mirror"),
         ("damage_to_barrier", "artifact", "skyfire_mirror"),
         ("counter_dot", "artifact", "skyfire_mirror"),
+        ("shanghua_damage_to_barrier", "artifact", "skyfire_mirror"),
     ],
 )
 def test_battle_runtime_launch_special_effects(
@@ -486,8 +606,12 @@ def test_battle_runtime_launch_special_effects(
         equipment_model.equipped_slot_id = slot_id
         equipment_repository.save(equipment_model)
 
-        ally_hp_ratio = Decimal("0.40") if effect_id in {"low_hp_regen", "heal_after_attack"} else Decimal("1.0")
-        enemy_template_id = "wenxin_sword" if effect_id in {"counter_sunder", "counter_dot", "barrier_on_damage_taken", "low_hp_regen"} else "manhuang_body"
+        ally_hp_ratio = Decimal("0.40") if effect_id in {"low_hp_regen", "heal_after_attack", "heal_on_kill"} else Decimal("1.0")
+        enemy_template_id = (
+            "wenxin_sword"
+            if effect_id in {"counter_sunder", "counter_dot", "barrier_on_damage_taken", "low_hp_regen", "shoujie_barrier_on_damage_taken"}
+            else "manhuang_body"
+        )
         context, ally_unit_id, enemy_unit_id = _build_battle_runtime_context(
             character_id=character_id,
             current_attribute_service=current_attribute_service,
@@ -498,7 +622,7 @@ def test_battle_runtime_launch_special_effects(
         )
         registry = context.special_effect_registry
 
-        if effect_id == "battle_start_barrier":
+        if effect_id in {"battle_start_barrier", "xiantian_battle_start_barrier"}:
             registry.dispatch(
                 hook=BattleSpecialEffectHook.BATTLE_START,
                 runtime_context=context,
@@ -529,13 +653,51 @@ def test_battle_runtime_launch_special_effects(
                 target_unit_id=enemy_unit_id,
                 action_id="test_action",
             )
+        elif effect_id == "heal_on_kill":
+            enemy_state = _find_unit_state(context, enemy_unit_id)
+            enemy_state.current_hp = 0
+            context.emit_event(
+                phase=BattleEventPhase.SETTLEMENT,
+                event_type="action_started",
+                actor_unit_id=ally_unit_id,
+                action_id="kill_action",
+                detail_items=(("target_count", 1), ("reaction_type", None), ("reaction_depth", 0), ("is_fallback", False)),
+            )
+            context.emit_event(
+                phase=BattleEventPhase.SETTLEMENT,
+                event_type="unit_defeated",
+                actor_unit_id=ally_unit_id,
+                target_unit_id=enemy_unit_id,
+                action_id="kill_action",
+                detail_items=(("remaining_hp", 0),),
+            )
+            registry.dispatch(
+                hook=BattleSpecialEffectHook.AFTER_ACTION,
+                runtime_context=context,
+                owner_unit_id=ally_unit_id,
+                actor_unit_id=ally_unit_id,
+                target_unit_id=enemy_unit_id,
+                action_id="kill_action",
+            )
         elif effect_id == "round_end_barrier_if_empty":
             registry.dispatch(
                 hook=BattleSpecialEffectHook.ROUND_END,
                 runtime_context=context,
                 owner_unit_id=ally_unit_id,
             )
-        elif effect_id in {"sunder_on_hit", "dot_on_hit", "damage_to_barrier"}:
+        elif effect_id in {"sunder_on_hit", "dot_on_hit", "duanyue_sunder_on_hit", "damage_to_barrier", "shanghua_damage_to_barrier"}:
+            registry.dispatch(
+                hook=BattleSpecialEffectHook.DAMAGE_RESOLVED,
+                runtime_context=context,
+                owner_unit_id=ally_unit_id,
+                actor_unit_id=ally_unit_id,
+                target_unit_id=enemy_unit_id,
+                action_id="test_action",
+                resolved_value=120,
+            )
+        elif effect_id == "execute_on_low_hp":
+            enemy_state = _find_unit_state(context, enemy_unit_id)
+            enemy_state.current_hp = max(1, enemy_state.base_snapshot.max_hp * 18 // 100)
             registry.dispatch(
                 hook=BattleSpecialEffectHook.DAMAGE_RESOLVED,
                 runtime_context=context,
@@ -546,7 +708,7 @@ def test_battle_runtime_launch_special_effects(
                 resolved_value=120,
             )
         else:
-            damage_taken_value = 500 if effect_id == "barrier_on_damage_taken" else 120
+            damage_taken_value = 500 if effect_id in {"barrier_on_damage_taken", "shoujie_barrier_on_damage_taken"} else 120
             registry.dispatch(
                 hook=BattleSpecialEffectHook.DAMAGE_TAKEN,
                 runtime_context=context,
@@ -563,26 +725,19 @@ def test_battle_runtime_launch_special_effects(
         assert effect_state.triggers_used_this_battle >= 1
         assert any(event.event_type == "special_effect_triggered" for event in context.events)
 
-        if effect_id == "sunder_on_hit":
+        if effect_id in {"sunder_on_hit", "duanyue_sunder_on_hit", "counter_sunder"}:
             assert any(status.category.value == "attribute_suppression" for status in enemy_state.statuses)
-        elif effect_id == "dot_on_hit":
+        elif effect_id in {"dot_on_hit", "counter_dot"}:
             assert any(status.category.value == "damage_over_time" for status in enemy_state.statuses)
-        elif effect_id == "battle_start_barrier":
-            assert ally_state.current_shield > 0
-        elif effect_id == "barrier_on_damage_taken":
+        elif effect_id == "execute_on_low_hp":
+            assert any(event.event_type == "execute_damage_applied" for event in context.events)
+            assert enemy_state.current_hp == 0
+        elif effect_id in {"battle_start_barrier", "xiantian_battle_start_barrier", "barrier_on_damage_taken", "shoujie_barrier_on_damage_taken", "round_end_barrier_if_empty", "damage_to_barrier", "shanghua_damage_to_barrier"}:
             assert ally_state.current_shield > 0
         elif effect_id == "low_hp_regen":
             assert ally_state.current_hp > context.snapshot.allies[0].current_hp
-        elif effect_id == "heal_after_attack":
+        elif effect_id in {"heal_after_attack", "heal_on_kill"}:
             assert any(event.event_type == "healing_applied" and event.actor_unit_id == ally_unit_id for event in context.events)
-        elif effect_id == "round_end_barrier_if_empty":
-            assert ally_state.current_shield > 0
-        elif effect_id == "counter_sunder":
-            assert any(status.category.value == "attribute_suppression" for status in enemy_state.statuses)
-        elif effect_id == "damage_to_barrier":
-            assert ally_state.current_shield > 0
-        elif effect_id == "counter_dot":
-            assert any(status.category.value == "damage_over_time" for status in enemy_state.statuses)
 
 
 def test_score_refresh_covers_launch_special_effect_keys(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -594,32 +749,56 @@ def test_score_refresh_covers_launch_special_effect_keys(tmp_path, monkeypatch: 
     expected_public_keys = {
         "se_sunder_on_hit",
         "se_dot_on_hit",
+        "se_duanyue_mark",
+        "se_liemai_mark",
+        "se_zhuohun_mark",
         "se_battle_start_barrier",
         "se_barrier_on_damage_taken",
         "se_low_hp_regen",
+        "se_xiantian_barrier",
+        "se_shoujie_barrier",
+        "se_canmai_regen",
         "se_heal_after_attack",
         "se_round_end_barrier_if_empty",
+        "se_qianshi_mark",
+        "se_zhanhou_heal",
+        "se_kongming_barrier",
         "se_counter_sunder",
         "se_damage_to_barrier",
         "se_counter_dot",
+        "se_shanghua_barrier",
+        "se_huifeng_sunder",
+        "se_fanshi_flame",
     }
     expected_hidden_keys = {
         "pvp_se_sunder_on_hit",
         "pvp_se_dot_on_hit",
+        "pvp_se_duanyue_mark",
+        "pvp_se_liemai_mark",
+        "pvp_se_zhuohun_mark",
         "pvp_se_battle_start_barrier",
         "pvp_se_barrier_on_damage_taken",
         "pvp_se_low_hp_regen",
+        "pvp_se_xiantian_barrier",
+        "pvp_se_shoujie_barrier",
+        "pvp_se_canmai_regen",
         "pvp_se_heal_after_attack",
         "pvp_se_round_end_barrier_if_empty",
+        "pvp_se_qianshi_mark",
+        "pvp_se_zhanhou_heal",
+        "pvp_se_kongming_barrier",
         "pvp_se_counter_sunder",
         "pvp_se_damage_to_barrier",
         "pvp_se_counter_dot",
+        "pvp_se_shanghua_barrier",
+        "pvp_se_huifeng_sunder",
+        "pvp_se_fanshi_flame",
     }
     effects_by_slot = {
-        "weapon": ("sunder_on_hit", "dot_on_hit"),
-        "armor": ("battle_start_barrier", "barrier_on_damage_taken", "low_hp_regen"),
-        "accessory": ("heal_after_attack", "round_end_barrier_if_empty"),
-        "artifact": ("counter_sunder", "damage_to_barrier", "counter_dot"),
+        "weapon": ("sunder_on_hit", "dot_on_hit", "duanyue_sunder_on_hit", "execute_on_low_hp", "zhuohun_dot_on_hit"),
+        "armor": ("battle_start_barrier", "barrier_on_damage_taken", "low_hp_regen", "xiantian_battle_start_barrier", "shoujie_barrier_on_damage_taken", "canmai_low_hp_regen"),
+        "accessory": ("heal_after_attack", "round_end_barrier_if_empty", "qianshi_dot_on_hit", "heal_on_kill", "kongming_round_end_barrier"),
+        "artifact": ("counter_sunder", "damage_to_barrier", "counter_dot", "shanghua_damage_to_barrier", "huifeng_counter_sunder", "fanshi_counter_dot"),
     }
 
     with session_scope(session_factory) as session:

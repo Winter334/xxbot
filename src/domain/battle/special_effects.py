@@ -531,6 +531,83 @@ class _AttackHealHandler(_BaseConfiguredEffectHandler):
         )
 
 
+class _ExecuteOnLowHpHandler(_BaseConfiguredEffectHandler):
+    """处理基于残血阈值的收割类特殊词条。"""
+
+    def handle(
+        self,
+        *,
+        effect_state: BattleSpecialEffectState,
+        trigger_context: BattleSpecialEffectTriggerContext,
+    ) -> None:
+        owner = trigger_context.runtime_context.get_unit(effect_state.owner_unit_id)
+        target = _resolve_target_unit(trigger_context=trigger_context, target_mode="target")
+        if not owner.is_alive or target is None or not target.is_alive:
+            return
+        resolved_value = max(0, 0 if trigger_context.resolved_value is None else trigger_context.resolved_value)
+        if resolved_value <= 0:
+            return
+        hp_threshold_permille = _read_rate_payload(effect_state.payload.get("hp_threshold_permille"), default=0)
+        if hp_threshold_permille <= 0:
+            return
+        if target.current_hp * 1000 > target.base_snapshot.max_hp * hp_threshold_permille:
+            return
+        if not self._should_trigger(effect_state=effect_state, trigger_context=trigger_context):
+            return
+        execute_ratio_permille = max(
+            0,
+            _coerce_non_negative_int(effect_state.payload.get("execute_damage_ratio_permille"), default=0),
+        )
+        if execute_ratio_permille <= 0:
+            return
+        bonus_damage = max(1, resolved_value * execute_ratio_permille // 1000)
+        effect_state.consume_trigger()
+        _apply_flat_damage(
+            runtime_context=trigger_context.runtime_context,
+            effect_state=effect_state,
+            trigger_context=trigger_context,
+            actor=owner,
+            target=target,
+            final_damage=bonus_damage,
+            event_type="execute_damage_applied",
+        )
+
+
+class _HealOnKillHandler(_BaseConfiguredEffectHandler):
+    """处理击杀后回复气血的特殊词条。"""
+
+    def handle(
+        self,
+        *,
+        effect_state: BattleSpecialEffectState,
+        trigger_context: BattleSpecialEffectTriggerContext,
+    ) -> None:
+        owner = trigger_context.runtime_context.get_unit(effect_state.owner_unit_id)
+        if not owner.is_alive:
+            return
+        if not _action_scored_kill(
+            runtime_context=trigger_context.runtime_context,
+            owner_unit_id=effect_state.owner_unit_id,
+            action_id=trigger_context.action_id,
+            target_unit_id=trigger_context.target_unit_id,
+        ):
+            return
+        if not self._should_trigger(effect_state=effect_state, trigger_context=trigger_context):
+            return
+        attack_ratio_permille = _read_rate_payload(effect_state.payload.get("attack_ratio_permille"), default=0)
+        if attack_ratio_permille <= 0:
+            return
+        effect_state.consume_trigger()
+        _settle_heal_with_action(
+            runtime_context=trigger_context.runtime_context,
+            effect_state=effect_state,
+            trigger_context=trigger_context,
+            actor=owner,
+            target=owner,
+            heal_scale_permille=attack_ratio_permille,
+        )
+
+
 def _build_default_handlers() -> dict[str, BattleSpecialEffectHandler]:
     """返回首发特殊词条默认处理器。"""
     return {
@@ -544,6 +621,8 @@ def _build_default_handlers() -> dict[str, BattleSpecialEffectHandler]:
         "counter_sunder": _AttributeSuppressionHandler(target_mode="source"),
         "damage_to_barrier": _ResolvedDamageBarrierHandler(),
         "counter_dot": _DamageOverTimeHandler(target_mode="source"),
+        "execute_on_low_hp": _ExecuteOnLowHpHandler(),
+        "heal_on_kill": _HealOnKillHandler(),
     }
 
 
@@ -702,18 +781,116 @@ def _apply_flat_shield(
     )
 
 
-def _action_has_damage_resolved(*, runtime_context: Any, owner_unit_id: str, action_id: str | None) -> bool:
-    """判断给定动作是否已经完成过伤害结算。"""
+def _apply_flat_damage(
+    *,
+    runtime_context: Any,
+    effect_state: BattleSpecialEffectState,
+    trigger_context: BattleSpecialEffectTriggerContext,
+    actor: BattleUnitState,
+    target: BattleUnitState,
+    final_damage: int,
+    event_type: str,
+) -> None:
+    """按现有护盾与气血语义直接施加固定伤害。"""
+    if not target.is_alive:
+        return
+    normalized_damage = max(1, final_damage)
+    shield_absorbed = min(target.current_shield, normalized_damage)
+    if shield_absorbed > 0:
+        target.current_shield -= shield_absorbed
+        runtime_context.add_stat(unit_id=target.unit_id, field_name="shield_absorbed", delta=shield_absorbed)
+        runtime_context.emit_event(
+            phase=BattleEventPhase.SETTLEMENT,
+            event_type="shield_absorbed",
+            actor_unit_id=actor.unit_id,
+            target_unit_id=target.unit_id,
+            action_id=_resolve_effect_action_id(effect_state=effect_state, trigger_context=trigger_context),
+            detail_items=(("absorbed_damage", shield_absorbed),),
+        )
+    hp_damage = max(0, normalized_damage - shield_absorbed)
+    if hp_damage > 0:
+        target.current_hp = max(0, target.current_hp - hp_damage)
+        runtime_context.emit_event(
+            phase=BattleEventPhase.SETTLEMENT,
+            event_type="hp_changed",
+            actor_unit_id=actor.unit_id,
+            target_unit_id=target.unit_id,
+            action_id=_resolve_effect_action_id(effect_state=effect_state, trigger_context=trigger_context),
+            detail_items=(("hp_damage", hp_damage), ("remaining_hp", target.current_hp)),
+        )
+    runtime_context.add_stat(unit_id=actor.unit_id, field_name="damage_dealt", delta=normalized_damage)
+    runtime_context.add_stat(unit_id=target.unit_id, field_name="damage_taken", delta=normalized_damage)
+    runtime_context.emit_event(
+        phase=BattleEventPhase.SETTLEMENT,
+        event_type=event_type,
+        actor_unit_id=actor.unit_id,
+        target_unit_id=target.unit_id,
+        action_id=_resolve_effect_action_id(effect_state=effect_state, trigger_context=trigger_context),
+        detail_items=(
+            ("final_damage", normalized_damage),
+            ("remaining_hp", target.current_hp),
+            ("remaining_shield", target.current_shield),
+        ),
+    )
+
+
+def _iter_recent_action_events(*, runtime_context: Any, owner_unit_id: str, action_id: str | None) -> tuple[Any, ...]:
+    """返回最近一次指定动作的事件序列。"""
     if action_id is None or not action_id.strip():
-        return False
+        return ()
+    matched_events: list[Any] = []
     for event in reversed(runtime_context.events):
         if event.action_id != action_id:
             continue
-        if event.event_type != "damage_resolved":
-            continue
         if event.actor_unit_id != owner_unit_id:
             continue
-        return True
+        matched_events.append(event)
+        if event.event_type == "action_started":
+            break
+    matched_events.reverse()
+    return tuple(matched_events)
+
+
+def _action_has_damage_resolved(*, runtime_context: Any, owner_unit_id: str, action_id: str | None) -> bool:
+    """判断给定动作是否已经完成过伤害结算。"""
+    return any(
+        event.event_type == "damage_resolved"
+        for event in _iter_recent_action_events(
+            runtime_context=runtime_context,
+            owner_unit_id=owner_unit_id,
+            action_id=action_id,
+        )
+    )
+
+
+def _action_scored_kill(
+    *,
+    runtime_context: Any,
+    owner_unit_id: str,
+    action_id: str | None,
+    target_unit_id: str | None = None,
+) -> bool:
+    """判断最近一次动作是否在当前结算中击倒过目标。"""
+    if target_unit_id is not None and target_unit_id.strip() and target_unit_id != owner_unit_id:
+        target = runtime_context.get_unit(target_unit_id)
+        if target.current_hp == 0:
+            return True
+    recent_events = _iter_recent_action_events(
+        runtime_context=runtime_context,
+        owner_unit_id=owner_unit_id,
+        action_id=action_id,
+    )
+    inspected_targets: set[str] = set()
+    for event in recent_events:
+        candidate_target_unit_id = event.target_unit_id
+        if candidate_target_unit_id is None or not candidate_target_unit_id.strip() or candidate_target_unit_id == owner_unit_id:
+            continue
+        if candidate_target_unit_id in inspected_targets:
+            continue
+        inspected_targets.add(candidate_target_unit_id)
+        target = runtime_context.get_unit(candidate_target_unit_id)
+        if target.current_hp == 0:
+            return True
     return False
 
 

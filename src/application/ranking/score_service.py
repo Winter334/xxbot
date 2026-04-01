@@ -15,6 +15,8 @@ from domain.equipment import (
     EquipmentAttributeValue,
     EquipmentItem as DomainEquipmentItem,
     EquipmentSpecialEffectValue,
+    scale_special_effect_payload,
+    special_effect_strength_multiplier_for_quality,
 )
 from domain.ranking import (
     CharacterScoreRuleService,
@@ -216,7 +218,10 @@ class CharacterScoreService:
                 is_pve_specialized=affix.is_pve_specialized,
                 is_pvp_specialized=affix.is_pvp_specialized,
                 affix_kind=affix.affix_kind,
-                special_effect=self._build_score_special_effect_input(affix.special_effect),
+                special_effect=self._build_score_special_effect_input(
+                    affix.special_effect,
+                    quality_id=domain_item.quality_id,
+                ),
             )
             for affix in domain_item.affixes
         )
@@ -239,6 +244,8 @@ class CharacterScoreService:
     @staticmethod
     def _build_score_special_effect_input(
         special_effect: EquipmentSpecialEffectValue | None,
+        *,
+        quality_id: str,
     ) -> ScoreSpecialEffectInput | None:
         if special_effect is None:
             return None
@@ -248,7 +255,10 @@ class CharacterScoreService:
             trigger_event=special_effect.trigger_event,
             public_score_key=special_effect.public_score_key,
             hidden_pvp_score_key=special_effect.hidden_pvp_score_key,
-            payload=dict(special_effect.payload),
+            payload=dict(scale_special_effect_payload(quality_id=quality_id, payload=special_effect.payload)),
+            strength_multiplier_permille=int(
+                special_effect_strength_multiplier_for_quality(quality_id=quality_id) * Decimal("1000")
+            ),
         )
 
     def _build_skill_item_input(self, skill_item: SkillInventoryItemSnapshot) -> ScoreSkillItemInput:
@@ -314,11 +324,14 @@ class CharacterScoreService:
         rank_name = equipment_model.rank_name or "一阶"
         rank_order = equipment_model.rank_order or 1
         mapped_realm_id = equipment_model.mapped_realm_id or "mortal"
+        quality_id = equipment_model.quality_id
+        quality = get_static_config().equipment.get_quality(quality_id)
+        quality_name = quality.name if quality is not None else (equipment_model.quality_name or quality_id)
         return DomainEquipmentItem(
             slot_id=equipment_model.slot_id,
             slot_name=equipment_model.slot_name,
-            quality_id=equipment_model.quality_id,
-            quality_name=equipment_model.quality_name,
+            quality_id=quality_id,
+            quality_name=quality_name,
             template_id=equipment_model.template_id,
             template_name=equipment_model.template_name,
             rank_id=rank_id,

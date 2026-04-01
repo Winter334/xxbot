@@ -16,6 +16,8 @@ from domain.equipment.models import (
     EquipmentResourceCost,
     EquipmentSpecialEffectValue,
     EquipmentWashResult,
+    scale_special_effect_payload,
+    special_effect_strength_multiplier_for_quality,
 )
 from domain.equipment.rules import (
     ArtifactNurtureRule,
@@ -52,4 +54,6 @@ __all__ = [
     "EquipmentSpecialEffectValue",
     "EquipmentWashResult",
     "TemplateEquipmentNamingService",
+    "scale_special_effect_payload",
+    "special_effect_strength_multiplier_for_quality",
 ]

@@ -25,6 +25,7 @@ class ScoreSpecialEffectInput:
     public_score_key: str | None
     hidden_pvp_score_key: str | None
     payload: dict[str, str | int | bool | None]
+    strength_multiplier_permille: int = 1000
 
 
 @dataclass(frozen=True, slots=True)

@@ -19,7 +19,7 @@ from domain.ranking.models import (
 from infrastructure.config.static.models.common import StaticGameConfig
 
 _DEFAULT_MAIN_PATH_ID = "zhanqing_sword"
-_SCORE_VERSION = "stage8.v2"
+_SCORE_VERSION = "stage8.v3"
 _PVP_ADJUSTMENT_LIMIT_RATIO = Decimal("0.15")
 _NON_ARTIFACT_SLOT_IDS = frozenset({"weapon", "armor", "accessory"})
 
@@ -72,6 +72,18 @@ _PUBLIC_SPECIAL_EFFECT_OFFSET_BY_KEY: dict[str, int] = {
     "se_counter_sunder": 2,
     "se_damage_to_barrier": 1,
     "se_counter_dot": 3,
+    "se_duanyue_mark": 4,
+    "se_liemai_mark": 5,
+    "se_zhuohun_mark": 5,
+    "se_qianshi_mark": 3,
+    "se_xiantian_barrier": 3,
+    "se_shoujie_barrier": 3,
+    "se_canmai_regen": 2,
+    "se_zhanhou_heal": 2,
+    "se_kongming_barrier": 0,
+    "se_shanghua_barrier": 3,
+    "se_huifeng_sunder": 4,
+    "se_fanshi_flame": 4,
 }
 _HIDDEN_PVP_SPECIAL_EFFECT_OFFSET_BY_KEY: dict[str, int] = {
     "pvp_se_sunder_on_hit": 3,
@@ -84,6 +96,18 @@ _HIDDEN_PVP_SPECIAL_EFFECT_OFFSET_BY_KEY: dict[str, int] = {
     "pvp_se_counter_sunder": 4,
     "pvp_se_damage_to_barrier": 1,
     "pvp_se_counter_dot": 3,
+    "pvp_se_duanyue_mark": 4,
+    "pvp_se_liemai_mark": 5,
+    "pvp_se_zhuohun_mark": 4,
+    "pvp_se_qianshi_mark": 3,
+    "pvp_se_xiantian_barrier": 2,
+    "pvp_se_shoujie_barrier": 4,
+    "pvp_se_canmai_regen": 2,
+    "pvp_se_zhanhou_heal": 2,
+    "pvp_se_kongming_barrier": 1,
+    "pvp_se_shanghua_barrier": 3,
+    "pvp_se_huifeng_sunder": 5,
+    "pvp_se_fanshi_flame": 4,
 }
 
 
@@ -529,6 +553,7 @@ class CharacterScoreRuleService:
         if offset is None:
             return 0
         score = _SPECIAL_EFFECT_BASE_SCORE + offset + tier_order * _SPECIAL_EFFECT_TIER_STEP
+        score += self._scale_special_effect_strength_bonus(effect.strength_multiplier_permille)
         if is_artifact:
             score += _SPECIAL_EFFECT_ARTIFACT_BONUS
         return score
@@ -541,11 +566,23 @@ class CharacterScoreRuleService:
         offset = _HIDDEN_PVP_SPECIAL_EFFECT_OFFSET_BY_KEY.get(effect.hidden_pvp_score_key)
         if offset is None:
             return 0
-        return _SPECIAL_EFFECT_PVP_BASE + offset + tier_order * _SPECIAL_EFFECT_PVP_TIER_STEP
+        return (
+            _SPECIAL_EFFECT_PVP_BASE
+            + offset
+            + tier_order * _SPECIAL_EFFECT_PVP_TIER_STEP
+            + self._scale_special_effect_strength_bonus(effect.strength_multiplier_permille)
+        )
 
     @staticmethod
     def _scale_decimal(value: Decimal, factor: Decimal) -> int:
         return int((value * factor).to_integral_value(rounding=ROUND_HALF_UP))
+
+    @staticmethod
+    def _scale_special_effect_strength_bonus(strength_multiplier_permille: int) -> int:
+        overflow_permille = max(0, strength_multiplier_permille - 1000)
+        if overflow_permille == 0:
+            return 0
+        return int((Decimal(overflow_permille) * Decimal("0.08")).to_integral_value(rounding=ROUND_HALF_UP))
 
     @staticmethod
     def _clamp_ratio(*, numerator: int, denominator: int) -> Decimal:

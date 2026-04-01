@@ -22,7 +22,7 @@ from infrastructure.config.static.models.common import (
 LAUNCH_EQUIPMENT_SLOT_IDS: tuple[str, ...] = ("weapon", "armor", "accessory", "artifact")
 NON_ARTIFACT_SLOT_IDS: tuple[str, ...] = ("weapon", "armor", "accessory")
 LAUNCH_EQUIPMENT_RANK_IDS: tuple[str, ...] = LAUNCH_REALM_IDS
-LAUNCH_EQUIPMENT_QUALITY_IDS: tuple[str, ...] = ("common", "rare", "epic", "legendary")
+LAUNCH_EQUIPMENT_QUALITY_IDS: tuple[str, ...] = ("common", "rare", "epic", "earthly", "legendary", "immortal")
 LAUNCH_AFFIX_TIER_IDS: tuple[str, ...] = ("yellow", "mystic", "earth", "heaven")
 _ALLOWED_NAMING_PLACEHOLDERS: frozenset[str] = frozenset(
     {
@@ -534,7 +534,7 @@ class EquipmentConfig(VersionedSectionConfig):
                 filename=filename,
                 config_path="qualities",
                 identifier="quality_sequence",
-                reason="装备品质必须固定为 common、rare、epic、legendary",
+                reason="装备品质必须固定为 common、rare、epic、earthly、legendary、immortal",
             )
 
         previous_quality: EquipmentQualityDefinition | None = None
@@ -826,7 +826,7 @@ class EquipmentConfig(VersionedSectionConfig):
                 filename=filename,
                 config_path="affix_generation.minimum_specialized_quality_id",
                 identifier=self.affix_generation.minimum_specialized_quality_id,
-                reason="首发专精词条最低品质必须至少为 epic",
+                reason="专精词条最低品质必须至少达到玄品第三档以上",
             )
 
         tier_weight_counter = Counter(item.tier_id for item in self.affix_generation.tier_weights)
@@ -1026,7 +1026,7 @@ class EquipmentConfig(VersionedSectionConfig):
                 filename=filename,
                 config_path="dismantle.rules",
                 identifier="dismantle_quality_sequence",
-                reason="装备分解规则必须完整覆盖 common、rare、epic、legendary 四档品质",
+                reason="装备分解规则必须完整覆盖 common、rare、epic、earthly、legendary、immortal 六档品质",
             )
 
         for rule in self.dismantle.rules:
